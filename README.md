@@ -9,7 +9,7 @@
 
 **App 1 – SOTP DCF**: Sum-of-the-Parts Unternehmensbewertung mit Monte-Carlo-Simulation über beliebig viele Geschäftssegmente.
 
-**App 2 – Portfolio-Optimierung**: Statistische Einzeltitel-Analyse, Markowitz-Optimierung, Efficient Frontier, Stress-Tests und Kelly Criterion.
+**App 2 – Portfolio-Optimierung**: Statistische Einzeltitel-Analyse, 7 Optimierungsmethoden (inkl. Min CVaR, Max Diversification, Multi-Asset Kelly), Efficient Frontier, clusterbasiertes Korrelationsmodell und Stress-Tests.
 
 ---
 
@@ -36,7 +36,7 @@
 | **Vektorisierte MC-Engine** | 10.000–500.000 Iterationen via NumPy — keine Python-Loops über Simulationen |
 | **6 Wahrscheinlichkeitsverteilungen** | Fest, Normal, Lognormal, Dreieck, Gleichverteilung, PERT |
 | **2 Terminal-Value-Methoden** | Gordon Growth Model & Exit-Multiple |
-| **5 Portfolio-Optimierungen** | Max Sharpe, Min Volatilität, Risk Parity, Kelly, Gleichgewichtung |
+| **7 Portfolio-Optimierungen** | Max Sharpe, Min Volatilität, Risk Parity, Min CVaR, Max Diversification, Multi-Asset Kelly, Gleichgewichtung |
 | **Clean Architecture** | 4-Schichten-Architektur (Domain → Application → Infrastructure → Presentation) |
 | **Interaktive Charts** | Histogramm+KDE, CDF, Tornado, Waterfall, Efficient Frontier (Plotly) |
 | **Excel-Export** | Summary, Assumptions, Raw-Data für externe Audits |
@@ -86,9 +86,9 @@
 
 - **Beliebig viele Aktien** – Fair-Value-Verteilung & aktueller Kurs pro Titel
 - **6 Verteilungstypen** – Inkl. speziellem "Aus DCF-App (μ, σ, Schiefe)"-Modus für nahtlose Integration
-- **10 Kennzahlen pro Titel**:
+- **11 Kennzahlen pro Titel**:
   - E[Rendite], P(Gewinn), Margin of Safety, Kelly f* (inkl. Half-Kelly)
-  - VaR (5%), CVaR / Expected Shortfall, Sortino Ratio
+  - VaR (5%), CVaR / Expected Shortfall, Sortino Ratio, **Omega Ratio**
 - **Bewertungs-Ampel** – 🟢 Kaufen / 🟡 Halten / 🔴 Meiden
 - **4 Charts pro Titel** – FV-Histogramm, CDF, Renditeverteilung, Up-/Downside-Bars
 
@@ -99,32 +99,36 @@
 | **Max Sharpe Ratio** | Markowitz Mean-Variance, SLSQP-Optimierung |
 | **Min Volatilität** | Minimales Portfoliorisiko bei gegebenen Assets |
 | **Risk Parity** | Gleiche Risikobeiträge aller Assets |
-| **Kelly-Gewichtung** | Normalisierter Half-Kelly Criterion |
+| **Min CVaR** | Minimiert Expected Shortfall (Tail-Risk) aus MC-Samples |
+| **Max Diversification** | Maximiert Diversification Ratio $DR = \frac{w'\sigma}{\sigma_p}$ |
+| **Multi-Asset Kelly** | Vollständiges Kelly-Kriterium $\max w'\mu - \frac{1}{2}w'\Sigma w$ mit Half-Kelly-Skalierung |
 | **Gleichgewichtung (1/N)** | Naives Benchmark-Portfolio |
 
 ### Korrelation & Risiko
 
-- **3 Korrelationsmodi** – Sektorbasiert (11 GICS-Sektoren), manuell, oder unkorreliert
-- **Efficient Frontier** – 50-Punkt-Kurve + Capital Market Line + 5 Portfolio-Punkte + Einzelassets
+- **3 Korrelationsmodi** – Clusterbasierte Sektorkorrelation (5 ökonomische Cluster: Growth, Cyclical, Defensive, Financial, Energy), manuell, oder unkorreliert
+- **PSD-Durchsetzung** – Automatische Projektion auf die nächste positiv-semidefinite Matrix via Eigenvalue-Clipping
+- **Efficient Frontier** – 50-Punkt-Kurve + Capital Market Line + 7 Portfolio-Punkte + Einzelassets
 - **Gewichtungs-Constraints** – Min/Max-Gewicht pro Asset
 - **Diversifikationsanalyse** – Herfindahl-Index, effektive Anzahl Assets
 
 ### Stress-Tests
 
+- **3 Stress-Presets** – COVID-19 Crash, GFC 2008, Mild Correction (vorkonfiguriert)
 - **Marktschock** – Slider für universellen Kursrückgang
 - **Korrelations-Stress** – Erhöhung aller Korrelationen gegen 1.0
 - **Sektorkrisen** – Gezielte Schocks auf einzelne Sektoren
-- **Normal vs. Stress** – Automatischer Vergleich mit Interpretation
+- **Normal vs. Stress** – Automatischer Vergleich mit Interpretation und Overlay-Charts
 
 ### 5-Tab-Oberfläche
 
 | Tab | Inhalt |
 |---|---|
-| 📝 **Bewertungen** | Asset-Eingabe, Korrelationsmatrix, Constraints |
-| 🔍 **Einzeltitel** | Übersichtstabelle mit Signal, Detail-Analyse pro Aktie |
-| 📊 **Portfolio** | 5 Optimierungsmethoden im Vergleich, Renditeverteilung |
-| 📈 **Efficient Frontier** | Frontier-Kurve, CML, Korrelations-Heatmap |
-| ⚡ **Stress-Tests** | 3 Stress-Szenarien mit automatischer Interpretation |
+| 📝 **Bewertungen** | Asset-Eingabe, Korrelationsmatrix, Constraints, JSON Save/Load |
+| 🔍 **Einzeltitel** | Übersichtstabelle mit Signal & Omega Ratio, Detail-Analyse pro Aktie |
+| 📊 **Portfolio** | 7 Optimierungsmethoden im Vergleich, Gewichtungs-Chart, Renditeverteilung |
+| 📈 **Efficient Frontier** | Frontier-Kurve, CML, 7 Portfolio-Punkte, Korrelations-Heatmap |
+| ⚡ **Stress-Tests** | 3 Stress-Presets + manuelle Szenarien mit Overlay-Charts |
 
 ---
 
@@ -135,7 +139,7 @@ Das Projekt folgt **Clean Architecture** Prinzipien mit strikter Schichtentrennu
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Presentation Layer                                                 │
-│  app.py (790 LOC) · portfolio_app.py (1545 LOC)                    │
+│  app.py (790 LOC) · portfolio_app.py (~1150 LOC)                   │
 │  presentation/charts.py · presentation/ui_helpers.py               │
 ├─────────────────────────────────────────────────────────────────────┤
 │  Application Layer                                                  │
@@ -202,10 +206,10 @@ Beide Apps öffnen sich automatisch im Browser unter `http://localhost:8501` bzw
 
 ### Portfolio-Optimierung Workflow
 
-1. **Assets eingeben** – Für jede Aktie: Fair-Value-Schätzung (Verteilung) und aktuellen Kurs. Optional: Korrelationsmatrix und Gewichtungs-Constraints definieren
-2. **Einzeltitel prüfen** – Ampelsystem zeigt auf einen Blick: Kaufen, Halten oder Meiden. Detailansicht mit 10 Kennzahlen + 4 Charts pro Titel
-3. **Portfolio optimieren** – 5 Methoden im direkten Vergleich. Efficient Frontier zeigt das Risiko-Rendite-Spektrum
-4. **Stress-Tests** – Robustheit des Portfolios unter extremen Marktbedingungen prüfen
+1. **Assets eingeben** – Für jede Aktie: Fair-Value-Schätzung (Verteilung) und aktuellen Kurs. Optional: Clusterbasierte Korrelationsmatrix und Gewichtungs-Constraints definieren
+2. **Einzeltitel prüfen** – Ampelsystem zeigt auf einen Blick: Kaufen, Halten oder Meiden. Detailansicht mit 11 Kennzahlen (inkl. Omega Ratio) + 4 Charts pro Titel
+3. **Portfolio optimieren** – 7 Methoden im direkten Vergleich. Efficient Frontier zeigt das Risiko-Rendite-Spektrum
+4. **Stress-Tests** – Vorkonfigurierte Presets (COVID-19, GFC 2008) oder manuelle Szenarien zur Robustheitsprüfung
 
 ---
 
@@ -247,11 +251,21 @@ $$EV = \sum_{t=1}^{T} \frac{FCFF_t}{(1+WACC)^t} + \frac{TV}{(1+WACC)^T}$$
 
 $$Equity = \sum_i EV_i - PV(Holdingkosten) - Net\;Debt$$
 
-### Kelly Criterion
+### Multi-Asset Kelly Criterion
 
+**Einzeltitel:**
 $$f^* = \frac{E[R]}{Var(R)}$$
 
-gekappt auf $[0, 1]$ — die App verwendet Half-Kelly ($f^*/2$) zur konservativeren Positionsgrößenbestimmung.
+**Multi-Asset (Portfolio):**
+$$\max_w \; w'\mu - \frac{1}{2} w'\Sigma w \quad \text{s.t.} \; \sum w_i = 1,\; w_i \geq 0$$
+
+gekappt auf $[0, 1]$ — die App verwendet Half-Kelly ($w/2$) zur konservativeren Positionsgrößenbestimmung.
+
+### Omega Ratio
+
+$$\Omega = \frac{E[\max(R, 0)]}{E[\max(-R, 0)]}$$
+
+Verhältnis der erwarteten Gewinne zu den erwarteten Verlusten — $\Omega > 1$ signalisiert eine asymmetrisch positive Renditeverteilung.
 
 ### PERT-Verteilung
 
@@ -281,7 +295,7 @@ Das Ausgabeformat ist direkt in die Streamlit-App übertragbar.
 SOTP-Monte-Carlo-DCF-Model/
 │
 ├── app.py                          ← Streamlit Entry Point (SOTP DCF, 790 LOC)
-├── portfolio_app.py                ← Streamlit Entry Point (Portfolio, 1545 LOC)
+├── portfolio_app.py                ← Streamlit Entry Point (Portfolio, ~1150 LOC)
 ├── requirements.txt                ← Python-Abhängigkeiten
 ├── README.md                       ← Diese Datei
 │
@@ -296,17 +310,17 @@ SOTP-Monte-Carlo-DCF-Model/
 │
 ├── application/                    ← Use-Case-Orchestrierung
 │   ├── simulation_service.py       ← Simulation + Sensitivity (75 LOC)
-│   └── portfolio_service.py        ← Markowitz, Kelly, Risk Parity (217 LOC)
+│   └── portfolio_service.py        ← 7 Optimierungen, Stress-Tests, Cluster-Korrelation (~780 LOC)
 │
 ├── presentation/                   ← UI & Visualisierung
 │   ├── ui_helpers.py               ← Streamlit-Widgets & Erklärungen (424 LOC)
-│   └── charts.py                   ← 8 Plotly-Chartgeneratoren (357 LOC)
+│   └── charts.py                   ← 13 Plotly-Chartgeneratoren (~510 LOC)
 │
 └── prompts/
     └── sotp_research_prompt.md     ← LLM-Research-Prompt (331 LOC)
 ```
 
-**Gesamtumfang: ~4.500 Zeilen Code**
+**Gesamtumfang: ~4.500+ Zeilen Code**
 
 ---
 
