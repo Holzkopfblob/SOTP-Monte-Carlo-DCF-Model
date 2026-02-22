@@ -13,6 +13,7 @@ import numpy as np
 
 from domain.distributions import create_distribution
 from domain.models import (
+    RevenueGrowthMode,
     SegmentConfig,
     SimulationConfig,
     SimulationResults,
@@ -58,6 +59,8 @@ class MonteCarloEngine:
                 terminal_method=seg.terminal_method,
                 terminal_growth=samples.get("TV-Wachstum", np.zeros(n)),
                 exit_multiple=samples.get("Exit-Multiple", np.ones(n)),
+                growth_mode=seg.revenue_growth_mode,
+                fade_speed=seg.fade_speed,
             )
             segment_evs[seg.name] = ev
 
@@ -67,15 +70,44 @@ class MonteCarloEngine:
         )
 
         bridge = self.config.corporate_bridge
+
+        # Sample stochastic corporate bridge parameters
+        corp_costs_arr = self._sample_bridge_param(
+            bridge.stochastic_corporate_costs,
+            bridge.annual_corporate_costs, n,
+        )
+        net_debt_arr = self._sample_bridge_param(
+            bridge.stochastic_net_debt,
+            bridge.net_debt, n,
+        )
+        shares_arr = self._sample_bridge_param(
+            bridge.stochastic_shares,
+            bridge.shares_outstanding, n,
+        )
+        shares_arr = np.maximum(shares_arr, 1e-6)  # safety floor
+
+        # Track stochastic bridge inputs for sensitivity
+        if bridge.stochastic_corporate_costs is not None:
+            input_samples["Bridge | Holdingkosten"] = corp_costs_arr
+        if bridge.stochastic_net_debt is not None:
+            input_samples["Bridge | Nettoverschuldung"] = net_debt_arr
+        if bridge.stochastic_shares is not None:
+            input_samples["Bridge | Aktien"] = shares_arr
+
         pv_corp = compute_corporate_costs_pv(
-            bridge.annual_corporate_costs,
+            corp_costs_arr,
             np.full(n, bridge.corporate_cost_discount_rate, dtype=np.float64),
         )
-        equity_values = total_ev - pv_corp - bridge.net_debt
-        price_per_share = equity_values / max(bridge.shares_outstanding, 1e-6)
+        equity_values = total_ev - pv_corp - net_debt_arr
+        price_per_share = equity_values / shares_arr
 
         # Base-case means for the waterfall chart
         base_seg = {k: float(np.mean(v)) for k, v in segment_evs.items()}
+
+        # ── Convergence diagnostics ───────────────────────────────────
+        conv_idx, conv_mean, conv_lo, conv_hi = self._compute_convergence(
+            equity_values
+        )
 
         return SimulationResults(
             equity_values=equity_values,
@@ -85,15 +117,30 @@ class MonteCarloEngine:
             input_samples=input_samples,
             base_segment_evs=base_seg,
             base_corporate_costs_pv=float(np.mean(pv_corp)),
-            base_net_debt=bridge.net_debt,
+            base_net_debt=float(np.mean(net_debt_arr)),
             base_equity_value=float(np.mean(equity_values)),
             price_per_share=price_per_share,
             n_simulations=n,
+            convergence_indices=conv_idx,
+            convergence_means=conv_mean,
+            convergence_ci_low=conv_lo,
+            convergence_ci_high=conv_hi,
         )
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _sample_bridge_param(
+        self,
+        dist_config,
+        scalar_fallback: float,
+        n: int,
+    ) -> np.ndarray:
+        """Sample a corporate bridge parameter – stochastic or deterministic."""
+        if dist_config is not None:
+            return create_distribution(dist_config).sample(n, self.rng)
+        return np.full(n, scalar_fallback, dtype=np.float64)
 
     def _sample_segment(
         self, seg: SegmentConfig, n: int
@@ -129,3 +176,38 @@ class MonteCarloEngine:
             s["Exit-Multiple"] = np.maximum(s["Exit-Multiple"], 0.1)
 
         return s
+
+    @staticmethod
+    def _compute_convergence(
+        equity_values: np.ndarray,
+        n_checkpoints: int = 200,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Compute running mean + 95 % CI at evenly spaced checkpoints.
+
+        Returns (indices, running_means, ci_low, ci_high) – all (n_checkpoints,).
+        """
+        n = len(equity_values)
+        if n < 20:
+            idx = np.array([n])
+            return idx, np.array([np.mean(equity_values)]), np.array([0.0]), np.array([0.0])
+
+        checkpoints = np.unique(
+            np.linspace(10, n, min(n_checkpoints, n), dtype=int)
+        )
+
+        means = np.empty(len(checkpoints))
+        ci_lo = np.empty(len(checkpoints))
+        ci_hi = np.empty(len(checkpoints))
+
+        cumsum = np.cumsum(equity_values)
+        cumsum_sq = np.cumsum(equity_values ** 2)
+
+        for i, k in enumerate(checkpoints):
+            m = cumsum[k - 1] / k
+            var = cumsum_sq[k - 1] / k - m ** 2
+            se = np.sqrt(max(var, 0.0) / k) * 1.96
+            means[i] = m
+            ci_lo[i] = m - se
+            ci_hi[i] = m + se
+
+        return checkpoints, means, ci_lo, ci_hi

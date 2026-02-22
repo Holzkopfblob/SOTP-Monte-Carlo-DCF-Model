@@ -34,6 +34,12 @@ class TerminalValueMethod(str, Enum):
     EXIT_MULTIPLE = "Exit-Multiple-Ansatz"
 
 
+class RevenueGrowthMode(str, Enum):
+    """Revenue growth modelling approach."""
+    CONSTANT = "Konstant (g über alle Jahre gleich)"
+    FADE     = "Fade-Modell (g konvergiert zum Terminal-Wachstum)"
+
+
 # ---------------------------------------------------------------------------
 # Distribution configuration
 # ---------------------------------------------------------------------------
@@ -96,6 +102,10 @@ class SegmentConfig:
     terminal_growth_rate: DistributionConfig   = field(default_factory=lambda: DistributionConfig(fixed_value=0.02))
     exit_multiple:        DistributionConfig   = field(default_factory=lambda: DistributionConfig(fixed_value=10.0))
 
+    # Revenue growth mode (constant vs. fade)
+    revenue_growth_mode: RevenueGrowthMode = RevenueGrowthMode.CONSTANT
+    fade_speed: float = 0.5             # λ – exponential decay speed (higher = faster fade)
+
 
 # ---------------------------------------------------------------------------
 # Corporate bridge
@@ -103,11 +113,22 @@ class SegmentConfig:
 
 @dataclass
 class CorporateBridgeConfig:
-    """Corporate-level adjustments for the equity bridge."""
+    """Corporate-level adjustments for the equity bridge.
+
+    All four parameters can be modelled stochastically.
+    The scalar defaults are kept for backward compatibility;
+    when ``stochastic_*`` configs are not None they override
+    the scalar value during simulation.
+    """
     annual_corporate_costs:       float = 50.0    # Mio. per annum
     corporate_cost_discount_rate: float = 0.09    # for perpetuity PV
     net_debt:                     float = 500.0   # Mio.
     shares_outstanding:           float = 100.0   # Mio. shares
+
+    # Stochastic overrides (None = use scalar above)
+    stochastic_corporate_costs: DistributionConfig | None = None
+    stochastic_net_debt:        DistributionConfig | None = None
+    stochastic_shares:          DistributionConfig | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -148,3 +169,9 @@ class SimulationResults:
     # Derived
     price_per_share: np.ndarray = field(default_factory=lambda: np.array([]))
     n_simulations:   int = 0
+
+    # Convergence diagnostics – cumulative running mean at checkpoint indices
+    convergence_indices: np.ndarray = field(default_factory=lambda: np.array([]))
+    convergence_means:   np.ndarray = field(default_factory=lambda: np.array([]))
+    convergence_ci_low:  np.ndarray = field(default_factory=lambda: np.array([]))
+    convergence_ci_high: np.ndarray = field(default_factory=lambda: np.array([]))

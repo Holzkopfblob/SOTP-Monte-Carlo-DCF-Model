@@ -25,6 +25,7 @@ from scipy.stats import skew, kurtosis
 from domain.models import (
     CorporateBridgeConfig,
     DistributionConfig,
+    RevenueGrowthMode,
     SegmentConfig,
     SimulationConfig,
     TerminalValueMethod,
@@ -41,11 +42,14 @@ from presentation.ui_helpers import (
     render_info_sotp,
     render_info_terminal_value,
     render_info_wacc,
+    render_info_fade_model,
 )
 from presentation.charts import (
     cdf_plot,
+    convergence_chart,
     histogram_kde,
     price_histogram,
+    revenue_fade_preview,
     tornado_chart,
     waterfall_chart,
 )
@@ -334,6 +338,47 @@ with tab_setup:
         key="setup_shares",
     )
 
+    # ── Stochastic Corporate Bridge ───────────────────────────────────
+    st.markdown("")
+    enable_stoch_bridge = st.checkbox(
+        "🎲 Stochastische Corporate Bridge aktivieren",
+        value=False,
+        key="setup_stoch_bridge",
+        help="Modelliert Holdingkosten, Nettoverschuldung und Aktienanzahl "
+             "als Wahrscheinlichkeitsverteilungen statt fester Werte.",
+    )
+
+    stoch_corp_costs = None
+    stoch_net_debt = None
+    stoch_shares = None
+
+    if enable_stoch_bridge:
+        st.caption(
+            "Definieren Sie Verteilungen für die Corporate-Bridge-Parameter. "
+            "Die oben eingegebenen Festwerte werden als Default-Mittelwerte verwendet."
+        )
+        with st.expander("📐 Stochastische Holdingkosten", expanded=True):
+            stoch_corp_costs = render_distribution_input(
+                "Holdingkosten (Mio. p.a.)", "bridge_cc",
+                default_value=annual_corp_costs,
+                is_percentage=False,
+                help_text="Jährliche Holdingkosten als Verteilung.",
+            )
+        with st.expander("📐 Stochastische Nettoverschuldung", expanded=True):
+            stoch_net_debt = render_distribution_input(
+                "Nettoverschuldung (Mio.)", "bridge_nd",
+                default_value=net_debt,
+                is_percentage=False,
+                help_text="Nettoverschuldung als Verteilung (z.B. bei geplanten Tilgungen / Akquisitionen).",
+            )
+        with st.expander("📐 Stochastische Aktienanzahl", expanded=True):
+            stoch_shares = render_distribution_input(
+                "Aktien ausstehend (Mio.)", "bridge_sh",
+                default_value=shares,
+                is_percentage=False,
+                help_text="Verwässerte Aktienanzahl als Verteilung (z.B. bei Rückkaufprogrammen / Optionen).",
+            )
+
 
 # ──────────────────────────────────────────────────────────────────────────
 # TAB 2 – SEGMENTE
@@ -375,9 +420,40 @@ with tab_segments:
             st.markdown("---")
             st.markdown("##### 📐 Werttreiber")
 
+            # ── Revenue growth mode ───────────────────────────────────
+            render_info_fade_model()
+
+            growth_mode_str = st.selectbox(
+                "Umsatzwachstums-Modell",
+                options=[m.value for m in RevenueGrowthMode],
+                key=f"seg_{i}_growth_mode",
+                help="Konstant: gleiche Rate jedes Jahr. "
+                     "Fade: hohes Anfangswachstum konvergiert zum Terminal-Wachstum.",
+            )
+            growth_mode = RevenueGrowthMode(growth_mode_str)
+
+            fade_speed_val = 0.5
+            if growth_mode == RevenueGrowthMode.FADE:
+                fade_col1, fade_col2 = st.columns(2)
+                fade_speed_val = fade_col1.slider(
+                    "Fade-Geschwindigkeit (λ)",
+                    min_value=0.05,
+                    max_value=2.0,
+                    value=0.5,
+                    step=0.05,
+                    key=f"seg_{i}_fade_speed",
+                    help="Höher = schnellere Konvergenz zum Terminal-Wachstum. "
+                         "0.3 = langsam, 0.5 = mittel, 1.0+ = schnell.",
+                )
+                st.caption(
+                    "💡 Das initiale Wachstum (unten) fällt exponentiell zum "
+                    "TV-Wachstum ab. Die Vorschau zeigt den resultierenden Pfad."
+                )
+
             rev_growth = render_distribution_input(
-                "Umsatzwachstum", f"s{i}_rg", 5.0, is_percentage=True,
-                help_text="Jährliches Umsatzwachstum (konstant über Prognosezeitraum).",
+                "Umsatzwachstum (initial)" if growth_mode == RevenueGrowthMode.FADE else "Umsatzwachstum",
+                f"s{i}_rg", 5.0, is_percentage=True,
+                help_text="Jährliches Umsatzwachstum (initial bei Fade-Modell, konstant sonst).",
             )
             ebitda_m = render_distribution_input(
                 "EBITDA-Marge", f"s{i}_em", 20.0, is_percentage=True,
@@ -428,6 +504,22 @@ with tab_segments:
                     help_text="EV/EBITDA-Multiple im Endjahr.",
                 )
 
+            # ── Fade-Modell Vorschau ──────────────────────────────────
+            if growth_mode == RevenueGrowthMode.FADE:
+                # Determine initial g and terminal g for preview
+                # Use the fixed_value / mean as best guess for preview
+                _g_init = rev_growth.fixed_value if rev_growth.dist_type.value == "Fest (Deterministisch)" else rev_growth.mean
+                _g_term = tv_growth.fixed_value if tv_growth.dist_type.value == "Fest (Deterministisch)" else tv_growth.mean
+                st.plotly_chart(
+                    revenue_fade_preview(
+                        g_initial=_g_init,
+                        g_terminal=_g_term,
+                        fade_speed=fade_speed_val,
+                        forecast_years=int(forecast_yrs),
+                    ),
+                    use_container_width=True,
+                )
+
             # ── Build config object ───────────────────────────────────
             segment_configs.append(SegmentConfig(
                 name=seg_name,
@@ -443,6 +535,8 @@ with tab_segments:
                 terminal_method=tv_method,
                 terminal_growth_rate=tv_growth,
                 exit_multiple=tv_multiple,
+                revenue_growth_mode=growth_mode,
+                fade_speed=fade_speed_val,
             ))
 
 
@@ -493,6 +587,9 @@ with tab_sim:
                     corporate_cost_discount_rate=float(corp_discount) / 100.0,
                     net_debt=float(net_debt),
                     shares_outstanding=float(shares),
+                    stochastic_corporate_costs=stoch_corp_costs,
+                    stochastic_net_debt=stoch_net_debt,
+                    stochastic_shares=stoch_shares,
                 ),
             )
 
@@ -661,6 +758,55 @@ with tab_results:
             ),
             use_container_width=True,
         )
+
+        st.divider()
+
+        # ── Convergence diagnostics ───────────────────────────────────
+        st.subheader("🔬 Konvergenz-Diagnose")
+        st.caption(
+            "Zeigt, ob die Anzahl der Simulationen ausreicht. "
+            "Wenn der laufende Mittelwert sich stabilisiert und das "
+            "95 %-Konfidenzintervall eng wird, sind die Ergebnisse konvergiert."
+        )
+
+        if len(results.convergence_indices) > 0:
+            st.plotly_chart(
+                convergence_chart(
+                    results.convergence_indices,
+                    results.convergence_means,
+                    results.convergence_ci_low,
+                    results.convergence_ci_high,
+                ),
+                use_container_width=True,
+            )
+
+            # Convergence assessment
+            final_width = results.convergence_ci_high[-1] - results.convergence_ci_low[-1]
+            final_mean = results.convergence_means[-1]
+            pct_width = (final_width / abs(final_mean) * 100) if abs(final_mean) > 0 else 0
+
+            conv_c1, conv_c2, conv_c3 = st.columns(3)
+            conv_c1.metric("KI-Breite (absolut)", f"{final_width:,.1f} Mio.")
+            conv_c2.metric("KI-Breite (relativ)", f"{pct_width:.3f} %")
+
+            if pct_width < 0.5:
+                conv_c3.metric("Status", "✅ Konvergiert")
+                st.success(
+                    f"Die Simulation ist gut konvergiert. Das 95 %-Konfidenzintervall "
+                    f"beträgt nur **{pct_width:.3f} %** des Mittelwerts."
+                )
+            elif pct_width < 2.0:
+                conv_c3.metric("Status", "⚠️ Akzeptabel")
+                st.warning(
+                    f"Die Konvergenz ist akzeptabel ({pct_width:.2f} %), "
+                    f"aber eine Erhöhung der Iterationszahl könnte die Stabilität verbessern."
+                )
+            else:
+                conv_c3.metric("Status", "❌ Nicht konvergiert")
+                st.error(
+                    f"Die Ergebnisse sind noch nicht stabil ({pct_width:.1f} %). "
+                    f"Erhöhen Sie die Anzahl der Iterationen deutlich (mindestens 2–3×)."
+                )
 
         st.divider()
 

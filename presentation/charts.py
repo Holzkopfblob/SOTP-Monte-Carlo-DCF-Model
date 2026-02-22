@@ -506,3 +506,117 @@ def stress_comparison_chart(
         template=TEMPLATE, height=480,
     )
     return fig
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Convergence Diagnostics
+# ═══════════════════════════════════════════════════════════════════════════
+
+def convergence_chart(
+    indices: np.ndarray,
+    means: np.ndarray,
+    ci_low: np.ndarray,
+    ci_high: np.ndarray,
+    title: str = "Konvergenz-Diagnose – Laufender Mittelwert (Equity Value)",
+) -> go.Figure:
+    """Running mean + 95 % CI band showing Monte-Carlo convergence."""
+    fig = go.Figure()
+
+    # Confidence band (shaded area)
+    fig.add_trace(go.Scatter(
+        x=np.concatenate([indices, indices[::-1]]),
+        y=np.concatenate([ci_high, ci_low[::-1]]),
+        fill="toself",
+        fillcolor="rgba(31, 119, 180, 0.15)",
+        line=dict(width=0),
+        name="95 %-KI",
+        hoverinfo="skip",
+    ))
+
+    # Running mean line
+    fig.add_trace(go.Scatter(
+        x=indices,
+        y=means,
+        mode="lines",
+        name="Laufender Mittelwert",
+        line=dict(color=COLORS["primary"], width=2.5),
+    ))
+
+    # Final mean reference
+    final_mean = means[-1]
+    fig.add_hline(
+        y=final_mean, line_dash="dot",
+        line_color=COLORS["neutral"], line_width=1,
+        annotation_text=f"Endwert: {final_mean:,.1f}",
+        annotation_font_size=10,
+    )
+
+    # CI width annotation: show how narrow the band is at the end
+    final_width = ci_high[-1] - ci_low[-1]
+    pct_width = (final_width / abs(final_mean) * 100) if abs(final_mean) > 0 else 0
+
+    fig.add_annotation(
+        x=indices[-1], y=ci_high[-1],
+        text=f"KI-Breite: {final_width:,.1f} ({pct_width:.2f} %)",
+        showarrow=True, arrowhead=2,
+        font=dict(size=11, color=COLORS["secondary"]),
+        yshift=15,
+    )
+
+    fig.update_layout(
+        title=title,
+        xaxis_title="Anzahl Simulationen",
+        yaxis_title="Equity Value (Mio.)",
+        template=TEMPLATE,
+        height=480,
+        showlegend=True,
+        margin=dict(t=60, b=40),
+    )
+    return fig
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Revenue Fade Preview
+# ═══════════════════════════════════════════════════════════════════════════
+
+def revenue_fade_preview(
+    g_initial: float,
+    g_terminal: float,
+    fade_speed: float,
+    forecast_years: int,
+) -> go.Figure:
+    """Preview chart showing the growth rate path under the fade model."""
+    years = np.arange(1, forecast_years + 1)
+    g_fade = g_terminal + (g_initial - g_terminal) * np.exp(-fade_speed * years)
+    g_const = np.full_like(years, g_initial, dtype=float)
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=years, y=g_fade * 100,
+        mode="lines+markers",
+        name="Fade-Modell",
+        line=dict(color=COLORS["primary"], width=2.5),
+    ))
+    fig.add_trace(go.Scatter(
+        x=years, y=g_const * 100,
+        mode="lines",
+        name="Konstant",
+        line=dict(color=COLORS["neutral"], width=1.5, dash="dash"),
+    ))
+    fig.add_hline(
+        y=g_terminal * 100,
+        line_dash="dot", line_color=COLORS["secondary"],
+        annotation_text=f"Terminal g = {g_terminal*100:.1f} %",
+        annotation_font_size=10,
+    )
+
+    fig.update_layout(
+        title="Umsatzwachstum über den Prognosezeitraum",
+        xaxis_title="Jahr",
+        yaxis_title="Wachstumsrate (%)",
+        template=TEMPLATE,
+        height=350,
+        showlegend=True,
+        margin=dict(t=50, b=40),
+    )
+    return fig

@@ -34,11 +34,14 @@
 | Eigenschaft | Detail |
 |---|---|
 | **Vektorisierte MC-Engine** | 10.000–500.000 Iterationen via NumPy — keine Python-Loops über Simulationen |
+| **Revenue-Fade-Modell** | Exponentiell konvergierendes Umsatzwachstum: $g_t = g_T + (g_0 - g_T) \cdot e^{-\lambda t}$ — realistischer als konstantes g |
+| **Stochastische Corporate Bridge** | Holdingkosten, Nettoverschuldung & Aktienanzahl optional als Verteilung modellierbar |
+| **Konvergenz-Diagnose** | Running Mean + 95 %-KI zeigt automatisch, ob genug Simulationen durchgeführt wurden |
 | **6 Wahrscheinlichkeitsverteilungen** | Fest, Normal, Lognormal, Dreieck, Gleichverteilung, PERT |
 | **2 Terminal-Value-Methoden** | Gordon Growth Model & Exit-Multiple |
 | **7 Portfolio-Optimierungen** | Max Sharpe, Min Volatilität, Risk Parity, Min CVaR, Max Diversification, Multi-Asset Kelly, Gleichgewichtung |
 | **Clean Architecture** | 4-Schichten-Architektur (Domain → Application → Infrastructure → Presentation) |
-| **Interaktive Charts** | Histogramm+KDE, CDF, Tornado, Waterfall, Efficient Frontier (Plotly) |
+| **Interaktive Charts** | Histogramm+KDE, CDF, Tornado, Waterfall, Convergence, Fade-Preview, Efficient Frontier (Plotly) |
 | **Excel-Export** | Summary, Assumptions, Raw-Data für externe Audits |
 | **Save/Load** | Gesamte Konfiguration als JSON speichern und laden |
 | **Eingebettete Erklärungen** | Ausführliche Theorie-Expander mit LaTeX-Formeln direkt in der App |
@@ -52,18 +55,20 @@
 - **SOTP-Bewertung** – Beliebige Anzahl an Geschäftssegmenten, individuell konfigurierbar
 - **FCFF-Ansatz** – Free Cash Flow to Firm über 9 Werttreiber pro Segment:
   - Revenue Growth, EBITDA-Marge, D&A, Steuersatz, CAPEX, NWC-Veränderung, WACC, Terminal Growth, Exit-Multiple
+- **Revenue-Fade-Modell** 🆕 – Wachstum konvergiert exponentiell vom initialen g₀ zum Terminal-Wachstum g_T (konfigurierbarer λ-Fade-Speed). Interaktive Vorschau zeigt den Wachstumspfad. Alternativ: klassisches konstantes Wachstum
 - **Terminal Value** – Gordon Growth Model oder Exit-Multiple pro Segment, mit automatischen Guards (WACC-Floor, TV-Wachstum < WACC)
-- **Corporate Bridge** – Holdingkosten (als Perpetuity), Net Debt, verwässerte Aktienanzahl
+- **Stochastische Corporate Bridge** 🆕 – Holdingkosten, Nettoverschuldung und Aktienanzahl optional als Wahrscheinlichkeitsverteilungen statt Festwerte — ideal bei Akquisitionspipelines, Rückkaufprogrammen oder variabler Verschuldung
 
 ### Stochastische Simulation
 
 - **6 Verteilungstypen** – Jeder der 9 Parameter kann deterministisch (fest) oder stochastisch über 5 Verteilungen modelliert werden
 - **Vektorisierte MC-Engine** – Komplett via NumPy (keine For-Schleifen), reproduzierbar über Seed
-- **Sensitivity Analysis** – Spearman-Rangkorrelation identifiziert automatisch die einflussreichsten Werttreiber
+- **Sensitivity Analysis** – Spearman-Rangkorrelation identifiziert automatisch die einflussreichsten Werttreiber (inkl. stochastischer Bridge-Parameter)
+- **Konvergenz-Diagnose** 🆕 – Running Mean + 95 %-Konfidenzintervall zeigt, ob die Simulationsanzahl ausreicht. Automatische Bewertung: ✅ Konvergiert / ⚠️ Akzeptabel / ❌ Nicht konvergiert
 
 ### Visualisierung & Export
 
-- **6 interaktive Charts** – EV-Histogramm+KDE, Equity-Histogramm, CDF mit Perzentilen, Preis/Aktie-Histogramm, Tornado-Chart (Top-15 Treiber), SOTP-Waterfall
+- **8 interaktive Charts** – EV-Histogramm+KDE, Equity-Histogramm, CDF mit Perzentilen, Preis/Aktie-Histogramm, Tornado-Chart (Top-15 Treiber), SOTP-Waterfall, Konvergenz-Chart, Revenue-Fade-Preview
 - **Statistik-Dashboard** – Mean, Median, Std, P5/P25/P75/P95, Min/Max für EV, Equity und Preis/Aktie
 - **Excel-Export** – 3 Sheets (Summary & Statistics, Segment Assumptions, Raw Simulation Data bis 100k Zeilen)
 - **JSON Save/Load** – Komplette Konfiguration exportieren/importieren
@@ -73,10 +78,10 @@
 
 | Tab | Inhalt |
 |---|---|
-| ⚙️ **Setup** | MC-Iterationen, Seed, Segmentanzahl, Corporate Bridge |
-| 🏢 **Segmente** | Pro Segment: Name, Basisumsatz, Prognosejahre, 9 stochastische Werttreiber, TV-Methode |
+| ⚙️ **Setup** | MC-Iterationen, Seed, Segmentanzahl, Corporate Bridge (optional stochastisch) |
+| 🏢 **Segmente** | Pro Segment: Name, Basisumsatz, Prognosejahre, Wachstumsmodell (Konstant/Fade), 9 stochastische Werttreiber, TV-Methode |
 | 🎲 **Simulation** | Konfigurationsübersicht, Start-Button mit Fortschrittsbalken |
-| 📈 **Ergebnisse** | Metriken, Charts, Segment-Details, Excel-Export |
+| 📈 **Ergebnisse** | Metriken, Charts, Konvergenz-Diagnose, Segment-Details, Excel-Export |
 
 ---
 
@@ -233,7 +238,14 @@ Beide Apps öffnen sich automatisch im Browser unter `http://localhost:8501` bzw
 
 $$FCFF = NOPAT + D\&A - CAPEX - \Delta NWC$$
 
-wobei $NOPAT = EBITDA \times (1 - t)$ und Revenue exponentiell wächst: $R_t = R_0 \cdot (1+g)^t$
+wobei $NOPAT = EBITDA \times (1 - t)$.
+
+**Konstantes Wachstum:** $R_t = R_0 \cdot (1+g)^t$
+
+**Fade-Modell:** Die Wachstumsrate konvergiert exponentiell:
+$$g_t = g_T + (g_0 - g_T) \cdot e^{-\lambda t}$$
+
+Der Umsatz wird dann iterativ berechnet: $R_t = R_{t-1} \cdot (1 + g_t)$
 
 ### Terminal Value
 
@@ -250,6 +262,8 @@ $$EV = \sum_{t=1}^{T} \frac{FCFF_t}{(1+WACC)^t} + \frac{TV}{(1+WACC)^T}$$
 ### Equity Value (SOTP Bridge)
 
 $$Equity = \sum_i EV_i - PV(Holdingkosten) - Net\;Debt$$
+
+Dabei können Holdingkosten, Nettoverschuldung und Aktienanzahl jeweils **deterministisch oder stochastisch** modelliert werden.
 
 ### Multi-Asset Kelly Criterion
 
@@ -300,12 +314,12 @@ SOTP-Monte-Carlo-DCF-Model/
 ├── README.md                       ← Diese Datei
 │
 ├── domain/                         ← Reine Geschäftslogik (kein I/O)
-│   ├── models.py                   ← Dataclasses, Enums (150 LOC)
+│   ├── models.py                   ← Dataclasses, Enums inkl. RevenueGrowthMode (~170 LOC)
 │   ├── distributions.py            ← 6 Verteilungsklassen + Factory (188 LOC)
-│   └── valuation.py                ← FCFF, TV, DCF-Berechnung (164 LOC)
+│   └── valuation.py                ← FCFF (Fade + Konstant), TV, DCF-Berechnung (~180 LOC)
 │
 ├── infrastructure/                 ← Technische Infrastruktur
-│   ├── monte_carlo_engine.py       ← Vektorisierte MC-Engine (131 LOC)
+│   ├── monte_carlo_engine.py       ← Vektorisierte MC-Engine + Convergence (~200 LOC)
 │   └── excel_export.py             ← xlsx-Report mit 3 Sheets (147 LOC)
 │
 ├── application/                    ← Use-Case-Orchestrierung
@@ -313,14 +327,14 @@ SOTP-Monte-Carlo-DCF-Model/
 │   └── portfolio_service.py        ← 7 Optimierungen, Stress-Tests, Cluster-Korrelation (~780 LOC)
 │
 ├── presentation/                   ← UI & Visualisierung
-│   ├── ui_helpers.py               ← Streamlit-Widgets & Erklärungen (424 LOC)
-│   └── charts.py                   ← 13 Plotly-Chartgeneratoren (~510 LOC)
+│   ├── ui_helpers.py               ← Streamlit-Widgets & Erklärungen inkl. Fade-Modell (~470 LOC)
+│   └── charts.py                   ← 15 Plotly-Chartgeneratoren inkl. Convergence & Fade-Preview (~630 LOC)
 │
 └── prompts/
     └── sotp_research_prompt.md     ← LLM-Research-Prompt (331 LOC)
 ```
 
-**Gesamtumfang: ~4.500+ Zeilen Code**
+**Gesamtumfang: ~5.000+ Zeilen Code**
 
 ---
 

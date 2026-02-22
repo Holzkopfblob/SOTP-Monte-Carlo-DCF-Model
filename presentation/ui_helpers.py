@@ -422,3 +422,37 @@ Risikoprofilen.
 Jedes Segment erhält seinen eigenen Diskontierungssatz und Terminal-Value-Ansatz,
 was die Bewertungsgenauigkeit erheblich verbessert.
 """)
+
+
+def render_info_fade_model() -> None:
+    with st.expander("ℹ️ Revenue-Fade-Modell – Konvergierendes Wachstum"):
+        st.markdown(r"""
+### Warum ein Fade-Modell?
+
+Das **konstante Wachstumsmodell** nimmt an, dass ein Segment über den gesamten
+Prognosezeitraum mit der gleichen Rate wächst. Das ist **unrealistisch** für
+wachstumsstarke Unternehmen, deren Wachstum sich mit zunehmender Reife abschwächt.
+
+### Das Fade-Modell
+
+Die Wachstumsrate konvergiert **exponentiell** vom initialen Wachstum $g_0$ zum
+langfristigen Terminal-Wachstum $g_T$:
+
+$$g_t = g_T + (g_0 - g_T) \cdot e^{-\lambda t}$$
+
+| Parameter | Bedeutung | Typische Werte |
+|---|---|---|
+| $g_0$ | Initiales Umsatzwachstum (aktuell) | 5–30 % |
+| $g_T$ | Terminal-Wachstum (langfristig) | 1.5–3 % |
+| $\lambda$ | Fade-Geschwindigkeit | 0.2 (langsam) – 1.5 (schnell) |
+
+### Wann welches Modell?
+
+| Modell | Geeignet für |
+|---|---|
+| **Konstant** | Reife Unternehmen mit stabilem Wachstum (z.B. Versorger, Telekom) |
+| **Fade** | Wachstumsunternehmen, deren Expansionsrate sich verlangsamt (z.B. SaaS, E-Commerce) |
+
+> **Tipp:** Nutzen Sie den Vorschau-Chart unten, um den Wachstumspfad zu visualisieren,
+> bevor Sie die Simulation starten.
+""")
