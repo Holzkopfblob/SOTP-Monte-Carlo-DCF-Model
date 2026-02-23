@@ -33,6 +33,7 @@ def render_segments(tab, n_segments: int) -> list[SegmentConfig]:
         render_info_wacc()
         render_info_distributions()
         render_info_terminal_value()
+        render_info_fade_model()
 
         for i in range(n_segments):
             with st.expander(f"📦 Segment {i + 1}", expanded=(i == 0)):
@@ -57,7 +58,6 @@ def render_segments(tab, n_segments: int) -> list[SegmentConfig]:
                 st.markdown("##### 📐 Werttreiber")
 
                 # ── Revenue growth mode ───────────────────────────────
-                render_info_fade_model()
 
                 growth_mode_str = st.selectbox(
                     "Umsatzwachstums-Modell",
