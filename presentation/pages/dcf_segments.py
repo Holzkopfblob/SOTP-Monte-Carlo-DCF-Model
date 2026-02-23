@@ -80,7 +80,7 @@ def render_segments(tab, n_segments: int) -> list[SegmentConfig]:
                     )
                     st.caption(
                         "💡 Das initiale Wachstum (unten) fällt exponentiell zum "
-                        "TV-Wachstum ab. Die Vorschau zeigt den resultierenden Pfad."
+                        "langfristigen Wachstum ab. Die Vorschau zeigt den resultierenden Pfad."
                     )
 
                 rev_growth = render_distribution_input(
@@ -185,11 +185,20 @@ def render_segments(tab, n_segments: int) -> list[SegmentConfig]:
                     )
                     tv_multiple = DistributionConfig(fixed_value=10.0)
                 else:
-                    tv_growth = DistributionConfig(fixed_value=0.02)
                     tv_multiple = render_distribution_input(
                         "Exit-Multiple (EV/EBITDA)", f"s{i}_evm", 10.0,
                         help_text="EV/EBITDA-Multiple im Endjahr.",
                     )
+                    if growth_mode == RevenueGrowthMode.FADE:
+                        tv_growth = render_distribution_input(
+                            "Langfristiges Umsatzwachstum (Fade-Ziel)",
+                            f"s{i}_tvg", 2.0,
+                            is_percentage=True,
+                            help_text="Langfristige Wachstumsrate, zu der das Umsatzwachstum im Fade-Modell konvergiert. "
+                                      "Typisch: nominales BIP-Wachstum (2–3 %).",
+                        )
+                    else:
+                        tv_growth = DistributionConfig(fixed_value=0.02)
 
                 # ── Fade-Modell Vorschau ──────────────────────────────
                 if growth_mode == RevenueGrowthMode.FADE:
