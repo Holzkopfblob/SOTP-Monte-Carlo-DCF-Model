@@ -75,6 +75,26 @@ class DistributionConfig:
     # NOTE: For Triangular/PERT we use low/mode/high above.
     #       For Uniform we also use low/high above (mode is ignored).
 
+    def representative_value(self) -> float:
+        """Return a single representative (central) value for previews.
+
+        This is NOT a statistical mean – it is a best-effort point
+        estimate used for deterministic fade-curve previews and similar
+        UI helpers where a single number is needed.
+        """
+        dt = self.dist_type
+        if dt == DistributionType.FIXED:
+            return self.fixed_value
+        if dt == DistributionType.NORMAL:
+            return self.mean
+        if dt == DistributionType.LOGNORMAL:
+            return self.ln_mu
+        if dt in (DistributionType.TRIANGULAR, DistributionType.PERT):
+            return self.mode
+        if dt == DistributionType.UNIFORM:
+            return (self.low + self.high) / 2.0
+        return self.fixed_value  # fallback
+
 
 # ---------------------------------------------------------------------------
 # Segment configuration

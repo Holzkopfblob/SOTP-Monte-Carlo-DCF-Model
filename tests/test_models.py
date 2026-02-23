@@ -30,6 +30,18 @@ class TestDistributionConfig:
             assert isinstance(dt.value, str)
             assert len(dt.value) > 0
 
+    @pytest.mark.parametrize("dist_type, kwargs, expected", [
+        (DistributionType.FIXED,       {"fixed_value": 0.07},               0.07),
+        (DistributionType.NORMAL,      {"mean": 0.05, "std": 0.01},        0.05),
+        (DistributionType.LOGNORMAL,   {"ln_mu": 0.06, "ln_sigma": 0.02},  0.06),
+        (DistributionType.TRIANGULAR,  {"low": 0.02, "mode": 0.05, "high": 0.08}, 0.05),
+        (DistributionType.PERT,        {"low": 0.01, "mode": 0.03, "high": 0.06}, 0.03),
+        (DistributionType.UNIFORM,     {"low": 0.02, "high": 0.08},        0.05),
+    ])
+    def test_representative_value(self, dist_type, kwargs, expected):
+        dc = DistributionConfig(dist_type=dist_type, **kwargs)
+        assert dc.representative_value() == pytest.approx(expected, abs=1e-9)
+
 
 class TestSegmentConfig:
     def test_defaults(self):

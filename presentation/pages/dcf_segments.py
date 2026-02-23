@@ -193,16 +193,8 @@ def render_segments(tab, n_segments: int) -> list[SegmentConfig]:
 
                 # ── Fade-Modell Vorschau ──────────────────────────────
                 if growth_mode == RevenueGrowthMode.FADE:
-                    _g_init = (
-                        rev_growth.fixed_value
-                        if rev_growth.dist_type.value == "Fest (Deterministisch)"
-                        else rev_growth.mean
-                    )
-                    _g_term = (
-                        tv_growth.fixed_value
-                        if tv_growth.dist_type.value == "Fest (Deterministisch)"
-                        else tv_growth.mean
-                    )
+                    _g_init = rev_growth.representative_value()
+                    _g_term = tv_growth.representative_value()
                     st.plotly_chart(
                         revenue_fade_preview(
                             g_initial=_g_init,
@@ -216,9 +208,7 @@ def render_segments(tab, n_segments: int) -> list[SegmentConfig]:
                     # ── Parameter-Fade Vorschau ───────────────────────
                     if ebitda_m_term is not None:
                         def _pval(cfg: DistributionConfig) -> float:
-                            if cfg.dist_type.value == "Fest (Deterministisch)":
-                                return cfg.fixed_value * 100
-                            return cfg.mean * 100
+                            return cfg.representative_value() * 100
 
                         fade_params: dict[str, tuple[float, float]] = {}
                         for lbl, init_c, term_c in [
