@@ -14,6 +14,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 import numpy as np
+from scipy import stats as sp_stats
 
 from domain.models import DistributionConfig, DistributionType
 
@@ -28,6 +29,15 @@ class BaseDistribution(ABC):
     @abstractmethod
     def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
         """Draw *n* independent samples.  Returns a 1-D array of shape (n,)."""
+        ...
+
+    @abstractmethod
+    def ppf(self, u: np.ndarray) -> np.ndarray:
+        """Percent-point function (inverse CDF / quantile).
+
+        Maps uniform [0, 1] values to the distribution's support.
+        Used by the Gaussian copula for cross-segment correlation.
+        """
         ...
 
     @abstractmethod
@@ -49,6 +59,9 @@ class FixedDistribution(BaseDistribution):
     def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
         return np.full(n, self.value, dtype=np.float64)
 
+    def ppf(self, u: np.ndarray) -> np.ndarray:
+        return np.full_like(u, self.value)
+
     def describe(self) -> str:
         return f"Fest: {self.value:.4f}"
 
@@ -62,6 +75,9 @@ class NormalDistribution(BaseDistribution):
 
     def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
         return rng.normal(self.mean, self.std, size=n)
+
+    def ppf(self, u: np.ndarray) -> np.ndarray:
+        return sp_stats.norm.ppf(u, loc=self.mean, scale=self.std)
 
     def describe(self) -> str:
         return f"Normal(μ={self.mean:.4f}, σ={self.std:.4f})"
@@ -82,6 +98,9 @@ class LogNormalDistribution(BaseDistribution):
     def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
         return rng.lognormal(self.mu, self.sigma, size=n)
 
+    def ppf(self, u: np.ndarray) -> np.ndarray:
+        return sp_stats.lognorm.ppf(u, s=self.sigma, scale=np.exp(self.mu))
+
     def describe(self) -> str:
         return f"LogNormal(μ={self.mu:.4f}, σ={self.sigma:.4f})"
 
@@ -97,6 +116,10 @@ class TriangularDistribution(BaseDistribution):
     def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
         return rng.triangular(self.low, self.mode, self.high, size=n)
 
+    def ppf(self, u: np.ndarray) -> np.ndarray:
+        c = (self.mode - self.low) / (self.high - self.low)
+        return sp_stats.triang.ppf(u, c, loc=self.low, scale=self.high - self.low)
+
     def describe(self) -> str:
         return f"Dreieck(min={self.low:.4f}, mode={self.mode:.4f}, max={self.high:.4f})"
 
@@ -110,6 +133,9 @@ class UniformDistribution(BaseDistribution):
 
     def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
         return rng.uniform(self.low, self.high, size=n)
+
+    def ppf(self, u: np.ndarray) -> np.ndarray:
+        return self.low + (self.high - self.low) * u
 
     def describe(self) -> str:
         return f"Gleichverteilung(min={self.low:.4f}, max={self.high:.4f})"
@@ -148,6 +174,10 @@ class PERTDistribution(BaseDistribution):
     def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
         beta_samples = rng.beta(self.alpha, self.beta_param, size=n)
         return self.low + (self.high - self.low) * beta_samples
+
+    def ppf(self, u: np.ndarray) -> np.ndarray:
+        beta_q = sp_stats.beta.ppf(u, self.alpha, self.beta_param)
+        return self.low + (self.high - self.low) * beta_q
 
     def describe(self) -> str:
         return (

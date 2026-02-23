@@ -6,7 +6,6 @@ ready to be embedded with ``st.plotly_chart(fig, use_container_width=True)``.
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional
 
 import numpy as np
 import plotly.graph_objects as go
@@ -171,7 +170,7 @@ def cdf_plot(
 # ═══════════════════════════════════════════════════════════════════════════
 
 def tornado_chart(
-    correlations: Dict[str, float],
+    correlations: dict[str, float],
     title: str = "Sensitivitätsanalyse (Spearman-Rangkorrelation)",
     top_n: int = 15,
 ) -> go.Figure:
@@ -212,15 +211,20 @@ def tornado_chart(
 # ═══════════════════════════════════════════════════════════════════════════
 
 def waterfall_chart(
-    segment_evs: Dict[str, float],
+    segment_evs: dict[str, float],
     corporate_costs_pv: float,
     net_debt: float,
     equity_value: float,
+    *,
+    minority_interests: float = 0.0,
+    pension_liabilities: float = 0.0,
+    non_operating_assets: float = 0.0,
+    associate_investments: float = 0.0,
 ) -> go.Figure:
-    """SOTP value-bridge waterfall: Segments − Costs − Debt = Equity."""
-    names: List[str] = []
-    values: List[float] = []
-    measures: List[str] = []
+    """SOTP value-bridge waterfall: Segments − Costs − Debt ± Bridge Items = Equity."""
+    names: list[str] = []
+    values: list[float] = []
+    measures: list[str] = []
 
     for seg_name, ev in segment_evs.items():
         names.append(f"EV {seg_name}")
@@ -234,6 +238,27 @@ def waterfall_chart(
     names.append("Nettoverschuldung")
     values.append(-net_debt)
     measures.append("relative")
+
+    # Extended bridge items (only show if non-zero)
+    if abs(minority_interests) > 0.01:
+        names.append("Minderheitsanteile")
+        values.append(-minority_interests)
+        measures.append("relative")
+
+    if abs(pension_liabilities) > 0.01:
+        names.append("Pensionsr\u00fcckstellungen")
+        values.append(-pension_liabilities)
+        measures.append("relative")
+
+    if abs(non_operating_assets) > 0.01:
+        names.append("Nicht-operative Assets")
+        values.append(non_operating_assets)
+        measures.append("relative")
+
+    if abs(associate_investments) > 0.01:
+        names.append("Beteiligungen")
+        values.append(associate_investments)
+        measures.append("relative")
 
     names.append("Equity Value")
     values.append(equity_value)
@@ -260,120 +285,6 @@ def waterfall_chart(
         height=520,
         showlegend=False,
         margin=dict(t=60, b=40),
-    )
-    return fig
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Price-per-share histogram
-# ═══════════════════════════════════════════════════════════════════════════
-
-def price_histogram(
-    prices: np.ndarray,
-    title: str = "Verteilung – Preis je Aktie",
-) -> go.Figure:
-    """Dedicated histogram for per-share prices."""
-    return histogram_kde(
-        prices, title=title, x_label="Preis je Aktie",
-        color=COLORS["accent"],
-    )
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Fair-value vs. current-price overlay
-# ═══════════════════════════════════════════════════════════════════════════
-
-def fv_vs_price_chart(
-    fair_values: np.ndarray,
-    current_price: float,
-    asset_name: str,
-) -> go.Figure:
-    """Histogram of fair values with a vertical line at the current price."""
-    fig = histogram_kde(
-        fair_values,
-        title=f"Fair Value vs. Kurs – {asset_name}",
-        x_label="Fair Value / Aktie",
-        color=COLORS["primary"],
-    )
-    fig.add_vline(
-        x=current_price,
-        line_dash="dash",
-        line_color=COLORS["negative"],
-        line_width=2.5,
-        annotation_text=f"Aktueller Kurs: {current_price:,.2f}",
-        annotation_font_size=12,
-        annotation_bgcolor="rgba(214,39,40,0.15)",
-    )
-    # shade profit area
-    prob_profit = float(np.mean(fair_values > current_price))
-    fig.add_annotation(
-        x=float(np.percentile(fair_values, 75)),
-        y=0,
-        text=f"P(Gewinn) = {prob_profit:.1%}",
-        showarrow=False,
-        yshift=30,
-        font=dict(size=13, color=COLORS["positive"]),
-        bgcolor="rgba(44,160,44,0.1)",
-    )
-    return fig
-
-
-def return_distribution_chart(
-    returns_pct: np.ndarray,
-    asset_name: str,
-) -> go.Figure:
-    """Histogram of expected return (%) with a zero line."""
-    fig = histogram_kde(
-        returns_pct,
-        title=f"Erwartete Rendite – {asset_name}",
-        x_label="Rendite (%)",
-        color=COLORS["secondary"],
-    )
-    fig.add_vline(
-        x=0,
-        line_dash="solid",
-        line_color=COLORS["neutral"],
-        line_width=1.5,
-        annotation_text="Breakeven",
-        annotation_font_size=10,
-    )
-    return fig
-
-
-def portfolio_weights_chart(
-    names: List[str],
-    weights_sharpe: np.ndarray,
-    weights_minvol: np.ndarray | None = None,
-) -> go.Figure:
-    """Grouped bar chart comparing Max-Sharpe and Min-Vol weights."""
-    fig = go.Figure()
-
-    fig.add_trace(go.Bar(
-        name="Max Sharpe",
-        x=names,
-        y=weights_sharpe * 100,
-        marker_color=COLORS["primary"],
-        text=[f"{w:.1f}%" for w in weights_sharpe * 100],
-        textposition="auto",
-    ))
-
-    if weights_minvol is not None:
-        fig.add_trace(go.Bar(
-            name="Min Volatilität",
-            x=names,
-            y=weights_minvol * 100,
-            marker_color=COLORS["secondary"],
-            text=[f"{w:.1f}%" for w in weights_minvol * 100],
-            textposition="auto",
-        ))
-
-    fig.update_layout(
-        title="Optimale Portfolio-Gewichtung",
-        yaxis_title="Gewicht (%)",
-        template=TEMPLATE,
-        barmode="group",
-        height=420,
-        yaxis=dict(range=[0, 105]),
     )
     return fig
 
@@ -434,8 +345,8 @@ def cdf_with_reference(
 
 
 def portfolio_weights_comparison(
-    names: List[str],
-    method_weights: Dict[str, np.ndarray],
+    names: list[str],
+    method_weights: dict[str, np.ndarray],
 ) -> go.Figure:
     """Grouped bar chart comparing all optimisation methods."""
     fig = go.Figure()
@@ -460,7 +371,7 @@ def portfolio_weights_comparison(
 
 def correlation_heatmap(
     corr_matrix: np.ndarray,
-    names: List[str],
+    names: list[str],
 ) -> go.Figure:
     """Correlation matrix as a coloured heatmap."""
     fig = go.Figure(data=go.Heatmap(
@@ -618,5 +529,199 @@ def revenue_fade_preview(
         height=350,
         showlegend=True,
         margin=dict(t=50, b=40),
+    )
+    return fig
+
+
+def parameter_fade_preview(
+    fade_speed: float,
+    forecast_years: int,
+    params: dict[str, tuple[float, float]],
+) -> go.Figure:
+    """Multi-parameter fade preview chart.
+
+    Parameters
+    ----------
+    fade_speed : float   λ
+    forecast_years : int  T
+    params : dict
+        ``{label: (initial, terminal)}``  – values are in *percent*.
+    """
+    years = np.arange(1, forecast_years + 1)
+    decay = np.exp(-fade_speed * years)
+
+    fig = go.Figure()
+    for label, (p_init, p_term) in params.items():
+        path = p_term + (p_init - p_term) * decay
+        fig.add_trace(go.Scatter(
+            x=years, y=path,
+            mode="lines+markers",
+            name=label,
+            line=dict(width=2),
+        ))
+
+    fig.update_layout(
+        title="Parameter-Fade Vorschau",
+        xaxis_title="Jahr",
+        yaxis_title="Wert (%)",
+        template=TEMPLATE,
+        height=350,
+        showlegend=True,
+        margin=dict(t=50, b=40),
+    )
+    return fig
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 2 – Core Insights charts
+# ═══════════════════════════════════════════════════════════════════════════
+
+def tv_ev_decomposition_chart(
+    segment_names: list[str],
+    mean_pv_fcff_shares: list[float],
+    mean_pv_tv_shares: list[float],
+) -> go.Figure:
+    """Stacked bar: PV(FCFF) vs PV(TV) share per segment.
+
+    Parameters
+    ----------
+    mean_pv_fcff_shares : list[float]
+        1 − TV/EV  per segment (fraction, 0–1).
+    mean_pv_tv_shares : list[float]
+        TV/EV  per segment (fraction, 0–1).
+    """
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        name="PV(FCFF)",
+        x=segment_names,
+        y=[v * 100 for v in mean_pv_fcff_shares],
+        marker_color=COLORS["primary"],
+        text=[f"{v*100:.1f}%" for v in mean_pv_fcff_shares],
+        textposition="inside",
+    ))
+    fig.add_trace(go.Bar(
+        name="PV(TV)",
+        x=segment_names,
+        y=[v * 100 for v in mean_pv_tv_shares],
+        marker_color=COLORS["secondary"],
+        text=[f"{v*100:.1f}%" for v in mean_pv_tv_shares],
+        textposition="inside",
+    ))
+    fig.add_hline(
+        y=70, line_dash="dot", line_color=COLORS["negative"],
+        annotation_text="70 % TV-Schwelle",
+        annotation_font_size=10,
+    )
+    fig.update_layout(
+        title="EV-Zusammensetzung: PV(FCFF) vs. PV(Terminal Value)",
+        yaxis_title="Anteil am EV (%)",
+        barmode="stack",
+        template=TEMPLATE,
+        height=420,
+        yaxis=dict(range=[0, 105]),
+    )
+    return fig
+
+
+def implied_roic_chart(
+    segment_names: list[str],
+    roic_means: list[float],
+    roic_p5: list[float],
+    roic_p95: list[float],
+) -> go.Figure:
+    """Bar chart of implied ROIC per segment with P5/P95 error bars."""
+    fig = go.Figure()
+    errors_minus = [max(0, m - lo) for m, lo in zip(roic_means, roic_p5)]
+    errors_plus = [max(0, hi - m) for m, hi in zip(roic_means, roic_p95)]
+
+    fig.add_trace(go.Bar(
+        x=segment_names,
+        y=[v * 100 for v in roic_means],
+        marker_color=COLORS["accent"],
+        text=[f"{v*100:.0f}%" for v in roic_means],
+        textposition="outside",
+        error_y=dict(
+            type="data",
+            symmetric=False,
+            array=[v * 100 for v in errors_plus],
+            arrayminus=[v * 100 for v in errors_minus],
+            color=COLORS["neutral"],
+        ),
+    ))
+    # Common benchmark lines
+    fig.add_hline(y=15, line_dash="dot", line_color=COLORS["positive"],
+                  annotation_text="15 % (gutes Unternehmen)",
+                  annotation_font_size=9, annotation_position="top left")
+    fig.add_hline(y=8, line_dash="dot", line_color=COLORS["neutral"],
+                  annotation_text="8 % (Kapitalkosten-Richtwert)",
+                  annotation_font_size=9, annotation_position="bottom left")
+    fig.update_layout(
+        title="Implizierte ROIC je Segment (Steady-State)",
+        yaxis_title="ROIC (%)",
+        template=TEMPLATE,
+        height=420,
+        showlegend=False,
+    )
+    return fig
+
+
+def quality_score_gauge(score: dict[str, float]) -> go.Figure:
+    """Gauge chart (0–100) for the composite valuation quality score."""
+    total = score.get("total", 0)
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number+delta",
+        value=total,
+        number=dict(suffix=" / 100"),
+        title=dict(text="Bewertungsqualität"),
+        gauge=dict(
+            axis=dict(range=[0, 100]),
+            bar=dict(color=COLORS["primary"]),
+            steps=[
+                dict(range=[0, 40], color="#fee0d2"),
+                dict(range=[40, 70], color="#fff3cd"),
+                dict(range=[70, 100], color="#d4edda"),
+            ],
+            threshold=dict(
+                line=dict(color=COLORS["negative"], width=3),
+                thickness=0.8,
+                value=total,
+            ),
+        ),
+    ))
+    fig.update_layout(template=TEMPLATE, height=320, margin=dict(t=60, b=20))
+    return fig
+
+
+def quality_score_breakdown_chart(score: dict[str, float]) -> go.Figure:
+    """Horizontal bar chart of the four quality sub-scores (each 0–25)."""
+    labels = [
+        "TV/EV Risiko",
+        "Konvergenz",
+        "Sensitivitäts-\nDiversifikation",
+        "Ergebnis-\nStreuung",
+    ]
+    keys = ["tv_ev", "convergence", "sensitivity", "dispersion"]
+    values = [score.get(k, 0) for k in keys]
+    colors = [
+        COLORS["secondary"] if v < 12.5 else COLORS["positive"]
+        for v in values
+    ]
+
+    fig = go.Figure(go.Bar(
+        x=values,
+        y=labels,
+        orientation="h",
+        marker_color=colors,
+        text=[f"{v:.1f} / 25" for v in values],
+        textposition="outside",
+    ))
+    fig.update_layout(
+        title="Qualitäts-Score – Aufschlüsselung",
+        xaxis_title="Punkte",
+        xaxis=dict(range=[0, 28]),
+        template=TEMPLATE,
+        height=280,
+        margin=dict(l=160, t=50, b=40),
+        showlegend=False,
     )
     return fig

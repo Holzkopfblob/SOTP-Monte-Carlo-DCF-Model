@@ -11,7 +11,6 @@ Uses **xlsxwriter** engine via pandas for maximum write performance.
 from __future__ import annotations
 
 import io
-from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -54,9 +53,9 @@ class ExcelExporter:
 
     def _write_summary(self, writer: pd.ExcelWriter) -> None:
         r = self.results
-        rows: list[Dict] = []
+        rows: list[dict] = []
 
-        def _row(label: str, arr: np.ndarray) -> Dict:
+        def _row(label: str, arr: np.ndarray) -> dict:
             return {
                 "Kennzahl": label,
                 "Mittelwert": np.mean(arr),
@@ -74,6 +73,33 @@ class ExcelExporter:
         for name, ev in r.segment_evs.items():
             rows.append(_row(f"  EV – {name}", ev))
         rows.append(_row("PV Holdingkosten", r.pv_corporate_costs))
+
+        # Extended bridge items (as scalar rows using base-case values)
+        if abs(r.base_minority_interests) > 0.01:
+            rows.append({
+                "Kennzahl": "Minderheitsanteile",
+                **{k: -r.base_minority_interests for k in
+                   ["Mittelwert", "Median", "Std.-Abw.", "P5", "P25", "P75", "P95", "Min", "Max"]},
+            })
+        if abs(r.base_pension_liabilities) > 0.01:
+            rows.append({
+                "Kennzahl": "Pensionsrückstellungen",
+                **{k: -r.base_pension_liabilities for k in
+                   ["Mittelwert", "Median", "Std.-Abw.", "P5", "P25", "P75", "P95", "Min", "Max"]},
+            })
+        if abs(r.base_non_operating_assets) > 0.01:
+            rows.append({
+                "Kennzahl": "Nicht-operative Assets",
+                **{k: r.base_non_operating_assets for k in
+                   ["Mittelwert", "Median", "Std.-Abw.", "P5", "P25", "P75", "P95", "Min", "Max"]},
+            })
+        if abs(r.base_associate_investments) > 0.01:
+            rows.append({
+                "Kennzahl": "Beteiligungen",
+                **{k: r.base_associate_investments for k in
+                   ["Mittelwert", "Median", "Std.-Abw.", "P5", "P25", "P75", "P95", "Min", "Max"]},
+            })
+
         rows.append(_row("Equity Value", r.equity_values))
         rows.append(_row("Preis je Aktie", r.price_per_share))
 
@@ -82,9 +108,9 @@ class ExcelExporter:
         )
 
     def _write_assumptions(self, writer: pd.ExcelWriter) -> None:
-        rows: list[Dict] = []
+        rows: list[dict] = []
         for seg in self.config.segments:
-            row: Dict = {
+            row: dict = {
                 "Segment": seg.name,
                 "Basisumsatz (Mio.)": seg.base_revenue,
                 "Prognosejahre": seg.forecast_years,
@@ -100,7 +126,7 @@ class ExcelExporter:
 
     def _write_raw_data(self, writer: pd.ExcelWriter) -> None:
         r = self.results
-        data: Dict[str, np.ndarray] = {}
+        data: dict[str, np.ndarray] = {}
 
         data["Simulation #"] = np.arange(1, r.n_simulations + 1)
         for k, v in r.input_samples.items():

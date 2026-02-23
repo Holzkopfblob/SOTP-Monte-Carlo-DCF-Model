@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List
 
 import numpy as np
 
@@ -106,6 +105,16 @@ class SegmentConfig:
     revenue_growth_mode: RevenueGrowthMode = RevenueGrowthMode.CONSTANT
     fade_speed: float = 0.5             # λ – exponential decay speed (higher = faster fade)
 
+    # ── Phase 3: Parameter fade (terminal targets) ────────────────────
+    # When not None, the parameter fades from its initial distribution
+    # to the terminal distribution using the same exponential decay:
+    #   p_t = p_terminal + (p_initial - p_terminal) * exp(-λ * t)
+    ebitda_margin_terminal:         DistributionConfig | None = None
+    da_pct_revenue_terminal:        DistributionConfig | None = None
+    tax_rate_terminal:              DistributionConfig | None = None
+    capex_pct_revenue_terminal:     DistributionConfig | None = None
+    nwc_pct_delta_revenue_terminal: DistributionConfig | None = None
+
 
 # ---------------------------------------------------------------------------
 # Corporate bridge
@@ -125,10 +134,20 @@ class CorporateBridgeConfig:
     net_debt:                     float = 500.0   # Mio.
     shares_outstanding:           float = 100.0   # Mio. shares
 
+    # Extended bridge items
+    minority_interests:      float = 0.0     # Mio. (ownership by third parties in subsidiaries)
+    pension_liabilities:     float = 0.0     # Mio. (unfunded pension obligations)
+    non_operating_assets:    float = 0.0     # Mio. (excess cash, real estate, investments)
+    associate_investments:   float = 0.0     # Mio. (equity-method investments)
+
     # Stochastic overrides (None = use scalar above)
     stochastic_corporate_costs: DistributionConfig | None = None
     stochastic_net_debt:        DistributionConfig | None = None
     stochastic_shares:          DistributionConfig | None = None
+    stochastic_minority_interests:    DistributionConfig | None = None
+    stochastic_pension_liabilities:   DistributionConfig | None = None
+    stochastic_non_operating_assets:  DistributionConfig | None = None
+    stochastic_associate_investments: DistributionConfig | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -140,8 +159,31 @@ class SimulationConfig:
     """Complete configuration for one simulation run."""
     n_simulations: int             = 10_000
     random_seed:   int             = 42
-    segments:      List[SegmentConfig]     = field(default_factory=list)
+    segments:      list[SegmentConfig]     = field(default_factory=list)
     corporate_bridge: CorporateBridgeConfig = field(default_factory=CorporateBridgeConfig)
+    mid_year_convention: bool      = True     # discount FCFFs at t−0.5 (standard practice)
+
+    # ── Phase 3: Cross-segment correlation ────────────────────────────
+    # Correlation matrix (n_seg × n_seg) stored as list-of-lists.
+    # When not None, a Gaussian copula correlates all stochastic draws
+    # between segments.  Diagonal must be 1.0; off-diag in [−1, 1].
+    segment_correlation: list[list[float]] | None = None
+
+
+# ---------------------------------------------------------------------------
+# Segment EV decomposition (Phase 2)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SegmentEVDetail:
+    """Decomposed segment enterprise-value result.
+
+    Returned by ``compute_segment_ev`` so that the engine can extract
+    PV(FCFF) and PV(TV) separately for quality-metric computation.
+    """
+    ev:      np.ndarray   # (n,) = pv_fcff + pv_tv
+    pv_fcff: np.ndarray   # (n,)
+    pv_tv:   np.ndarray   # (n,)
 
 
 # ---------------------------------------------------------------------------
@@ -154,17 +196,23 @@ class SimulationResults:
     # Core output vectors  (n_sim,)
     equity_values:      np.ndarray
     total_ev:           np.ndarray
-    segment_evs:        Dict[str, np.ndarray]       # segment name → (n_sim,)
+    segment_evs:        dict[str, np.ndarray]       # segment name → (n_sim,)
     pv_corporate_costs: np.ndarray
 
     # Input samples for sensitivity analysis
-    input_samples: Dict[str, np.ndarray]            # param label → (n_sim,)
+    input_samples: dict[str, np.ndarray]            # param label → (n_sim,)
 
     # Base-case (expectation) values for waterfall chart
-    base_segment_evs:       Dict[str, float] = field(default_factory=dict)
+    base_segment_evs:       dict[str, float] = field(default_factory=dict)
     base_corporate_costs_pv: float = 0.0
     base_net_debt:           float = 0.0
     base_equity_value:       float = 0.0
+
+    # Extended bridge base-case values
+    base_minority_interests:    float = 0.0
+    base_pension_liabilities:   float = 0.0
+    base_non_operating_assets:  float = 0.0
+    base_associate_investments: float = 0.0
 
     # Derived
     price_per_share: np.ndarray = field(default_factory=lambda: np.array([]))
@@ -175,3 +223,13 @@ class SimulationResults:
     convergence_means:   np.ndarray = field(default_factory=lambda: np.array([]))
     convergence_ci_low:  np.ndarray = field(default_factory=lambda: np.array([]))
     convergence_ci_high: np.ndarray = field(default_factory=lambda: np.array([]))
+
+    # ── Phase 2: Core Insights ────────────────────────────────────────
+    # Per-segment TV/EV ratio distributions  (segment name → (n_sim,))
+    segment_tv_ev_ratios: dict[str, np.ndarray] = field(default_factory=dict)
+    # Per-segment implied ROIC distributions  (segment name → (n_sim,))
+    segment_implied_roic: dict[str, np.ndarray] = field(default_factory=dict)
+    # Per-segment reinvestment rates  (segment name → (n_sim,))
+    segment_reinvest_rates: dict[str, np.ndarray] = field(default_factory=dict)
+    # Composite quality score dict (total, tv_ev, convergence, sensitivity, dispersion)
+    quality_score: dict[str, float] = field(default_factory=dict)

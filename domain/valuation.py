@@ -19,11 +19,11 @@ def compute_fcff_vectors(
     base_revenue: float,
     forecast_years: int,
     revenue_growth: np.ndarray,          # (n,)
-    ebitda_margin: np.ndarray,           # (n,)
-    da_pct_revenue: np.ndarray,          # (n,)
-    tax_rate: np.ndarray,                # (n,)
-    capex_pct_revenue: np.ndarray,       # (n,)
-    nwc_pct_delta_revenue: np.ndarray,   # (n,)
+    ebitda_margin: np.ndarray,           # (n,) or (n, T)
+    da_pct_revenue: np.ndarray,          # (n,) or (n, T)
+    tax_rate: np.ndarray,                # (n,) or (n, T)
+    capex_pct_revenue: np.ndarray,       # (n,) or (n, T)
+    nwc_pct_delta_revenue: np.ndarray,   # (n,) or (n, T)
     *,
     growth_mode: RevenueGrowthMode = RevenueGrowthMode.CONSTANT,
     terminal_growth: np.ndarray | None = None,
@@ -38,8 +38,11 @@ def compute_fcff_vectors(
         Year-0 revenue (the starting point).
     forecast_years : int
         Number of explicit forecast years (T).
-    revenue_growth … nwc_pct_delta_revenue : (n,) arrays
-        One sampled value per simulation.
+    revenue_growth : (n,) array
+        One sampled value per simulation (initial when fade active).
+    ebitda_margin … nwc_pct_delta_revenue : (n,) or (n, T) arrays
+        One sampled value per simulation OR a full time-varying path
+        when the parameter fade model is active (Phase 3).
     growth_mode : RevenueGrowthMode
         CONSTANT – same g every year (original behaviour).
         FADE     – g decays exponentially from initial to terminal growth:
@@ -57,6 +60,12 @@ def compute_fcff_vectors(
     """
     n = revenue_growth.shape[0]
     years = np.arange(1, forecast_years + 1, dtype=np.float64)  # [1 … T]
+
+    # ── Helper: broadcast (n,) → (n, T) or keep (n, T) as-is ─────────
+    def _bcast(arr: np.ndarray) -> np.ndarray:
+        if arr.ndim == 1:
+            return arr[:, None] * np.ones((1, forecast_years))
+        return arr
 
     if growth_mode == RevenueGrowthMode.FADE and terminal_growth is not None:
         # Fade model: g_t = g_term + (g_init - g_term) * exp(-λ * t)
@@ -78,21 +87,28 @@ def compute_fcff_vectors(
             years[None, :],
         )
 
-    ebitda = revenue * ebitda_margin[:, None]
-    da     = revenue * da_pct_revenue[:, None]
+    # Broadcast each margin / ratio parameter (supports 1-D and 2-D)
+    em   = _bcast(ebitda_margin)          # (n, T)
+    da_r = _bcast(da_pct_revenue)         # (n, T)
+    tx_r = _bcast(tax_rate)               # (n, T)
+    cx_r = _bcast(capex_pct_revenue)      # (n, T)
+    nw_r = _bcast(nwc_pct_delta_revenue)  # (n, T)
+
+    ebitda = revenue * em
+    da     = revenue * da_r
     ebit   = ebitda - da
 
     # Taxes only on positive EBIT
-    taxes  = np.maximum(ebit, 0.0) * tax_rate[:, None]
+    taxes  = np.maximum(ebit, 0.0) * tx_r
     nopat  = ebit - taxes
 
-    capex  = revenue * capex_pct_revenue[:, None]
+    capex  = revenue * cx_r
 
     # Change in net working capital
     prev_rev = np.empty_like(revenue)
     prev_rev[:, 0]  = base_revenue
     prev_rev[:, 1:] = revenue[:, :-1]
-    delta_nwc = (revenue - prev_rev) * nwc_pct_delta_revenue[:, None]
+    delta_nwc = (revenue - prev_rev) * nw_r
 
     # FCFF = NOPAT + D&A − CAPEX − ΔNWC
     fcff = nopat + da - capex - delta_nwc
@@ -145,14 +161,28 @@ def compute_segment_ev(
     *,
     growth_mode: RevenueGrowthMode = RevenueGrowthMode.CONSTANT,
     fade_speed: float = 0.5,
-) -> np.ndarray:
+    mid_year_convention: bool = True,
+    decompose: bool = False,
+) -> "np.ndarray | SegmentEVDetail":
     """
     Full DCF valuation for a single segment.
 
+    Parameters
+    ----------
+    mid_year_convention : bool
+        If True, FCFFs are discounted at t−0.5 (cash flows assumed at
+        mid-year).  The terminal value is always discounted at end of
+        year T regardless of this setting.
+    decompose : bool
+        If True, return a :class:`SegmentEVDetail` with ``pv_fcff`` and
+        ``pv_tv`` split out.  Default False keeps backward compatibility.
+
     Returns
     -------
-    ev : (n,) – Enterprise value per simulation.
+    ev : (n,) array  OR  :class:`SegmentEVDetail`  (when *decompose=True*).
     """
+    from domain.models import SegmentEVDetail  # avoid circular at module level
+
     fcff, ebitda, _ = compute_fcff_vectors(
         base_revenue, forecast_years,
         revenue_growth, ebitda_margin, da_pct_revenue,
@@ -163,9 +193,11 @@ def compute_segment_ev(
     )
 
     years = np.arange(1, forecast_years + 1, dtype=np.float64)
+    # Mid-year convention: discount FCFFs at t−0.5 (standard practice)
+    discount_exp = years - 0.5 if mid_year_convention else years
     discount = 1.0 / np.power(
         (1.0 + wacc)[:, None],
-        years[None, :],
+        discount_exp[None, :],
     )
 
     pv_fcff = np.sum(fcff * discount, axis=1)           # (n,)
@@ -178,8 +210,15 @@ def compute_segment_ev(
         terminal_growth,
         exit_multiple,
     )
+    # Terminal value is always discounted at end of year T
     pv_tv = tv / np.power(1.0 + wacc, float(forecast_years))   # (n,)
 
+    if decompose:
+        return SegmentEVDetail(
+            ev=pv_fcff + pv_tv,
+            pv_fcff=pv_fcff,
+            pv_tv=pv_tv,
+        )
     return pv_fcff + pv_tv
 
 
