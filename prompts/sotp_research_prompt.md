@@ -1,419 +1,519 @@
 # SOTP Monte-Carlo DCF – Research & Estimation Prompt
 
-> **Verwendung:** Kopiere diesen Prompt und ersetze `[UNTERNEHMEN]` durch den tatsächlichen Firmennamen (z.B. "Siemens AG", "Alphabet Inc.", "SAP SE"). Übergib den Prompt an ein LLM mit Webzugriff oder nutze ihn als strukturierte Rechercheleitlinie.
+> **Verwendung:** Kopiere diesen Prompt und ersetze jeden Platzhalter `[UNTERNEHMEN]` durch den tatsächlichen Firmennamen (z. B. „Siemens AG", „Alphabet Inc.", „SAP SE"). Übergib den Prompt an ein LLM **mit Webzugriff** oder nutze ihn als strukturierte Rechercheleitlinie.
 
 ---
 
 ## DER PROMPT
 
 ```
-Du bist ein "Senior Equity Research Analyst" mit CFA-Qualifikation und 15 Jahren
-Erfahrung in der fundamentalen Unternehmensbewertung.
+Du bist ein „Senior Equity Research Analyst" mit CFA-Qualifikation und
+15 Jahren Erfahrung in fundamentaler Unternehmensbewertung.
 
-Deine Aufgabe: Recherchiere und schätze ALLE Parameter, die für ein
-Sum-of-the-Parts (SOTP) Monte-Carlo-DCF-Modell für **[UNTERNEHMEN]** benötigt
-werden. Das Modell nutzt den FCFF-Ansatz (Free Cash Flow to Firm) mit
-stochastischen Verteilungen, einem Universal-Fade-Modell (exponentielle
-Konvergenz aller Parameter zu Terminal-Werten) und Gauss-Copula für
-Cross-Segment-Korrelation.
+Deine Aufgabe: Recherchiere und schätze **ALLE** Parameter, die für ein
+Sum-of-the-Parts (SOTP) Monte-Carlo-DCF-Modell für **[UNTERNEHMEN]**
+benötigt werden.
 
-═══════════════════════════════════════════════════════════════════════════════════
-SCHRITT 1 – SEGMENTIDENTIFIKATION
-═══════════════════════════════════════════════════════════════════════════════════
+Das Modell hat folgende Eigenschaften – behalte sie bei jeder Schätzung
+im Hinterkopf:
+
+• FCFF-Ansatz (Free Cash Flow to Firm)
+• 6 Verteilungstypen:
+    Fest | Normal (μ, σ) | Lognormal (μ, σ) | Dreieck (Min, Mode, Max) |
+    Gleichverteilung (Min, Max) | PERT (Min, Mode, Max)
+• Universal-Fade-Modell – jeder Werttreiber (Wachstum, Marge, D&A, Steuer,
+  CAPEX, NWC) kann exponentiell von einem initialen zu einem terminalen Wert
+  konvergieren:  p_t = p_terminal + (p_initial − p_terminal) · e^(−λ·t)
+• Gauss-Copula für Cross-Segment-Korrelation
+• Erweiterte Equity Bridge (Holding, Net Debt, Aktien, Minderheiten,
+  Pensionen, nicht-operative Assets, Beteiligungen) – jeder Posten
+  optional als Verteilung
+• Bewertungsqualitäts-Metriken: TV/EV-Ratio, Implied ROIC, Reinvestment
+  Rate, Composite Quality Score (0–100)
+• Mid-Year Discounting Convention (Standard)
+
+Alle Prozentangaben als %, NICHT als Dezimalzahl (das Modell konvertiert
+intern). Berichtswährung konsistent nutzen und einmalig nennen.
+
+Bei Unsicherheit: Lieber eine BREITERE Verteilung wählen – das ist der
+Mehrwert einer MC-Simulation gegenüber einem Punkt-DCF.
+PERT wird gegenüber Dreieck bevorzugt (weniger Gewicht auf Extremwerte).
+
+
+═══════════════════════════════════════════════════════════════════════════
+SCHRITT 1 · SEGMENTIDENTIFIKATION
+═══════════════════════════════════════════════════════════════════════════
 
 Analysiere die Geschäftsstruktur von [UNTERNEHMEN]:
 
 1. Identifiziere alle wesentlichen Geschäftssegmente anhand der letzten
    Segmentberichterstattung (Annual Report / 10-K / 20-F).
-2. Für jedes Segment angeben:
-   - Segmentname (wie im Geschäftsbericht berichtet)
-   - Kurzbeschreibung (1-2 Sätze: Was macht das Segment? Welche Produkte/Märkte?)
-   - Umsatz des letzten Geschäftsjahres in Mio. der Berichtswährung
-   - Strategische Positionierung (Wachstumsmotor / Cash Cow / Turnaround / etc.)
-3. Sortiere nach Umsatzgröße (größtes Segment zuerst).
+2. Für jedes Segment:
+   a) Segmentname (wie im Geschäftsbericht berichtet)
+   b) Kurzbeschreibung (1–2 Sätze: Was macht das Segment? Kernprodukte/Märkte?)
+   c) Letzter berichteter Jahresumsatz (Mio. Berichtswährung)
+   d) Strategische Positionierung: Wachstumsmotor / Cash Cow / Turnaround / Restrukturierung
+3. Sortiere absteigend nach Umsatz.
 
-Format:
+Liefere als Tabelle:
+
 | # | Segment | Umsatz (Mio.) | Beschreibung | Positionierung |
-|---|---------|---------------|-------------|----------------|
+|---|---------|---------------|--------------|----------------|
+| 1 | …       | …             | …            | …              |
 
-═══════════════════════════════════════════════════════════════════════════════════
-SCHRITT 2 – PARAMETER JE SEGMENT (FCFF-WERTTREIBER)
-═══════════════════════════════════════════════════════════════════════════════════
 
-Für JEDES identifizierte Segment recherchiere und schätze die folgenden
-9 Parameter. Liefere für jeden Parameter:
+═══════════════════════════════════════════════════════════════════════════
+SCHRITT 2 · FCFF-WERTTREIBER JE SEGMENT
+═══════════════════════════════════════════════════════════════════════════
 
-(a) Den **empfohlenen Punktschätzungswert** (Base Case)
-(b) Die **empfohlene Wahrscheinlichkeitsverteilung** mit vollständigen Parametern
-(c) Eine **Begründung** (2-4 Sätze) mit Quellenhinweisen
+Für **jedes** Segment in Schritt 1 recherchiere die folgenden 11 Parameter.
+Liefere für JEDEN Parameter:
 
-Die verfügbaren Verteilungen im Modell sind:
-- Fest (deterministisch) → Wert
-- Normalverteilung → μ (Mittelwert), σ (Standardabweichung)
-- Lognormalverteilung → gewünschter Mittelwert, gewünschte Std.-Abw.
-- Dreiecksverteilung → Min, Mode (wahrscheinlichster Wert), Max
-- Gleichverteilung → Min, Max
-- PERT-Verteilung → Min, Mode, Max
+  (a) **Punktschätzung** (Base Case)
+  (b) **Empfohlene Verteilung** mit sämtlichen Parametern
+  (c) **Terminal-Wert** (langfristiges Gleichgewicht, falls Fade empfohlen)
+  (d) **Begründung** (2–4 Sätze) mit konkreten Quellenhinweisen
 
-──────────────────────────────────────────────────────────────────────────────
-PARAMETER 1: Basisumsatz (Mio.) – Jahr 0
-──────────────────────────────────────────────────────────────────────────────
-→ Der letzte tatsächlich berichtete Jahresumsatz des Segments.
-→ Quelle: Letzter Geschäftsbericht, Segmentberichterstattung.
-→ FEST (kein Zufall – historischer Fakt).
+Wenn ein Parameter für ein Segment NICHT separat berichtet wird, nutze den
+Konzernwert und kennzeichne dies als „Konzernannahme".
 
-──────────────────────────────────────────────────────────────────────────────
-PARAMETER 2: Prognosezeitraum (Jahre)
-──────────────────────────────────────────────────────────────────────────────
-→ Empfehlung abhängig vom Geschäftsmodell:
-  - Stabile/reife Segmente:     5 Jahre
-  - Wachstumssegmente:          7-10 Jahre
-  - Zyklische Segmente:         Idealerweise ein voller Zyklus (5-7 Jahre)
-→ FEST.
+────────────────────────────────────────────────────────────────────────
+2.1  Basisumsatz (Mio.) – Jahr 0
+────────────────────────────────────────────────────────────────────────
+• Letzter tatsächlich berichteter Jahresumsatz des Segments.
+• Quelle: Segmentberichterstattung im letzten Geschäftsbericht.
+• IMMER als FEST (historischer Fakt, keine Verteilung).
 
-──────────────────────────────────────────────────────────────────────────────
-PARAMETER 3: Jährliches Umsatzwachstum (%)
-──────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────
+2.2  Prognosezeitraum (Jahre)
+────────────────────────────────────────────────────────────────────────
+Empfehlungen:
+  - Stabile/reife Segmente → 5 Jahre
+  - Wachstumssegmente     → 7–10 Jahre (bis Steady-State erreicht)
+  - Zyklische Segmente    → voller Konjunkturzyklus (5–7 Jahre)
+• IMMER als FEST (ganzzahlig, 1–30).
+
+────────────────────────────────────────────────────────────────────────
+2.3  Umsatzwachstum (%)
+────────────────────────────────────────────────────────────────────────
 Recherchiere:
-- Historisches CAGR der letzten 3 und 5 Jahre für das Segment
-- Konsensus-Analystenprognosen (wo verfügbar)
-- Branchenwachstumsprognosen (TAM/SAM-Entwicklung von Gartner, IDC, Statista etc.)
-- Unternehmensguidance (sofern vorhanden)
+  • Historisches CAGR (3 J / 5 J) des Segments
+  • Konsensus-Analystenprognosen (Bloomberg, LSEG, Visible Alpha)
+  • Branchenwachstum (TAM/SAM via Gartner, IDC, Statista etc.)
+  • Unternehmensguidance
 
-Verteilungsempfehlung:
-- PERT oder Dreieck wenn Min/Mode/Max gut einschätzbar
-- Normal wenn symmetrische Unsicherheit um einen Mittelwert
+Verteilung: PERT oder Dreieck (Min/Mode/Max).
+             Normal bei symmetrischer Unsicherheit.
 
-**Fade-Terminal-Wert (optional aber empfohlen):**
-- Das Modell unterstützt einen Fade-Modus, bei dem die Wachstumsrate
-  exponentiell von einem initialen zu einem Terminal-Wert konvergiert:
-  g_t = g_terminal + (g_initial – g_terminal) · e^(–λt)
-- Empfehlung: Schätze zusätzlich einen **Terminal Growth** (langfristiges
-  Gleichgewicht, oft nahe nominalem BIP-Wachstum 2–3 %).
-- Das Modell berechnet den Fade automatisch – du musst nur Initial
-  und Terminal angeben.
+Fade-Terminal-Wert (dringend empfohlen):
+  → Die Wachstumsrate sollte zur langfristigen Rate konvergieren
+    (oft nahe nominalem BIP-Wachstum 2–3 %).
+  → Nenne explizit: g_initial (%) und g_terminal (%).
+  → Das Modell berechnet den Pfad automatisch via λ-Fade.
 
-──────────────────────────────────────────────────────────────────────────────
-PARAMETER 4: EBITDA-Marge (%)
-──────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────
+2.4  EBITDA-Marge (%)
+────────────────────────────────────────────────────────────────────────
 Recherchiere:
-- Historische Segmentmarge der letzten 3-5 Jahre (Trend?)
-- Peer-Group-Vergleich: Median-Marge vergleichbarer Pure-Play-Unternehmen
-- Skalierungseffekte / operative Leverage-Potenziale
-- Management-Zielvorgaben ("Mid-term targets")
+  • Historische Segmentmarge (3–5 J, Trend?)
+  • Peer-Group Median-Marge (Pure-Play-Vergleiche)
+  • Skaleneffekte / operative Leverage
+  • Management-Zielvorgaben („Mid-term targets")
 
-Verteilungsempfehlung:
-- PERT (die meisten Experten können Min/Mode/Max gut schätzen)
-- Normal bei symmetrischer Unsicherheit
+Verteilung: PERT bevorzugt, Normal bei symmetrischer Unsicherheit.
 
-**Fade-Terminal-Wert (optional aber empfohlen):**
-- Terminal-EBITDA-Marge = Langfristig nachhaltige Marge (Peer-Median, nach
-  Skaleneffekten, nach Wettbewerbsintensivierung)
-- Hilfe: Liegt die aktuelle Marge über dem Branchendurchschnitt? Dann Fade
-  in Richtung Median.
+Fade-Terminal-Wert (empfohlen):
+  → Terminal-EBITDA-Marge = langfristig nachhaltige Marge.
+  → Liegt die aktuelle Marge über Peer-Median? → Fade nach unten.
+  → Wachstumssegment mit Margensteigerungspotenzial? → Fade nach oben.
 
-──────────────────────────────────────────────────────────────────────────────
-PARAMETER 5: Abschreibungen (D&A) als % vom Umsatz
-──────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────
+2.5  D&A als % vom Umsatz
+────────────────────────────────────────────────────────────────────────
 Recherchiere:
-- Historische D&A/Revenue-Ratio des Segments (oder Konzern wenn nicht separat)
-- Kapitalintensität der Branche
-- Erwartete Investitionszyklen (neue Anlagen → höhere D&A)
+  • Historische D&A-/Umsatz-Ratio (Segment oder Konzern)
+  • Kapitalintensität der Branche
+  • Erwartete Investitionszyklen (neue Anlagen → höhere D&A)
 
-Verteilungsempfehlung:
-- Fest oder Dreieck (D&A ist relativ stabil und planbar)
+Verteilung: Fest oder Dreieck (D&A ist relativ stabil).
 
-**Fade-Terminal-Wert (optional):**
-- Terminal-D&A% = Langfristige Maintenance-D&A als Anteil vom Umsatz
-  (entfällt bei reifem/stabilem Asset-Bestand)
+Fade-Terminal-Wert (optional):
+  → Bei reifem Asset-Bestand sinkt D&A/Umsatz langfristig.
+  → Terminal-D&A% = Maintenance-Level.
 
-──────────────────────────────────────────────────────────────────────────────
-PARAMETER 6: Effektiver Steuersatz (%)
-──────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────
+2.6  Effektiver Steuersatz (%)
+────────────────────────────────────────────────────────────────────────
 Recherchiere:
-- Historischer effektiver Konzernsteuersatz (ETR) der letzten 3 Jahre
-- Sitzland des Segments und lokaler Körperschaftssteuersatz
-- Sondereffekte (Verlustvorträge, Steuervergünstigungen, Pillar-Two-Mindeststeuer 15%)
-- Langfristig nachhaltiger Steuersatz
+  • Historischer effektiver Konzern-ETR (3 J)
+  • Sitzland und lokaler Körperschaftssteuersatz
+  • Sondereffekte (Verlustvorträge, Pillar-Two 15 %)
+  • Langfristig nachhaltiger Steuersatz
 
-Verteilungsempfehlung:
-- Fest (da regulatorisch weitgehend determiniert)
-- Dreieck bei signifikanter Unsicherheit (z.B. Steuerreformen)
+Verteilung: Fest (typisch); Dreieck bei Steuerreform-Unsicherheit.
 
-──────────────────────────────────────────────────────────────────────────────
-PARAMETER 7: CAPEX als % vom Umsatz
-──────────────────────────────────────────────────────────────────────────────
+Fade-Terminal-Wert (optional):
+  → Nur wenn regulatorische Änderungen erwartet werden.
+
+────────────────────────────────────────────────────────────────────────
+2.7  CAPEX als % vom Umsatz
+────────────────────────────────────────────────────────────────────────
 Recherchiere:
-- Historische CAPEX/Revenue-Ratio (Trend: steigend/fallend?)
-- Management-Guidance zu Investitionsplänen
-- Branchenvergleich (z.B. Software ~3-5%, Telko ~15-20%, Industrie ~5-8%)
-- Maintenance CAPEX vs. Growth CAPEX Aufschlüsselung (falls verfügbar)
+  • Historische CAPEX/Umsatz-Ratio (Trend?)
+  • Management-Guidance zu Investitionsplänen
+  • Branchenvergleich (Software ~3–5 %, Telko ~15–20 %, Industrie ~5–8 %)
+  • Maintenance vs. Growth CAPEX getrennt (falls verfügbar)
 
-Verteilungsempfehlung:
-- PERT oder Dreieck
-- Normal bei wenig Informationsasymmetrie
+Verteilung: PERT oder Dreieck.
 
-**Fade-Terminal-Wert (optional aber empfohlen):**
-- Terminal-CAPEX% = Langfristiger Maintenance-Anteil (oft niedriger
-  als heutige Growth-CAPEX-Phase)
-- Hilfe: Welcher Anteil der CAPEX ist Growth vs. Maintenance?
-  Im Terminal Value braucht man nur Maintenance.
+Fade-Terminal-Wert (dringend empfohlen):
+  → Terminal-CAPEX% = Erhaltungsinvestitionen (oft deutlich unter
+    aktuellem Wert, wenn Growth-Phase endet).
+  → Faustregel: Maintenance CAPEX ≈ D&A (langfristig).
 
-──────────────────────────────────────────────────────────────────────────────
-PARAMETER 8: NWC-Veränderung als % der Umsatzveränderung
-──────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────
+2.8  NWC-Veränderung als % der Umsatzveränderung
+────────────────────────────────────────────────────────────────────────
 Recherchiere:
-- Historische NWC/Revenue-Ratio und deren Veränderung
-- Branchencharakteristik:
-  - Software/Digital: niedrig (0-5%)
-  - Handel/Industrie: mittel-hoch (10-20%)
-  - Bau/Anlagenbau: hoch (15-25%)
-- Saisonalität und Cash-Conversion-Cycle des Segments
+  • Historische NWC/Umsatz-Quote und Veränderung
+  • Branchencharakteristik:
+      Software/Digital 0–5 % | Handel/Industrie 10–20 % | Bau 15–25 %
+  • Cash-Conversion-Cycle des Segments
 
-Verteilungsempfehlung:
-- Fest oder PERT (oft relativ stabil innerhalb einer Branche)
+Verteilung: Fest oder PERT.
 
-**Fade-Terminal-Wert (optional):**
-- Terminal-NWC% = Langfristiger Gleichgewichtswert
-  (bei effizienterem Working Capital Management oder
-  bei Veränderung des Geschäftsmix)
+Fade-Terminal-Wert (optional):
+  → Ändert sich die NWC-Intensität bei Shift zu anderem Produktmix?
 
-──────────────────────────────────────────────────────────────────────────────
-PARAMETER 9: WACC (%)
-──────────────────────────────────────────────────────────────────────────────
-Berechne den WACC segmentspezifisch:
+────────────────────────────────────────────────────────────────────────
+2.9  WACC (%)
+────────────────────────────────────────────────────────────────────────
+Berechne segmentspezifisch und ZEIGE die vollständige Herleitung:
 
-a) Eigenkapitalkosten (k_e) via CAPM:
-   - Risikofreier Zins: Aktuelle 10Y-Staatsanleihe des Referenzmarktes
-   - Equity Risk Premium: Damodaran-ERP für relevanten Markt
-   - Beta: Identifiziere 3-5 Pure-Play-Vergleichsunternehmen für das Segment,
-     ermittle deren Levered Beta, unlever via Hamada, re-lever mit
-     Kapitalstruktur von [UNTERNEHMEN]
-   - Ggf. Size Premium / Country Risk Premium
+a) k_e (CAPM):
+   • Risikofreier Zins: Aktuelle 10Y-Staatsanleihe des Referenzmarktes
+   • ERP: Damodaran Equity Risk Premium für relevanten Markt
+   • Beta: 3–5 Pure-Play-Peers → Levered Beta → Unlever (Hamada) →
+     Re-lever mit Kapitalstruktur von [UNTERNEHMEN]
+   • Ggf. Size Premium / Country Risk Premium
 
-b) Fremdkapitalkosten (k_d):
-   - Credit Rating von [UNTERNEHMEN] → Credit Spread
-   - Oder: Durchschnittlicher Zinsaufwand / durchschnittliche Finanzschulden
+b) k_d:
+   • Credit Rating → Credit Spread
+   • Oder: Durchschnittl. Zinsaufwand / Finanzschulden
 
 c) Kapitalstruktur:
-   - Aktuelle E/V und D/V Gewichtung (Marktwerte)
-   - Zielkapitalstruktur falls kommuniziert
+   • E/V und D/V auf Marktwertbasis
+   • Zielkapitalstruktur falls kommuniziert
 
-d) Steuereffekt auf Fremdkapital
+d) Tax Shield auf Fremdkapital
 
-Verteilungsempfehlung:
-- Normal oder PERT (WACC-Unsicherheit hat enormen Hebel auf die Bewertung!)
-- σ typisch 0.5-2.0 Prozentpunkte je nach Informationsqualität
+WACC = (E/V · k_e) + (D/V · k_d · (1 − t))
 
-──────────────────────────────────────────────────────────────────────────────
-PARAMETER 10: Terminal Value – Methode & Parameter
-──────────────────────────────────────────────────────────────────────────────
+Verteilung: Normal oder PERT (σ typisch 0,5–2,0 pp).
 
-Für jedes Segment entscheiden:
+────────────────────────────────────────────────────────────────────────
+2.10  Terminal-Value-Methode
+────────────────────────────────────────────────────────────────────────
 
-OPTION A – Gordon Growth Model (Ewige Rente):
-→ TV-Wachstumsrate g:
-  - Benchmark: Langfristiges nominales BIP-Wachstum des Kernmarktes (2-3%)
-  - Niemals > WACC (Modellkonvergenz)
-  - Für Segmente mit Preissetzungsmacht: ggf. leicht über Inflation
-  - Für schrumpfende Segmente: 0% oder negativ
-  Verteilungsempfehlung: PERT (Min=0%, Mode=2%, Max=3% als Startpunkt)
+Empfehle PRO SEGMENT eine der beiden Methoden und begründe:
 
-OPTION B – Exit-Multiple-Ansatz:
-→ EV/EBITDA-Multiple:
-  - Recherchiere aktuelle Trading Multiples der Peer Group
-  - Recherchiere historische Transaktionsmultiples (M&A Comps)
-  - Berücksichtige Konvergenz zum langfristigen Branchendurchschnitt
-  Verteilungsempfehlung: PERT oder Dreieck (Min=Bear-Case, Mode=Median-Peer, Max=Bull-Case)
+OPTION A – Gordon Growth Model:
+  → TV-Wachstumsrate g (stochastisch):
+      Benchmark = langfristiges nominales BIP-Wachstum (2–3 %)
+      Muss DEUTLICH < WACC sein (Faustregel: g < WACC − 3pp)
+      Für schrumpfende Segmente: 0 % oder negativ
+  Verteilung: PERT (z. B. Min=0 %, Mode=2 %, Max=3 %).
 
-Empfehlung welche Methode:
-- Stabile Cashflow-Segmente → Gordon Growth
-- Zyklische / M&A-aktive Segmente → Exit Multiple
-- Hochmargige Tech-Segmente → Gordon Growth (um Nachhaltigkeit zu testen)
+OPTION B – Exit Multiple:
+  → EV/EBITDA-Multiple (stochastisch):
+      Aktuelle Trading Multiples der Peer Group
+      Historische M&A-Transaktionsmultiples
+      Langfristiger Branchendurchschnitt
+  Verteilung: PERT oder Dreieck (Bear/Base/Bull).
 
-═══════════════════════════════════════════════════════════════════════════════════
-SCHRITT 3 – UNTERNEHMENSBRÜCKE (CORPORATE BRIDGE)
-═══════════════════════════════════════════════════════════════════════════════════
+Leitlinie:
+  • Stabile Cashflows → Gordon Growth
+  • Zyklisch / M&A-aktiv → Exit Multiple
+  • Tech (Margentestung) → Gordon Growth
 
-Recherchiere und schätze (jeweils als Punkt-Schätzung oder Verteilung):
+────────────────────────────────────────────────────────────────────────
+2.11  Fade-Geschwindigkeit λ
+────────────────────────────────────────────────────────────────────────
+Empfehle einen λ-Wert für das Fade-Modell des Segments:
+  • 0,2–0,3 = langsam (langfristige strukturelle Shifts)
+  • 0,5     = mittel  (Standard-Empfehlung)
+  • 0,8–1,5 = schnell (kurzfristige Normalisierung)
+FEST. Gleicher λ gilt für alle Parameter des Segments.
 
-3.1  Jährliche Holdingkosten (Corporate Costs) in Mio.:
-     - Nicht segmentzugeordnete Kosten aus dem Geschäftsbericht
-       (oft unter "Corporate/Überleitung" oder "Sonstiges")
-     - Inkl. Vorstandsvergütung, zentrale IT, Konzernfunktionen
-     - Quelle: Segmentüberleitung im Geschäftsbericht
+Begründe, ob der Übergang schnell oder langsam sein sollte.
 
-3.2  Diskontierungssatz für Holdingkosten (%):
-     - Typisch: Konzern-WACC (da Holdingkosten das Gesamtunternehmensrisiko tragen)
 
-3.3  Nettoverschuldung (Net Debt) in Mio.:
-     - Net Debt = Finanzschulden (kurz- + langfristig) − Cash & Äquivalente
-                  − kurzfristige Finanzanlagen
-     - Quelle: Letzte berichtete Bilanz
+═══════════════════════════════════════════════════════════════════════════
+SCHRITT 3 · CORPORATE BRIDGE (ERWEITERTE EQUITY-BRÜCKE)
+═══════════════════════════════════════════════════════════════════════════
 
-3.4  Ausstehende Aktien (voll verwässert) in Mio.:
-     - Voll verwässert = Basic Shares + Dilution durch:
-       - Aktienoptionen (Treasury Stock Method)
-       - Wandelanleihen
-       - Restricted Stock Units (RSUs)
-     - Quelle: Geschäftsbericht, Anmerkungen zum Ergebnis je Aktie
+Die Equity Bridge berechnet:
+  Equity = Σ EV_i − PV(Holdingkosten) − Net Debt − Minderheiten
+           − Pensionen + Nicht-operative Assets + Beteiligungen
 
-3.5  Minderheitsanteile (Minority Interests) in Mio.:
-     - Buchwert der Anteile Dritter an konsolidierten Tochtergesellschaften
-     - Quelle: Bilanz → Eigenkapital → "Anteile nicht beherrschender
-       Gesellschafter" / "Non-controlling interests"
-     - ABZUG vom Enterprise Value (→ mindert den Equity Value)
+Alle 8 Posten können im Modell als FEST oder als VERTEILUNG eingegeben
+werden. Recherchiere und schätze:
 
-3.6  Pensionsrückstellungen (Net Pension Liabilities) in Mio.:
-     - Netto-Pensionsverpflichtung = DBO − Plan Assets
-     - Relevant vor allem bei europäischen Industrieunternehmen
-     - Quelle: Anhang zum Geschäftsbericht ("Leistungen an Arbeitnehmer")
-     - ABZUG vom Enterprise Value
+────────────────────────────────────────────────────────────────────────
+3.1  Jährliche Holdingkosten (Mio.)
+────────────────────────────────────────────────────────────────────────
+• Nicht segmentzugeordnete Kosten aus der Segmentüberleitung
+  (Corporate/Überleitung/Sonstiges)
+• Inkl. Vorstandsvergütung, zentrale IT, Konzernfunktionen
+• Quelle: Segmentüberleitung im Geschäftsbericht
 
-3.7  Nicht-operative Assets in Mio.:
-     - Beteiligungen an nicht konsolidierten Unternehmen (Equity Method),
-       überschüssige Immobilien, Finanzanlagen, Beteiligungen
-     - Quelle: Bilanz → Langfristige Vermögenswerte
-     - ZUSCHLAG zum Enterprise Value (→ erhöht den Equity Value)
+────────────────────────────────────────────────────────────────────────
+3.2  Diskontierungssatz Holdingkosten (%)
+────────────────────────────────────────────────────────────────────────
+• Typisch: Konzern-WACC (Perpetuity der Holdingkosten)
+• FEST.
 
-3.8  Assoziierte Unternehmen / Beteiligungen in Mio.:
-     - Equity-Buchwert strategischer Minderheitsbeteiligungen
-     - Quelle: Anhang "Anteile an assoziierten Unternehmen"
-     - ZUSCHLAG zum Enterprise Value
+────────────────────────────────────────────────────────────────────────
+3.3  Nettoverschuldung / Net Debt (Mio.)
+────────────────────────────────────────────────────────────────────────
+• Net Debt = Finanzschulden (kurz- + langfristig)
+           − Cash & Äquivalente − kurzfristige Finanzanlagen
+• KEINE Pensionen oder Leasingverbindlichkeiten hier einrechnen
+  (diese sind separate Posten in 3.6)
+• Quelle: Letzte berichtete Bilanz
+• Ggf. als Verteilung bei erwartetem Schuldenabbau oder M&A
 
-Hinweis: Alle Bridge-Parameter (3.1–3.8) können im Modell wahlweise als
-FEST oder als Verteilung (Normal, PERT etc.) eingegeben werden, um die
-Unsicherheit z.B. bei Net Debt oder Pensionsrückstellungen abzubilden.
+────────────────────────────────────────────────────────────────────────
+3.4  Aktien ausstehend (Mio.) – voll verwässert
+────────────────────────────────────────────────────────────────────────
+• Basic Shares + Verwässerung durch Optionen (Treasury Stock Method),
+  Wandelanleihen, RSUs
+• Quelle: Geschäftsbericht → Ergebnis je Aktie (verwässert)
+• Ggf. als Verteilung bei laufenden Rückkaufprogrammen
 
-═══════════════════════════════════════════════════════════════════════════════════
-SCHRITT 3b – CROSS-SEGMENT-KORRELATION
-═══════════════════════════════════════════════════════════════════════════════════
+────────────────────────────────────────────────────────────────────────
+3.5  Minderheitsanteile (Mio.) → ABZUG
+────────────────────────────────────────────────────────────────────────
+• Buchwert der Anteile Dritter an konsolidierten Tochtergesellschaften
+• Quelle: Bilanz → Eigenkapital → „Non-controlling Interests"
+• Falls 0 oder nicht vorhanden → Fest: 0
 
-Das Modell unterstützt eine Gauss-Copula zur Modellierung stochastischer
-Abhängigkeiten zwischen Segmenten. Schätze die paarweisen Korrelationen:
+────────────────────────────────────────────────────────────────────────
+3.6  Pensionsrückstellungen (Mio.) → ABZUG
+────────────────────────────────────────────────────────────────────────
+• Netto-Pensionsverpflichtung = DBO − Plan Assets
+• Quelle: Anhang „Leistungen an Arbeitnehmer"
+• Besonders relevant bei europäischen Industrieunternehmen
+• Falls 0 oder nicht vorhanden → Fest: 0
 
-Für jedes Segmentpaar (i, j) mit i < j:
-- Korrelationskoeffizient ρ_ij ∈ [−1, 1]
-- Begründung (1-2 Sätze)
+────────────────────────────────────────────────────────────────────────
+3.7  Nicht-operative Assets (Mio.) → ZUSCHLAG
+────────────────────────────────────────────────────────────────────────
+• Equity-Method-Beteiligungen, überschüssige Immobilien,
+  langfristige Finanzanlagen, die nicht zum operativen Kern gehören
+• Quelle: Bilanz → Langfristige Vermögenswerte (nicht-operativ)
+• Falls 0 → Fest: 0
 
-Orientierungshilfen:
-| Beziehung | Typische Korrelation |
-|---|---|
-| Gleiche Branche, gleiche Region | 0.6 – 0.9 |
-| Gleiche Branche, andere Region | 0.3 – 0.6 |
-| Komplementäre Segmente (z.B. Hardware + Service) | 0.2 – 0.5 |
-| Diversifizierte Segmente (z.B. Industrie + Finanz) | 0.0 – 0.3 |
-| Gegenläufige Segmente (z.B. Upstream + Downstream) | −0.2 – 0.1 |
+────────────────────────────────────────────────────────────────────────
+3.8  Assoziierte Unternehmen / Beteiligungen (Mio.) → ZUSCHLAG
+────────────────────────────────────────────────────────────────────────
+• Equity-Buchwert strategischer Minderheitsbeteiligungen
+• Quelle: Anhang „Anteile an assoziierten Unternehmen"
+• Falls 0 → Fest: 0
 
-Format:
-| Segment i | Segment j | ρ_ij | Begründung |
-|---|---|---|---|
+⚠️  Für jeden Posten: Entscheide ob FEST oder eine Verteilung
+angebracht ist. Verteilung empfohlen bei: erwartetem Schuldenabbau,
+laufenden Rückkäufen, unsicherer Pensionsbewertung, oder wenn der
+Marktwert von Beteiligungen stark vom Buchwert abweicht.
 
-═══════════════════════════════════════════════════════════════════════════════════
-SCHRITT 4 – SIMULATIONSKONFIGURATION
-═══════════════════════════════════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════════════════════════
+SCHRITT 4 · CROSS-SEGMENT-KORRELATION
+═══════════════════════════════════════════════════════════════════════════
+
+Das Modell verwendet eine Gauss-Copula zur Modellierung stochastischer
+Abhängigkeit zwischen Segmenten. Schätze für JEDES Segmentpaar (i, j)
+mit i < j:
+
+  • Korrelationskoeffizient  ρ_ij ∈ [−1, 1]
+  • Begründung (1–2 Sätze)
+
+Orientierungshilfe:
+
+| Beziehung                                          | Typisches ρ   |
+|----------------------------------------------------|---------------|
+| Gleiche Branche, gleiche Region                    | 0,6 – 0,9    |
+| Gleiche Branche, andere Region                     | 0,3 – 0,6    |
+| Komplementär (z. B. Hardware + Services)           | 0,2 – 0,5    |
+| Diversifiziert (z. B. Industrie + Finanz)          | 0,0 – 0,3    |
+| Gegenläufig (z. B. Upstream + Downstream Öl)       | −0,2 – 0,1   |
+
+Beachte: Die Korrelationsmatrix muss positiv semi-definit sein.
+Das Modell validiert dies automatisch.
+
+
+═══════════════════════════════════════════════════════════════════════════
+SCHRITT 5 · SIMULATIONSPARAMETER
+═══════════════════════════════════════════════════════════════════════════
 
 Empfehle:
-- Anzahl Monte-Carlo-Iterationen: (Empfehlung: 50.000 für robuste Ergebnisse)
-- Random Seed: 42 (oder beliebig für Reproduzierbarkeit)
+  • Anzahl MC-Iterationen: (Standard: 50.000 für robuste Ergebnisse)
+  • Random Seed: 42 (für Reproduzierbarkeit)
+  • Mid-Year Convention: Ja/Nein (Standard: Ja – da Cashflows
+    unterjährig anfallen)
 
-═══════════════════════════════════════════════════════════════════════════════════
-SCHRITT 5 – AUSGABEFORMAT
-═══════════════════════════════════════════════════════════════════════════════════
 
-Liefere die Ergebnisse in EXAKT diesem strukturierten Format, damit sie
-direkt in das Streamlit-Modell eingegeben werden können:
+═══════════════════════════════════════════════════════════════════════════
+SCHRITT 6 · AUSGABEFORMAT
+═══════════════════════════════════════════════════════════════════════════
+
+Liefere die Ergebnisse in EXAKT den folgenden Tabellen, damit sie
+direkt in die Streamlit-App eingegeben werden können.
+
+Für jedes Segment eine eigene Tabelle:
 
 ### SEGMENT [N]: [Name]
-| Parameter | Wert / Verteilung | Min | Mode | Max | μ | σ | Terminal | Begründung |
-|---|---|---|---|---|---|---|---|---|
-| Basisumsatz (Mio.) | FEST: [Wert] | – | – | – | – | – | – | [Quelle] |
-| Prognosejahre | FEST: [N] | – | – | – | – | – | – | [Begründung] |
-| Umsatzwachstum (%) | [Verteilung] | [lo] | [mode] | [hi] | [μ] | [σ] | [g_term] | [Begründung] |
-| EBITDA-Marge (%) | [Verteilung] | [lo] | [mode] | [hi] | [μ] | [σ] | [m_term] | [Begründung] |
-| D&A (% Umsatz) | [Verteilung] | [lo] | [mode] | [hi] | [μ] | [σ] | [d_term] | [Begründung] |
-| Steuersatz (%) | [Verteilung] | [lo] | [mode] | [hi] | [μ] | [σ] | – | [Begründung] |
-| CAPEX (% Umsatz) | [Verteilung] | [lo] | [mode] | [hi] | [μ] | [σ] | [c_term] | [Begründung] |
-| NWC (% ΔUmsatz) | [Verteilung] | [lo] | [mode] | [hi] | [μ] | [σ] | [n_term] | [Begründung] |
-| WACC (%) | [Verteilung] | [lo] | [mode] | [hi] | [μ] | [σ] | – | [CAPM-Ableitung zeigen] |
-| TV-Methode | [Gordon Growth / Exit Multiple] | – | – | – | – | – | – | [Begründung] |
-| TV-Wachstum (%) ODER Exit-Multiple | [Verteilung] | [lo] | [mode] | [hi] | [μ] | [σ] | – | [Begründung] |
+| Parameter | Verteilung | Min | Mode | Max | μ | σ | Terminal | λ | Begründung |
+|---|---|---|---|---|---|---|---|---|---|
+| Basisumsatz (Mio.) | FEST: [Wert] | – | – | – | – | – | – | – | [Quelle + GJ] |
+| Prognosejahre | FEST: [N] | – | – | – | – | – | – | – | [Warum N Jahre?] |
+| Umsatzwachstum (%) | [Typ]: … | [lo] | [mode] | [hi] | [μ] | [σ] | [g_term] | [λ] | [Herleitung: Hist. CAGR, Konsensus, TAM] |
+| EBITDA-Marge (%) | [Typ]: … | [lo] | [mode] | [hi] | [μ] | [σ] | [m_term] | – | [Hist. Trend, Peer-Median, Skaleneffekte] |
+| D&A (% Umsatz) | [Typ]: … | [lo] | [mode] | [hi] | [μ] | [σ] | [d_term] | – | [Hist. Ratio, Kapitalintensität] |
+| Steuersatz (%) | [Typ]: … | [lo] | [mode] | [hi] | [μ] | [σ] | [t_term] | – | [ETR-Analyse, Jurisdiktion] |
+| CAPEX (% Umsatz) | [Typ]: … | [lo] | [mode] | [hi] | [μ] | [σ] | [c_term] | – | [Maintenance vs. Growth, Guidance] |
+| NWC (% ΔUmsatz) | [Typ]: … | [lo] | [mode] | [hi] | [μ] | [σ] | [n_term] | – | [CCC, Branchenvergleich] |
+| WACC (%) | [Typ]: … | [lo] | [mode] | [hi] | [μ] | [σ] | – | – | [CAPM-Herleitung komplett zeigen!] |
+| TV-Methode | [Gordon Growth / Exit Multiple] | – | – | – | – | – | – | – | [Warum diese Methode?] |
+| TV-Wachstum (%) | [Typ]: … | [lo] | [mode] | [hi] | [μ] | [σ] | – | – | [BIP-Benchmark, WACC-Spread] |
+| oder: Exit-Multiple | [Typ]: … | [lo] | [mode] | [hi] | [μ] | [σ] | – | – | [Peer-Multiples, M&A-Comps] |
 
-Hinweis zur "Terminal"-Spalte: Wenn ein Fade-Modell für den Parameter empfohlen
-wird, trage hier den langfristigen Terminal-Wert ein. Sonst "–".
+Hinweise zur Tabelle:
+  • „Terminal"-Spalte: Langfristiger Zielwert für den Fade. „–" wenn kein Fade.
+  • „λ"-Spalte: Nur in Zeile Umsatzwachstum (gilt für alle Parameter
+    des Segments). Alle anderen Zeilen „–".
+  • Verteilungstypen: FEST, Normal, Lognormal, Dreieck, Gleichverteilung, PERT.
+  • Nicht benötigte Spalten mit „–" füllen (z. B. kein μ/σ bei PERT).
 
 ### CORPORATE BRIDGE
-| Parameter | Wert / Verteilung | Begründung |
-|---|---|---|
-| Holdingkosten p.a. (Mio.) | [Wert] | [Quelle] |
-| Diskontierung Holding (%) | [Wert] | [Begründung] |
-| Nettoverschuldung (Mio.) | [Wert] | [Berechnung zeigen] |
-| Aktien ausstehend (Mio.) | [Wert] | [Quelle, verwässert?] |
-| Minderheitsanteile (Mio.) | [Wert] | [Quelle] |
-| Pensionsrückstellungen (Mio.) | [Wert] | [DBO − Plan Assets] |
-| Nicht-operative Assets (Mio.) | [Wert] | [Quelle] |
-| Assoziierte Unternehmen (Mio.) | [Wert] | [Quelle] |
+| Posten | Wert / Verteilung | Wirkung | Begründung |
+|---|---|---|---|
+| Holdingkosten p.a. (Mio.) | [Wert oder Verteilung] | Abzug (PV) | [Quelle: Segmentüberleitung, GJ] |
+| Diskontierung Holding (%) | FEST: [Wert] | – | [= Konzern-WACC weil …] |
+| Nettoverschuldung (Mio.) | [Wert oder Verteilung] | Abzug | [Berechnung: Schulden − Cash zeigen] |
+| Aktien (Mio., verwässert) | [Wert oder Verteilung] | Divisor | [Quelle, Verwässerungsmethode] |
+| Minderheitsanteile (Mio.) | [Wert oder 0] | Abzug | [Quelle oder „nicht vorhanden"] |
+| Pensionsrückstellungen (Mio.) | [Wert oder 0] | Abzug | [DBO − Plan Assets zeigen] |
+| Nicht-operative Assets (Mio.) | [Wert oder 0] | Zuschlag | [Quelle: welche Assets konkret?] |
+| Beteiligungen (Mio.) | [Wert oder 0] | Zuschlag | [Quelle: welche Beteiligungen?] |
 
-### CROSS-SEGMENT-KORRELATIONSMATRIX
+### KORRELATIONSMATRIX
 | Segment i | Segment j | ρ_ij | Begründung |
 |---|---|---|---|
-| [Seg 1] | [Seg 2] | [ρ] | [Begründung] |
-| ... | ... | ... | ... |
+| [Seg 1] | [Seg 2] | [ρ] | [Warum diese Höhe?] |
+| … | … | … | … |
 
-═══════════════════════════════════════════════════════════════════════════════════
-SCHRITT 6 – PLAUSIBILITÄTSCHECK
-═══════════════════════════════════════════════════════════════════════════════════
+### SIMULATIONSPARAMETER
+| Parameter | Wert |
+|---|---|
+| MC-Iterationen | [z. B. 50.000] |
+| Random Seed | [z. B. 42] |
+| Mid-Year Convention | [Ja / Nein] |
 
-Führe abschließend folgende Sanity Checks durch:
 
-1. Cross-Check: Stimmt die Summe der Basisumsätze aller Segmente ungefähr
-   mit dem berichteten Konzernumsatz überein?
-2. Margin-Check: Liegen die geschätzten EBITDA-Margen im Einklang mit der
-   historischen Konzernmarge (gewichteter Durchschnitt)?
-3. WACC-Plausibilität: Liegt der geschätzte WACC im plausiblen Bereich
-   für die jeweilige Branche und Bonität?
-4. Terminal Growth ≪ WACC: Für alle Gordon-Growth-Segmente prüfen,
-   dass g deutlich unter WACC liegt (Faustregel: g < WACC − 3pp).
-5. Impliziter Aktienkurs: Überschlage grob den implizierten Wert je Aktie
-   und vergleiche mit dem aktuellen Börsenkurs – ist die Größenordnung
-   plausibel?
-6. TV/EV-Ratio: Schätze grob den Anteil des Terminal Value am Enterprise
-   Value je Segment. Werte > 75% deuten auf aggressive Terminal-Annahmen.
-   Ziel: < 60% pro Segment.
-7. Implied ROIC: Berechne NOPAT-Marge / Reinvestment-Rate → ist die
-   implizierte Kapitalrendite realistisch für die Branche?
-   (z.B. Software: 30-50%, Industrie: 10-20%, Handel: 8-15%)
-8. Korrelationslogik: Sind die geschätzten Cross-Segment-Korrelationen
-   konsistent mit der Geschäftslogik? Segmente im gleichen Endmarkt
-   sollten höher korreliert sein als diversifizierte Segmente.
-9. Fade-Konsistenz: Konvergieren die Terminal-Werte (Marge, CAPEX,
-   NWC) zu branchenüblichen Langfrist-Werten? Sind alle Fade-Richtungen
-   ökonomisch sinnvoll?
+═══════════════════════════════════════════════════════════════════════════
+SCHRITT 7 · PLAUSIBILITÄTS- & QUALITÄTSCHECKS
+═══════════════════════════════════════════════════════════════════════════
 
-═══════════════════════════════════════════════════════════════════════════════════
-SCHRITT 7 – QUELLEN & DATENBASIS
-═══════════════════════════════════════════════════════════════════════════════════
+Führe ALLE folgenden 9 Checks durch und dokumentiere das Ergebnis
+explizit (✅ bestanden / ⚠️ Anpassung nötig / ❌ Problem).
+Bei ⚠️ oder ❌: Parameter oben anpassen und die NEUE Begründung ergänzen.
 
-Liste am Ende ALLE verwendeten Quellen auf:
-- Geschäftsberichte (welches Geschäftsjahr?)
-- Analystenberichte / Konsensschätzungen
-- Branchenreports (Gartner, IDC, McKinsey etc.)
-- Damodaran-Datensätze (Betas, ERP, Multiples)
-- Marktdaten (Anleiherenditen, CDS-Spreads)
-- Sonstige Quellen
+1. **Umsatz-Cross-Check**
+   Σ Basisumsätze aller Segmente ≈ berichteter Konzernumsatz?
+   Abweichung < 5 % → ✅, sonst erklären.
 
-═══════════════════════════════════════════════════════════════════════════════════
-WICHTIGE HINWEISE
-═══════════════════════════════════════════════════════════════════════════════════
+2. **Margin-Cross-Check**
+   Gewichteter Durchschnitt der EBITDA-Margen ≈ berichtete
+   Konzern-EBITDA-Marge?
 
-- Alle Prozentangaben als %, NICHT als Dezimalzahl (das Modell konvertiert intern).
-- Berichtswährung angeben und konsistent nutzen.
-- Wenn ein Parameter für ein Segment nicht separat verfügbar ist,
-  nutze den Konzernwert und kennzeichne dies als Annahme.
-- Bei Unsicherheit: Lieber eine breitere Verteilung wählen (das ist der
-  Mehrwert der Monte-Carlo-Simulation gegenüber einem Punkt-DCF).
-- PERT-Verteilungen werden gegenüber Dreiecksverteilungen bevorzugt,
-  da sie die Extremwerte weniger gewichten.
+3. **WACC-Plausibilität**
+   Liegt jeder segmentspezifische WACC in einem plausiblen Bereich
+   für Branche, Bonität und Risikofreizins-Umfeld?
+
+4. **TV-Growth ≪ WACC**
+   Für JEDES Gordon-Growth-Segment prüfen: g < WACC − 3 pp.
+   Falls nicht → TV-Wachstum senken und begründen.
+
+5. **TV/EV-Ratio (Vorab-Schätzung)**
+   Schätze grob PV(TV) / EV je Segment.
+     < 60 % → ✅ nachhaltig
+     60–75 % → ⚠️ akzeptabel, aber Terminal-Annahmen hinterfragen
+     > 75 % → ❌ aggressive Annahmen → Parameter anpassen
+
+6. **Implied ROIC**
+   Berechne je Segment:
+     ROIC ≈ NOPAT-Marge × (1 + g) / Reinvestment Rate
+   Plausibel für die Branche?
+     Software 25–50 % | Industrie 10–20 % | Handel 8–15 %
+   Falls unplausibel → Parameter anpassen.
+
+7. **Fade-Konsistenz**
+   Konvergieren alle Terminal-Werte (Marge, CAPEX, NWC) zu
+   branchenüblichen Langfristwerten? Jede Fade-Richtung
+   ökonomisch sinnvoll? (z. B. CAPEX sinkt von Growth → Maintenance)
+
+8. **Korrelationslogik**
+   Paarweise Korrelationen konsistent mit Geschäftslogik?
+   Gleicher Endmarkt → höher. Matrix positiv semi-definit?
+
+9. **Impliziter Fair Value (Überschlagsrechnung)**
+   Equity ≈ (Σ EV − PV(Holding) − Net Debt − Minority − Pension
+             + Non-Op + Associates) / Aktien
+   Vergleiche mit aktuellem Kurs → Größenordnung plausibel?
+   Premium/Discount in % angeben.
+
+Liefere die Ergebnisse in dieser Tabelle:
+
+| # | Check | Ergebnis | Detail / Kommentar |
+|---|-------|----------|--------------------|
+| 1 | Umsatz-Cross-Check | ✅/⚠️/❌ | … |
+| 2 | Margin-Cross-Check | ✅/⚠️/❌ | … |
+| 3 | WACC-Plausibilität | ✅/⚠️/❌ | … |
+| 4 | TV-Growth ≪ WACC | ✅/⚠️/❌ | … |
+| 5 | TV/EV-Ratio | ✅/⚠️/❌ | … |
+| 6 | Implied ROIC | ✅/⚠️/❌ | … |
+| 7 | Fade-Konsistenz | ✅/⚠️/❌ | … |
+| 8 | Korrelationslogik | ✅/⚠️/❌ | … |
+| 9 | Impliziter Fair Value | ✅/⚠️/❌ | … |
+
+
+═══════════════════════════════════════════════════════════════════════════
+SCHRITT 8 · QUELLEN & DATENBASIS
+═══════════════════════════════════════════════════════════════════════════
+
+Liste ALLE verwendeten Quellen auf, gruppiert nach Typ:
+
+| Typ | Quelle | Datum / GJ |
+|---|---|---|
+| Geschäftsbericht | [Unternehmen] Annual Report [GJ] | [Datum] |
+| Analystenberichte | [Bloomberg Consensus, LSEG I/B/E/S etc.] | [Abruf] |
+| Branchenreports | [Gartner, IDC, McKinsey etc.] | [Datum] |
+| Damodaran | [Betas, ERP, Multiples – pages.stern.nyu.edu/~adamodar/] | [Update] |
+| Marktdaten | [Anleiherenditen, CDS, Credit Ratings] | [Stichtag] |
+| Sonstige | … | … |
+
+
+═══════════════════════════════════════════════════════════════════════════
+ZUSAMMENFASSUNG (EXECUTIVE SUMMARY)
+═══════════════════════════════════════════════════════════════════════════
+
+Schließe mit einer Executive Summary (max. 5 Sätze):
+  • Anzahl Segmente und Berichtswährung
+  • Wichtigste Werttreiber-Unsicherheiten (wo sind Verteilungen
+    besonders breit?)
+  • Erwartete Bewertungs-Richtung: Aufschlag oder Abschlag?
+  • Empfehlung zur Interpretation der Monte-Carlo-Ergebnisse
 ```
 
 ---
@@ -434,4 +534,5 @@ Ersetze `[UNTERNEHMEN]` und führe den Prompt aus:
 [UNTERNEHMEN] = Volkswagen AG
 ```
 
-Das Ergebnis kann dann direkt in die Streamlit-App eingegeben werden.
+Das Ergebnis kann direkt in die Streamlit-App eingegeben werden – jede Tabellenzeile
+entspricht einem Eingabefeld in der App.
