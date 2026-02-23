@@ -51,6 +51,11 @@ st.markdown("""
     .stTabs [data-baseweb="tab-list"] { gap: 4px; }
     .stTabs [data-baseweb="tab"] { padding: 8px 20px; font-weight: 500; }
     details summary { font-weight: 600; }
+    div[data-testid="stExpander"] {
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        margin-bottom: 8px;
+    }
 </style>
 """, unsafe_allow_html=True)
 

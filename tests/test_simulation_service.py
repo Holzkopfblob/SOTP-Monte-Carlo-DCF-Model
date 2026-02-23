@@ -97,3 +97,44 @@ class TestComputeStatistics:
         assert stats["Min"] == 1.0
         assert stats["Max"] == 100.0
         assert abs(stats["Mittelwert"] - 50.5) < 0.01
+
+
+# ── Tests for _split_bridge_param helper ──────────────────────────────────
+
+from domain.models import DistributionConfig, DistributionType
+from presentation.pages.dcf_simulation import _split_bridge_param
+
+
+class TestSplitBridgeParam:
+    def test_none_returns_fallback(self):
+        scalar, stoch = _split_bridge_param(None, 42.0)
+        assert scalar == 42.0
+        assert stoch is None
+
+    def test_fixed_returns_scalar_no_stochastic(self):
+        d = DistributionConfig(dist_type=DistributionType.FIXED, fixed_value=99.0)
+        scalar, stoch = _split_bridge_param(d)
+        assert scalar == 99.0
+        assert stoch is None
+
+    def test_normal_returns_stochastic(self):
+        d = DistributionConfig(dist_type=DistributionType.NORMAL, mean=50.0, std=5.0)
+        scalar, stoch = _split_bridge_param(d)
+        assert scalar == 50.0  # representative_value = mean
+        assert stoch is d
+
+    def test_pert_returns_stochastic(self):
+        d = DistributionConfig(
+            dist_type=DistributionType.PERT, low=10.0, mode=20.0, high=30.0,
+        )
+        scalar, stoch = _split_bridge_param(d)
+        assert scalar == 20.0  # representative_value = mode
+        assert stoch is d
+
+    def test_uniform_returns_stochastic(self):
+        d = DistributionConfig(
+            dist_type=DistributionType.UNIFORM, low=40.0, high=60.0,
+        )
+        scalar, stoch = _split_bridge_param(d)
+        assert scalar == 50.0  # representative_value = midpoint
+        assert stoch is d

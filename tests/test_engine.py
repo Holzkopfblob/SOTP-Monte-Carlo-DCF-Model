@@ -50,6 +50,24 @@ class TestMonteCarloEngine:
         assert "Bridge | Holdingkosten" in r.input_samples
         assert "Bridge | Nettoverschuldung" in r.input_samples
 
+    def test_stochastic_discount_rate_tracked(self):
+        """When stochastic discount rate is set, it appears in input_samples."""
+        cfg = SimulationConfig(
+            n_simulations=200,
+            random_seed=42,
+            segments=[SegmentConfig(name="S1")],
+            corporate_bridge=CorporateBridgeConfig(
+                stochastic_corporate_cost_discount_rate=DistributionConfig(
+                    dist_type=DistributionType.NORMAL, mean=0.09, std=0.01,
+                ),
+            ),
+        )
+        engine = MonteCarloEngine(cfg)
+        r = engine.run()
+        assert "Bridge | Diskontierung Holding" in r.input_samples
+        # PV should vary because discount rate is stochastic
+        assert np.std(r.equity_values) > 0
+
     def test_wacc_floor(self):
         """WACC should be floored at 0.5%."""
         cfg = SimulationConfig(

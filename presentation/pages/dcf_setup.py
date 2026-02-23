@@ -7,6 +7,7 @@ from __future__ import annotations
 import numpy as np
 import streamlit as st
 
+from domain.models import DistributionConfig
 from presentation.ui_helpers import (
     render_distribution_input,
     render_info_corporate_bridge,
@@ -60,29 +61,46 @@ def render_setup(tab) -> dict:
         st.subheader("🏛️ Unternehmensbrücke (Corporate Bridge)")
         render_info_corporate_bridge()
 
-        c1, c2, c3, c4 = st.columns(4)
-        annual_corp_costs = c1.number_input(
-            "Jährl. Holdingkosten (Mio.)", value=50.0, min_value=0.0,
-            format="%.1f", help="Laufende Kosten der Holding-Gesellschaft p.a.",
-            key="setup_corp_costs",
+        st.caption(
+            "Jeder Bridge-Posten kann als **fester Wert** (deterministisch) "
+            "oder als **Wahrscheinlichkeitsverteilung** (stochastisch) "
+            "eingegeben werden. Wählen Sie einfach den Verteilungstyp – "
+            "»Fest« entspricht einem einzelnen Punktschätzer."
         )
-        corp_discount = c2.number_input(
-            "Diskontierung Holding (%)", value=9.0, min_value=0.1,
-            format="%.2f", help="Diskontierungssatz für die Perpetuity der Holdingkosten.",
-            key="setup_corp_disc",
-        )
-        net_debt = c3.number_input(
-            "Nettoverschuldung (Mio.)", value=500.0, format="%.1f",
-            help="Finanzschulden − Cash & Äquivalente.", key="setup_net_debt",
-        )
-        shares = c4.number_input(
-            "Aktien ausstehend (Mio.)", value=100.0, min_value=0.01,
-            format="%.2f", help="Voll verwässerte Aktienanzahl.",
-            key="setup_shares",
-        )
+
+        st.markdown("##### Basis-Bridge")
+
+        with st.expander("📐 Jährl. Holdingkosten (Mio.)", expanded=True):
+            bridge_corp_costs = render_distribution_input(
+                "Holdingkosten (Mio. p.a.)", "bridge_cc",
+                default_value=50.0, is_percentage=False,
+                help_text="Laufende Kosten der Holding-Gesellschaft p.a.",
+            )
+
+        with st.expander("📐 Diskontierung Holdingkosten (%)", expanded=True):
+            bridge_corp_discount = render_distribution_input(
+                "Diskontierungssatz (%)", "bridge_cd",
+                default_value=9.0, is_percentage=True,
+                help_text="Diskontierungssatz für die Perpetuity der Holdingkosten.",
+            )
+
+        with st.expander("📐 Nettoverschuldung (Mio.)", expanded=True):
+            bridge_net_debt = render_distribution_input(
+                "Nettoverschuldung (Mio.)", "bridge_nd",
+                default_value=500.0, is_percentage=False,
+                help_text="Finanzschulden − Cash & Äquivalente.",
+            )
+
+        with st.expander("📐 Aktien ausstehend (Mio.)", expanded=True):
+            bridge_shares = render_distribution_input(
+                "Aktien ausstehend (Mio.)", "bridge_sh",
+                default_value=100.0, is_percentage=False,
+                help_text="Voll verwässerte Aktienanzahl.",
+            )
 
         # ── Extended Equity Bridge ────────────────────────────────────
         st.markdown("")
+        st.markdown("##### Erweiterte Bridge")
         enable_ext_bridge = st.checkbox(
             "🏢 Erweiterte Equity Bridge aktivieren", value=False,
             key="setup_ext_bridge",
@@ -90,10 +108,10 @@ def render_setup(tab) -> dict:
                  "Pensionsrückstellungen, nicht-operative Assets, Beteiligungen.",
         )
 
-        minority_interests_val = 0.0
-        pension_liabilities_val = 0.0
-        non_operating_assets_val = 0.0
-        associate_investments_val = 0.0
+        bridge_minority: DistributionConfig | None = None
+        bridge_pension: DistributionConfig | None = None
+        bridge_non_op: DistributionConfig | None = None
+        bridge_associates: DistributionConfig | None = None
 
         if enable_ext_bridge:
             st.caption(
@@ -101,98 +119,30 @@ def render_setup(tab) -> dict:
                 "Positive Werte bei Assets/Beteiligungen erhöhen, bei Verbindlichkeiten "
                 "verringern sie den Equity Value."
             )
-            ec1, ec2, ec3, ec4 = st.columns(4)
-            minority_interests_val = ec1.number_input(
-                "Minderheitsanteile (Mio.)", value=0.0, min_value=0.0,
-                format="%.1f",
-                help="Anteile Dritter an Tochtergesellschaften (wird abgezogen).",
-                key="setup_minority",
-            )
-            pension_liabilities_val = ec2.number_input(
-                "Pensionsrückstellungen (Mio.)", value=0.0, min_value=0.0,
-                format="%.1f",
-                help="Unterdeckung bei Pensionsverpflichtungen (wird abgezogen).",
-                key="setup_pension",
-            )
-            non_operating_assets_val = ec3.number_input(
-                "Nicht-operative Assets (Mio.)", value=0.0, min_value=0.0,
-                format="%.1f",
-                help="Überschüssiges Cash, Immobilien, sonstige Investments (wird addiert).",
-                key="setup_non_op",
-            )
-            associate_investments_val = ec4.number_input(
-                "Beteiligungen (Mio.)", value=0.0, min_value=0.0,
-                format="%.1f",
-                help="Equity-Method Beteiligungen an assoziierten Unternehmen (wird addiert).",
-                key="setup_associates",
-            )
-
-        # ── Stochastic Corporate Bridge ───────────────────────────────
-        st.markdown("")
-        enable_stoch_bridge = st.checkbox(
-            "🎲 Stochastische Corporate Bridge aktivieren", value=False,
-            key="setup_stoch_bridge",
-            help="Modelliert Holdingkosten, Nettoverschuldung und Aktienanzahl "
-                 "als Wahrscheinlichkeitsverteilungen statt fester Werte.",
-        )
-
-        stoch_corp_costs = None
-        stoch_net_debt = None
-        stoch_shares = None
-        stoch_minority = None
-        stoch_pension = None
-        stoch_non_op = None
-        stoch_associates = None
-
-        if enable_stoch_bridge:
-            st.caption(
-                "Definieren Sie Verteilungen für die Corporate-Bridge-Parameter. "
-                "Die oben eingegebenen Festwerte werden als Default-Mittelwerte verwendet."
-            )
-            with st.expander("📐 Stochastische Holdingkosten", expanded=True):
-                stoch_corp_costs = render_distribution_input(
-                    "Holdingkosten (Mio. p.a.)", "bridge_cc",
-                    default_value=annual_corp_costs, is_percentage=False,
-                    help_text="Jährliche Holdingkosten als Verteilung.",
+            with st.expander("📜 Minderheitsanteile (Mio.)", expanded=False):
+                bridge_minority = render_distribution_input(
+                    "Minderheitsanteile (Mio.)", "bridge_mi",
+                    default_value=0.0, is_percentage=False,
+                    help_text="Anteile Dritter an Tochtergesellschaften (wird abgezogen).",
                 )
-            with st.expander("📐 Stochastische Nettoverschuldung", expanded=True):
-                stoch_net_debt = render_distribution_input(
-                    "Nettoverschuldung (Mio.)", "bridge_nd",
-                    default_value=net_debt, is_percentage=False,
-                    help_text="Nettoverschuldung als Verteilung (z.B. bei geplanten Tilgungen / Akquisitionen).",
+            with st.expander("📜 Pensionsrückstellungen (Mio.)", expanded=False):
+                bridge_pension = render_distribution_input(
+                    "Pensionsrückstellungen (Mio.)", "bridge_pn",
+                    default_value=0.0, is_percentage=False,
+                    help_text="Unterdeckung bei Pensionsverpflichtungen (wird abgezogen).",
                 )
-            with st.expander("📐 Stochastische Aktienanzahl", expanded=True):
-                stoch_shares = render_distribution_input(
-                    "Aktien ausstehend (Mio.)", "bridge_sh",
-                    default_value=shares, is_percentage=False,
-                    help_text="Verwässerte Aktienanzahl als Verteilung (z.B. bei Rückkaufprogrammen / Optionen).",
+            with st.expander("📜 Nicht-operative Assets (Mio.)", expanded=False):
+                bridge_non_op = render_distribution_input(
+                    "Nicht-operative Assets (Mio.)", "bridge_no",
+                    default_value=0.0, is_percentage=False,
+                    help_text="Überschüssiges Cash, Immobilien, sonstige Investments (wird addiert).",
                 )
-
-            if enable_ext_bridge:
-                with st.expander("📜 Stochastische Minderheitsanteile", expanded=False):
-                    stoch_minority = render_distribution_input(
-                        "Minderheitsanteile (Mio.)", "bridge_mi",
-                        default_value=minority_interests_val, is_percentage=False,
-                        help_text="Minderheitsanteile als Verteilung.",
-                    )
-                with st.expander("📜 Stochastische Pensionsrückstellungen", expanded=False):
-                    stoch_pension = render_distribution_input(
-                        "Pensionsrückstellungen (Mio.)", "bridge_pn",
-                        default_value=pension_liabilities_val, is_percentage=False,
-                        help_text="Pensionsrückstellungen als Verteilung.",
-                    )
-                with st.expander("📜 Stochastische nicht-operative Assets", expanded=False):
-                    stoch_non_op = render_distribution_input(
-                        "Nicht-operative Assets (Mio.)", "bridge_no",
-                        default_value=non_operating_assets_val, is_percentage=False,
-                        help_text="Nicht-operative Assets als Verteilung.",
-                    )
-                with st.expander("📜 Stochastische Beteiligungen", expanded=False):
-                    stoch_associates = render_distribution_input(
-                        "Beteiligungen (Mio.)", "bridge_as",
-                        default_value=associate_investments_val, is_percentage=False,
-                        help_text="Equity-Method Beteiligungen als Verteilung.",
-                    )
+            with st.expander("📜 Beteiligungen (Mio.)", expanded=False):
+                bridge_associates = render_distribution_input(
+                    "Beteiligungen (Mio.)", "bridge_as",
+                    default_value=0.0, is_percentage=False,
+                    help_text="Equity-Method Beteiligungen an assoziierten Unternehmen (wird addiert).",
+                )
 
         # ── Cross-segment correlation (Phase 3) ──────────────────────
         st.divider()
@@ -262,20 +212,13 @@ def render_setup(tab) -> dict:
         "random_seed": int(random_seed),
         "n_segments": int(n_segments),
         "mid_year_conv": bool(mid_year_conv),
-        "annual_corp_costs": float(annual_corp_costs),
-        "corp_discount": float(corp_discount),
-        "net_debt": float(net_debt),
-        "shares": float(shares),
-        "minority_interests": float(minority_interests_val),
-        "pension_liabilities": float(pension_liabilities_val),
-        "non_operating_assets": float(non_operating_assets_val),
-        "associate_investments": float(associate_investments_val),
-        "stoch_corp_costs": stoch_corp_costs,
-        "stoch_net_debt": stoch_net_debt,
-        "stoch_shares": stoch_shares,
-        "stoch_minority": stoch_minority,
-        "stoch_pension": stoch_pension,
-        "stoch_non_op": stoch_non_op,
-        "stoch_associates": stoch_associates,
+        "bridge_corp_costs": bridge_corp_costs,
+        "bridge_corp_discount": bridge_corp_discount,
+        "bridge_net_debt": bridge_net_debt,
+        "bridge_shares": bridge_shares,
+        "bridge_minority": bridge_minority,
+        "bridge_pension": bridge_pension,
+        "bridge_non_op": bridge_non_op,
+        "bridge_associates": bridge_associates,
         "segment_correlation": segment_correlation,
     }

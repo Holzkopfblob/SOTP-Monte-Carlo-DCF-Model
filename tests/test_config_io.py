@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from infrastructure.config_io import (
+    BRIDGE_PREFIXES,
     DIST_PARAMS,
     DIST_SUFFIXES,
     SETUP_KEYS,
@@ -27,11 +28,13 @@ def _build_state(n_segments: int = 1) -> dict:
         "setup_n_sim": np.int64(10_000),
         "setup_seed": np.int64(42),
         "setup_n_seg": np.int64(n_segments),
-        "setup_corp_costs": np.float64(50.0),
-        "setup_corp_disc": np.float64(0.09),
-        "setup_net_debt": np.float64(200.0),
-        "setup_shares": np.float64(100.0),
+        "setup_mid_year": True,
+        "setup_ext_bridge": False,
     }
+    # Bridge distribution widget keys
+    for prefix in BRIDGE_PREFIXES:
+        state[f"{prefix}_dtype"] = "Fest (Deterministisch)"
+        state[f"{prefix}_fixed"] = np.float64(50.0)
     for i in range(n_segments):
         state[f"seg_{i}_name"] = f"Segment {i}"
         state[f"seg_{i}_basrev"] = np.float64(1_000.0 * (i + 1))
@@ -61,7 +64,14 @@ class TestCollectConfig:
         setup = cfg["setup"]
         assert setup["setup_n_sim"] == 10_000
         assert setup["setup_seed"] == 42
+        assert setup["setup_mid_year"] is True
         assert isinstance(setup["setup_n_sim"], int)
+
+    def test_bridge_section(self):
+        cfg = collect_config(_build_state())
+        bridge = cfg["bridge"]
+        assert bridge["bridge_cc_dtype"] == "Fest (Deterministisch)"
+        assert bridge["bridge_cc_fixed"] == 50.0
 
     def test_segment_count_matches(self):
         for n in (1, 3):
@@ -116,6 +126,8 @@ class TestApplyConfig:
         assert "s1_rg_dtype" not in updated
         # seg_0 keys should be present
         assert "seg_0_name" in updated
+        # bridge keys should be restored
+        assert "bridge_cc_dtype" in updated
 
     def test_non_segment_keys_preserved(self):
         """Keys unrelated to segments survive the apply."""
@@ -149,6 +161,12 @@ class TestRoundTrip:
         for k in SETUP_KEYS:
             if k in state:
                 assert restored[k] == pytest.approx(state[k]), f"{k} mismatch"
+        # All bridge keys should match
+        for prefix in BRIDGE_PREFIXES:
+            for sfx in DIST_SUFFIXES:
+                key = f"{prefix}{sfx}"
+                if key in state:
+                    assert restored[key] == pytest.approx(state[key]), f"{key} mismatch"
         # All segment keys should match
         for i in range(n_seg):
             for suffix in ["_name", "_basrev", "_fyrs", "_tv_method"]:

@@ -162,6 +162,7 @@ class CorporateBridgeConfig:
 
     # Stochastic overrides (None = use scalar above)
     stochastic_corporate_costs: DistributionConfig | None = None
+    stochastic_corporate_cost_discount_rate: DistributionConfig | None = None
     stochastic_net_debt:        DistributionConfig | None = None
     stochastic_shares:          DistributionConfig | None = None
     stochastic_minority_interests:    DistributionConfig | None = None

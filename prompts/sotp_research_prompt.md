@@ -218,18 +218,24 @@ Verteilung: Normal oder PERT (σ typisch 0,5–2,0 pp).
 Empfehle PRO SEGMENT eine der beiden Methoden und begründe:
 
 OPTION A – Gordon Growth Model:
-  → TV-Wachstumsrate g (stochastisch):
+  → TV-Wachstumsrate g (**stochastisch – als Verteilung angeben!**):
       Benchmark = langfristiges nominales BIP-Wachstum (2–3 %)
       Muss DEUTLICH < WACC sein (Faustregel: g < WACC − 3pp)
       Für schrumpfende Segmente: 0 % oder negativ
   Verteilung: PERT (z. B. Min=0 %, Mode=2 %, Max=3 %).
+  → Die TV-Wachstumsrate wird im Modell DIREKT als Verteilung
+    eingegeben (gleiche 6 Typen wie alle anderen Parameter).
+    So wird die TV-Unsicherheit in der MC-Simulation erfasst.
 
 OPTION B – Exit Multiple:
-  → EV/EBITDA-Multiple (stochastisch):
+  → EV/EBITDA-Multiple (**stochastisch – als Verteilung angeben!**):
       Aktuelle Trading Multiples der Peer Group
       Historische M&A-Transaktionsmultiples
       Langfristiger Branchendurchschnitt
   Verteilung: PERT oder Dreieck (Bear/Base/Bull).
+  → Das Exit-Multiple wird im Modell DIREKT als Verteilung
+    eingegeben (gleiche 6 Typen wie alle anderen Parameter).
+    So wird die Multiple-Unsicherheit in der MC-Simulation erfasst.
 
 Leitlinie:
   • Stabile Cashflows → Gordon Growth
@@ -271,7 +277,8 @@ werden. Recherchiere und schätze:
 3.2  Diskontierungssatz Holdingkosten (%)
 ────────────────────────────────────────────────────────────────────────
 • Typisch: Konzern-WACC (Perpetuity der Holdingkosten)
-• FEST.
+• FEST oder als Verteilung (z. B. PERT um den WACC-Punktwert),
+  wenn die Unsicherheit des Diskontierungssatzes modelliert werden soll.
 
 ────────────────────────────────────────────────────────────────────────
 3.3  Nettoverschuldung / Net Debt (Mio.)
@@ -385,8 +392,14 @@ Für jedes Segment eine eigene Tabelle:
 | NWC (% ΔUmsatz) | [Typ]: … | [lo] | [mode] | [hi] | [μ] | [σ] | [n_term] | – | [CCC, Branchenvergleich] |
 | WACC (%) | [Typ]: … | [lo] | [mode] | [hi] | [μ] | [σ] | – | – | [CAPM-Herleitung komplett zeigen!] |
 | TV-Methode | [Gordon Growth / Exit Multiple] | – | – | – | – | – | – | – | [Warum diese Methode?] |
-| TV-Wachstum (%) | [Typ]: … | [lo] | [mode] | [hi] | [μ] | [σ] | – | – | [BIP-Benchmark, WACC-Spread] |
-| oder: Exit-Multiple | [Typ]: … | [lo] | [mode] | [hi] | [μ] | [σ] | – | – | [Peer-Multiples, M&A-Comps] |
+| TV-Wachstum (%) | [Typ]: … | [lo] | [mode] | [hi] | [μ] | [σ] | – | – | [BIP-Benchmark, WACC-Spread] ★ |
+| oder: Exit-Multiple | [Typ]: … | [lo] | [mode] | [hi] | [μ] | [σ] | – | – | [Peer-Multiples, M&A-Comps] ★ |
+
+★ **Wichtig:** TV-Wachstum und Exit-Multiple werden im Modell als
+  vollständige Verteilung eingegeben (alle 6 Typen möglich).
+  PERT ist hier besonders empfehlenswert, um die Unsicherheit der
+  Terminal-Value-Annahmen abzubilden. NICHT als Fest eingeben,
+  außer bei extremer Sicherheit.
 
 Hinweise zur Tabelle:
   • „Terminal"-Spalte: Langfristiger Zielwert für den Fade. „–" wenn kein Fade.

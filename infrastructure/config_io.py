@@ -19,7 +19,12 @@ import numpy as np
 
 SETUP_KEYS: list[str] = [
     "setup_n_sim", "setup_seed", "setup_n_seg",
-    "setup_corp_costs", "setup_corp_disc", "setup_net_debt", "setup_shares",
+    "setup_mid_year", "setup_ext_bridge",
+]
+
+BRIDGE_PREFIXES: list[str] = [
+    "bridge_cc", "bridge_cd", "bridge_nd", "bridge_sh",
+    "bridge_mi", "bridge_pn", "bridge_no", "bridge_as",
 ]
 
 DIST_PARAMS: list[str] = [
@@ -36,6 +41,7 @@ DIST_SUFFIXES: list[str] = [
 ]
 
 _SEG_PATTERN = re.compile(r"^(seg_\d+_|s\d+_)")
+_BRIDGE_PATTERN = re.compile(r"^bridge_")
 
 
 # ── Serialisation ─────────────────────────────────────────────────────
@@ -70,8 +76,25 @@ def collect_config(state: dict) -> dict:
     for k in SETUP_KEYS:
         if k in state:
             v = state[k]
-            setup[k] = int(v) if isinstance(v, (int, np.integer)) else float(v)
+            if isinstance(v, bool):
+                setup[k] = v
+            elif isinstance(v, (int, np.integer)):
+                setup[k] = int(v)
+            else:
+                setup[k] = float(v)
     cfg["setup"] = setup
+
+    # Bridge parameters (distribution inputs)
+    bridge: dict = {}
+    for prefix in BRIDGE_PREFIXES:
+        for sfx in DIST_SUFFIXES:
+            key = f"{prefix}{sfx}"
+            if key in state:
+                bridge[key] = _coerce_json(state[key])
+    # Also capture the ext-bridge checkbox
+    if "setup_ext_bridge" in state:
+        bridge["setup_ext_bridge"] = bool(state["setup_ext_bridge"])
+    cfg["bridge"] = bridge
 
     # Per-segment parameters
     n_seg = int(state.get("setup_n_seg", 1))
@@ -116,8 +139,17 @@ def apply_config(cfg: dict, state: dict) -> dict:
         if _SEG_PATTERN.match(k):
             del updated[k]
 
+    # Clear stale bridge keys
+    for k in list(updated.keys()):
+        if _BRIDGE_PATTERN.match(k):
+            del updated[k]
+
     # Apply setup keys
     for k, v in cfg.get("setup", {}).items():
+        updated[k] = v
+
+    # Apply bridge keys
+    for k, v in cfg.get("bridge", {}).items():
         updated[k] = v
 
     # Apply segment keys

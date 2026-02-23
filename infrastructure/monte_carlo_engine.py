@@ -128,6 +128,10 @@ class MonteCarloEngine:
             bridge.stochastic_corporate_costs,
             bridge.annual_corporate_costs, n,
         )
+        corp_disc_arr = self._sample_bridge_param(
+            bridge.stochastic_corporate_cost_discount_rate,
+            bridge.corporate_cost_discount_rate, n,
+        )
         net_debt_arr = self._sample_bridge_param(
             bridge.stochastic_net_debt,
             bridge.net_debt, n,
@@ -159,6 +163,8 @@ class MonteCarloEngine:
         # Track stochastic bridge inputs for sensitivity
         if bridge.stochastic_corporate_costs is not None:
             input_samples["Bridge | Holdingkosten"] = corp_costs_arr
+        if bridge.stochastic_corporate_cost_discount_rate is not None:
+            input_samples["Bridge | Diskontierung Holding"] = corp_disc_arr
         if bridge.stochastic_net_debt is not None:
             input_samples["Bridge | Nettoverschuldung"] = net_debt_arr
         if bridge.stochastic_shares is not None:
@@ -174,7 +180,7 @@ class MonteCarloEngine:
 
         pv_corp = compute_corporate_costs_pv(
             corp_costs_arr,
-            np.full(n, bridge.corporate_cost_discount_rate, dtype=np.float64),
+            corp_disc_arr,
         )
         # Extended equity bridge:
         # Equity = Sum(EV) - PV(Corp) - NetDebt - Minority - Pension

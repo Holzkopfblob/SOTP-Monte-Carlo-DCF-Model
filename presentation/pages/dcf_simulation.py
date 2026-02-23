@@ -9,10 +9,30 @@ import streamlit as st
 
 from domain.models import (
     CorporateBridgeConfig,
+    DistributionConfig,
+    DistributionType,
     SegmentConfig,
     SimulationConfig,
 )
 from application.simulation_service import SimulationService
+
+
+def _split_bridge_param(
+    dist: DistributionConfig | None,
+    fallback: float = 0.0,
+) -> tuple[float, DistributionConfig | None]:
+    """Extract scalar + optional stochastic override from a unified config.
+
+    When the distribution is "Fest", the scalar value is used and no
+    stochastic override is passed to the engine.  For any other type
+    the representative value becomes the scalar fallback while the full
+    distribution is forwarded for MC sampling.
+    """
+    if dist is None:
+        return fallback, None
+    if dist.dist_type == DistributionType.FIXED:
+        return dist.fixed_value, None
+    return dist.representative_value(), dist
 
 
 def render_simulation(
@@ -64,26 +84,37 @@ def render_simulation(
             if not segment_configs:
                 st.error("Bitte konfigurieren Sie mindestens ein Segment.")
             else:
+                # Split unified DistributionConfig → scalar + stochastic
+                cc_val, cc_stoch = _split_bridge_param(setup["bridge_corp_costs"], 50.0)
+                cd_val, cd_stoch = _split_bridge_param(setup["bridge_corp_discount"], 0.09)
+                nd_val, nd_stoch = _split_bridge_param(setup["bridge_net_debt"], 500.0)
+                sh_val, sh_stoch = _split_bridge_param(setup["bridge_shares"], 100.0)
+                mi_val, mi_stoch = _split_bridge_param(setup.get("bridge_minority"))
+                pn_val, pn_stoch = _split_bridge_param(setup.get("bridge_pension"))
+                no_val, no_stoch = _split_bridge_param(setup.get("bridge_non_op"))
+                as_val, as_stoch = _split_bridge_param(setup.get("bridge_associates"))
+
                 config = SimulationConfig(
                     n_simulations=n_simulations,
                     random_seed=random_seed,
                     segments=segment_configs,
                     corporate_bridge=CorporateBridgeConfig(
-                        annual_corporate_costs=setup["annual_corp_costs"],
-                        corporate_cost_discount_rate=setup["corp_discount"] / 100.0,
-                        net_debt=setup["net_debt"],
-                        shares_outstanding=setup["shares"],
-                        minority_interests=setup["minority_interests"],
-                        pension_liabilities=setup["pension_liabilities"],
-                        non_operating_assets=setup["non_operating_assets"],
-                        associate_investments=setup["associate_investments"],
-                        stochastic_corporate_costs=setup["stoch_corp_costs"],
-                        stochastic_net_debt=setup["stoch_net_debt"],
-                        stochastic_shares=setup["stoch_shares"],
-                        stochastic_minority_interests=setup["stoch_minority"],
-                        stochastic_pension_liabilities=setup["stoch_pension"],
-                        stochastic_non_operating_assets=setup["stoch_non_op"],
-                        stochastic_associate_investments=setup["stoch_associates"],
+                        annual_corporate_costs=cc_val,
+                        corporate_cost_discount_rate=cd_val,
+                        net_debt=nd_val,
+                        shares_outstanding=sh_val,
+                        minority_interests=mi_val,
+                        pension_liabilities=pn_val,
+                        non_operating_assets=no_val,
+                        associate_investments=as_val,
+                        stochastic_corporate_costs=cc_stoch,
+                        stochastic_corporate_cost_discount_rate=cd_stoch,
+                        stochastic_net_debt=nd_stoch,
+                        stochastic_shares=sh_stoch,
+                        stochastic_minority_interests=mi_stoch,
+                        stochastic_pension_liabilities=pn_stoch,
+                        stochastic_non_operating_assets=no_stoch,
+                        stochastic_associate_investments=as_stoch,
                     ),
                     mid_year_convention=setup["mid_year_conv"],
                     segment_correlation=setup.get("segment_correlation"),

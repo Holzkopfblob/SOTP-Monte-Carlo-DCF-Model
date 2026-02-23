@@ -103,20 +103,31 @@ def render_results(tab) -> None:
         chart_c3, chart_c4 = st.columns(2)
         with chart_c3:
             st.plotly_chart(
-                cdf_plot(
-                    results.equity_values,
-                    "CDF – Equity Value",
-                    "Equity Value (Mio.)",
-                ),
-                use_container_width=True,
-            )
-        with chart_c4:
-            st.plotly_chart(
                 histogram_kde(
                     results.price_per_share,
                     "Verteilung – Preis je Aktie",
                     "Preis je Aktie",
                     color="#9467bd",
+                ),
+                use_container_width=True,
+            )
+        with chart_c4:
+            st.plotly_chart(
+                cdf_plot(
+                    results.price_per_share,
+                    "CDF – Preis je Aktie",
+                    "Preis je Aktie",
+                    color="#9467bd",
+                ),
+                use_container_width=True,
+            )
+
+        with st.expander("📉 CDF – Equity Value", expanded=False):
+            st.plotly_chart(
+                cdf_plot(
+                    results.equity_values,
+                    "CDF – Equity Value",
+                    "Equity Value (Mio.)",
                 ),
                 use_container_width=True,
             )

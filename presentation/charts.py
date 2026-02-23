@@ -119,8 +119,10 @@ def cdf_plot(
     values: np.ndarray,
     title: str,
     x_label: str = "Wert",
+    color: str | None = None,
 ) -> go.Figure:
     """Empirical CDF with probability reference lines."""
+    line_color = color or COLORS["primary"]
     sorted_vals = np.sort(values)
     cdf = np.arange(1, len(sorted_vals) + 1) / len(sorted_vals)
 
@@ -130,7 +132,7 @@ def cdf_plot(
         y=cdf,
         mode="lines",
         name="Empirische CDF",
-        line=dict(color=COLORS["primary"], width=2),
+        line=dict(color=line_color, width=2),
     ))
 
     # Reference lines
