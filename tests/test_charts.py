@@ -15,9 +15,14 @@ import pytest
 from presentation.charts import (
     cdf_plot,
     cdf_with_reference,
+    conditional_tornado_chart,
     convergence_chart,
     correlation_heatmap,
+    economic_profit_chart,
     histogram_kde,
+    implied_return_cdf,
+    margin_of_safety_chart,
+    percentile_convergence_chart,
     portfolio_weights_comparison,
     revenue_fade_preview,
     stress_comparison_chart,
@@ -148,3 +153,62 @@ class TestDeadCodeRemoved:
         assert not hasattr(charts, "price_histogram"), (
             "price_histogram was a thin wrapper – use histogram_kde directly"
         )
+
+    def test_portfolio_radar_chart_removed(self):
+        from presentation import charts
+        assert not hasattr(charts, "portfolio_radar_chart"), (
+            "portfolio_radar_chart was removed in Phase 1 cleanup"
+        )
+
+    def test_sotp_treemap_removed(self):
+        from presentation import charts
+        assert not hasattr(charts, "sotp_treemap"), (
+            "sotp_treemap was removed in Phase 1 cleanup"
+        )
+
+
+# ── Phase 2: New chart smoke tests ───────────────────────────────────────
+
+class TestMarginOfSafetyChart:
+    def test_returns_figure(self, sample_values):
+        fig = margin_of_safety_chart(sample_values, market_price=95.0)
+        assert isinstance(fig, go.Figure)
+
+
+class TestImpliedReturnCDF:
+    def test_returns_figure(self, sample_values):
+        fig = implied_return_cdf(sample_values, market_price=95.0)
+        assert isinstance(fig, go.Figure)
+
+
+class TestEconomicProfitChart:
+    def test_returns_figure(self):
+        rng = np.random.default_rng(42)
+        seg_ep = {
+            "Seg A": rng.normal(50, 20, 500),
+            "Seg B": rng.normal(-10, 15, 500),
+        }
+        fig = economic_profit_chart(seg_ep)
+        assert isinstance(fig, go.Figure)
+
+
+class TestConditionalTornadoChart:
+    def test_returns_figure(self):
+        bear = {"Param A": -0.6, "Param B": 0.3}
+        bull = {"Param A": 0.2, "Param B": 0.7}
+        fig = conditional_tornado_chart(bear, bull)
+        assert isinstance(fig, go.Figure)
+
+    def test_empty(self):
+        fig = conditional_tornado_chart({}, {})
+        assert isinstance(fig, go.Figure)
+
+
+class TestPercentileConvergenceChart:
+    def test_returns_figure(self):
+        idx = np.arange(100, 1100, 100)
+        p5 = np.linspace(80, 85, 10)
+        p50 = np.linspace(100, 102, 10)
+        p95 = np.linspace(115, 118, 10)
+        fig = percentile_convergence_chart(idx, p5, p50, p95)
+        assert isinstance(fig, go.Figure)

@@ -430,3 +430,132 @@ class TestROICCharts:
         wacc = {"S1": rng.uniform(0.07, 0.12, 500)}
         fig = roic_vs_wacc_scatter(roic, wacc)
         assert fig is not None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 2: Economic Profit & Prob Value Destruction
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestEconomicProfit:
+    def test_positive_ep(self):
+        """High ROIC segment → positive economic profit."""
+        from domain.valuation_metrics import economic_profit
+
+        n = 100
+        rng = np.random.default_rng(42)
+        ep = economic_profit(
+            revenue=np.full(n, 1000.0),
+            ebitda_margin=np.full(n, 0.25),
+            da_pct_revenue=np.full(n, 0.05),
+            tax_rate=np.full(n, 0.25),
+            capex_pct_revenue=np.full(n, 0.06),
+            nwc_pct_delta_revenue=np.full(n, 0.02),
+            revenue_growth=np.full(n, 0.04),
+            wacc=np.full(n, 0.08),
+        )
+        assert ep.shape == (n,)
+        assert np.all(np.isfinite(ep))
+
+    def test_zero_growth_safe(self):
+        """Zero growth should not crash."""
+        from domain.valuation_metrics import economic_profit
+
+        n = 50
+        ep = economic_profit(
+            revenue=np.full(n, 500.0),
+            ebitda_margin=np.full(n, 0.20),
+            da_pct_revenue=np.full(n, 0.04),
+            tax_rate=np.full(n, 0.30),
+            capex_pct_revenue=np.full(n, 0.05),
+            nwc_pct_delta_revenue=np.full(n, 0.01),
+            revenue_growth=np.full(n, 0.0),
+            wacc=np.full(n, 0.10),
+        )
+        assert np.all(np.isfinite(ep))
+
+
+class TestProbValueDestruction:
+    def test_all_above_wacc(self):
+        from domain.valuation_metrics import prob_value_destruction
+
+        roic = np.full(100, 0.15)
+        wacc = np.full(100, 0.10)
+        assert prob_value_destruction(roic, wacc) == 0.0
+
+    def test_all_below_wacc(self):
+        from domain.valuation_metrics import prob_value_destruction
+
+        roic = np.full(100, 0.05)
+        wacc = np.full(100, 0.10)
+        assert prob_value_destruction(roic, wacc) == 1.0
+
+    def test_mixed(self):
+        from domain.valuation_metrics import prob_value_destruction
+
+        roic = np.array([0.05, 0.12, 0.08, 0.15])
+        wacc = np.full(4, 0.10)
+        result = prob_value_destruction(roic, wacc)
+        assert 0.0 < result < 1.0
+        assert result == pytest.approx(0.5)  # 2 out of 4
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 2: New statistics functions
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestConditionalSensitivity:
+    def test_returns_bear_bull_keys(self):
+        from domain.statistics import conditional_sensitivity
+
+        rng = np.random.default_rng(42)
+        equity = rng.normal(100, 20, 1000)
+        inputs = {"Param_A": rng.normal(0, 1, 1000)}
+        result = conditional_sensitivity(equity, inputs)
+        assert "bear" in result
+        assert "bull" in result
+
+    def test_empty_on_fixed_inputs(self):
+        from domain.statistics import conditional_sensitivity
+
+        equity = np.random.default_rng(1).normal(100, 20, 500)
+        inputs = {"Fixed": np.full(500, 5.0)}
+        result = conditional_sensitivity(equity, inputs)
+        assert len(result["bear"]) == 0
+        assert len(result["bull"]) == 0
+
+
+class TestComputeTailRisk:
+    def test_basic(self):
+        from domain.statistics import compute_tail_risk
+
+        arr = np.arange(1.0, 101.0)
+        tr = compute_tail_risk(arr)
+        assert "var" in tr
+        assert "cvar" in tr
+        assert "tail_ratio" in tr
+        assert tr["var"] <= tr["cvar"] or tr["cvar"] <= tr["var"]
+
+    def test_all_same(self):
+        from domain.statistics import compute_tail_risk
+
+        arr = np.full(100, 50.0)
+        tr = compute_tail_risk(arr)
+        assert tr["var"] == pytest.approx(50.0)
+
+
+class TestNormalityTest:
+    def test_normal_sample(self):
+        from domain.statistics import normality_test
+
+        arr = np.random.default_rng(42).normal(0, 1, 5000)
+        result = normality_test(arr)
+        assert "recommendation" in result
+        assert result["is_normal"] in [0.0, 1.0]
+
+    def test_skewed_sample(self):
+        from domain.statistics import normality_test
+
+        arr = np.random.default_rng(42).lognormal(0, 1, 5000)
+        result = normality_test(arr)
+        # Lognormal is not normal
+        assert result["is_normal"] == 0.0

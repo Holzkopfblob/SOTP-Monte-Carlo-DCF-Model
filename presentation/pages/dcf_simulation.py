@@ -15,7 +15,7 @@ from domain.models import (
     SegmentConfig,
     SimulationConfig,
 )
-from application.simulation_service import SimulationService
+from infrastructure.monte_carlo_engine import MonteCarloEngine
 
 
 def _split_bridge_param(
@@ -125,7 +125,7 @@ def render_simulation(
                 progress_bar = st.progress(0, text="Initialisiere Simulation …")
                 progress_bar.progress(10, text="Generiere stochastische Samples …")
 
-                results = SimulationService.run_simulation(config)
+                results = MonteCarloEngine(config).run()
 
                 progress_bar.progress(90, text="Berechne Statistiken …")
                 st.session_state.results = results

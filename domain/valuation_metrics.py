@@ -221,3 +221,71 @@ def valuation_quality_score(
         "sensitivity": s_sens,
         "dispersion": s_disp,
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Economic Profit (EVA)  –  EP = (ROIC − WACC) × Invested Capital
+# ═══════════════════════════════════════════════════════════════════════════
+
+def economic_profit(
+    revenue: np.ndarray,
+    ebitda_margin: np.ndarray,
+    da_pct_revenue: np.ndarray,
+    tax_rate: np.ndarray,
+    capex_pct_revenue: np.ndarray,
+    nwc_pct_delta_revenue: np.ndarray,
+    revenue_growth: np.ndarray,
+    wacc: np.ndarray,
+) -> np.ndarray:
+    """Economic Profit per simulation (Year-1 steady-state approximation).
+
+    .. math::
+
+        EP = (ROIC - WACC) \\times IC
+
+    where Invested Capital is approximated as:
+
+    .. math::
+
+        IC = \\frac{\\text{NOPAT}}{\\text{ROIC}}
+           = \\frac{\\text{Revenue} \\times \\text{reinvest margin}}{g}
+
+    Returns
+    -------
+    ep : (n,)  Economic Profit in the same currency unit as revenue.
+    """
+    nopat_m = _nopat_margin(ebitda_margin, da_pct_revenue, tax_rate)
+    reinvest_m = _reinvest_margin(
+        capex_pct_revenue, da_pct_revenue,
+        nwc_pct_delta_revenue, revenue_growth,
+    )
+    g_safe = np.clip(revenue_growth, -0.5, 0.99)
+
+    # ROIC = g × NOPAT_margin / reinvest_margin
+    roic = g_safe * nopat_m / np.maximum(np.abs(reinvest_m), 1e-6)
+    roic = np.clip(roic, -1.0, 2.0)
+
+    # Invested Capital = NOPAT / ROIC = revenue × NOPAT_margin / max(|ROIC|, ε)
+    nopat = revenue * nopat_m
+    ic = np.abs(nopat) / np.maximum(np.abs(roic), 1e-6)
+
+    # EP = (ROIC − WACC) × IC
+    return (roic - wacc) * ic
+
+
+def prob_value_destruction(
+    roic: np.ndarray,
+    wacc: np.ndarray,
+) -> float:
+    """Probability that ROIC < WACC (value destruction).
+
+    Parameters
+    ----------
+    roic : (n,) implied ROIC per simulation.
+    wacc : (n,) WACC per simulation.
+
+    Returns
+    -------
+    float in [0, 1].
+    """
+    return float(np.mean(roic < wacc))

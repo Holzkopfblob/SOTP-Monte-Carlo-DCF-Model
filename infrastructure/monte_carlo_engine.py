@@ -25,7 +25,9 @@ from domain.models import (
 )
 from domain.valuation import compute_corporate_costs_pv, compute_segment_ev
 from domain.valuation_metrics import (
+    economic_profit,
     implied_roic,
+    prob_value_destruction,
     reinvestment_rate,
     tv_ev_ratio,
     valuation_quality_score,
@@ -46,14 +48,77 @@ class MonteCarloEngine:
     def run(self) -> SimulationResults:
         """Execute the simulation and return structured results."""
         n = self.config.n_simulations
+
+        # Phase 1: Sample & compute segment EVs
+        segment_evs, segment_tv_ev, segment_roic, segment_reinvest, \
+            segment_ep, segment_pvd, input_samples = self._compute_segment_evs(n)
+
+        # Phase 2: Equity bridge aggregation
+        total_ev, equity_values, price_per_share, base_seg, bridge_bases = \
+            self._compute_equity_bridge(segment_evs, input_samples, n)
+
+        # Phase 3: Quality metrics
+        q_score, weighted_tv_ev, ci_width_pct, sensitivities = \
+            self._compute_quality_metrics(
+                segment_tv_ev, segment_evs, total_ev, equity_values, input_samples,
+            )
+
+        # Phase 4: Convergence diagnostics (mean + percentiles)
+        conv_idx, conv_mean, conv_lo, conv_hi, conv_p5, conv_p50, conv_p95 = \
+            self._compute_convergence_full(equity_values)
+
+        # Phase 5: Tail risk
+        from domain.statistics import compute_tail_risk
+        tail = compute_tail_risk(equity_values)
+
+        return SimulationResults(
+            equity_values=equity_values,
+            total_ev=total_ev,
+            segment_evs=segment_evs,
+            pv_corporate_costs=bridge_bases["pv_corp"],
+            input_samples=input_samples,
+            base_segment_evs=base_seg,
+            base_corporate_costs_pv=bridge_bases["base_corporate_costs_pv"],
+            base_net_debt=bridge_bases["base_net_debt"],
+            base_equity_value=bridge_bases["base_equity_value"],
+            base_minority_interests=bridge_bases["base_minority_interests"],
+            base_pension_liabilities=bridge_bases["base_pension_liabilities"],
+            base_non_operating_assets=bridge_bases["base_non_operating_assets"],
+            base_associate_investments=bridge_bases["base_associate_investments"],
+            price_per_share=price_per_share,
+            n_simulations=n,
+            convergence_indices=conv_idx,
+            convergence_means=conv_mean,
+            convergence_ci_low=conv_lo,
+            convergence_ci_high=conv_hi,
+            convergence_p5=conv_p5,
+            convergence_p50=conv_p50,
+            convergence_p95=conv_p95,
+            segment_tv_ev_ratios=segment_tv_ev,
+            segment_implied_roic=segment_roic,
+            segment_reinvest_rates=segment_reinvest,
+            segment_economic_profit=segment_ep,
+            segment_prob_value_destruction=segment_pvd,
+            quality_score=q_score,
+            equity_var_5=tail["var"],
+            equity_cvar_5=tail["cvar"],
+            equity_tail_ratio=tail["tail_ratio"],
+        )
+
+    # ------------------------------------------------------------------
+    # Sub-methods (split from run() for readability)
+    # ------------------------------------------------------------------
+
+    def _compute_segment_evs(self, n: int):
+        """Sample parameters and compute per-segment EVs."""
         segment_evs: dict[str, np.ndarray] = {}
         segment_tv_ev: dict[str, np.ndarray] = {}
         segment_roic: dict[str, np.ndarray] = {}
         segment_reinvest: dict[str, np.ndarray] = {}
-
+        segment_ep: dict[str, np.ndarray] = {}
+        segment_pvd: dict[str, float] = {}
         input_samples: dict[str, np.ndarray] = {}
 
-        # ── Phase 3: choose sampling strategy ─────────────────────────
         corr = self.config.segment_correlation
         if corr is not None and len(self.config.segments) > 1:
             corr_mat = np.asarray(corr, dtype=np.float64)
@@ -66,8 +131,6 @@ class MonteCarloEngine:
             ]
 
         for seg, samples in zip(self.config.segments, all_samples):
-            # Persist for sensitivity analysis – use initial (Year-1)
-            # value when a param is time-varying (n, T)
             for pname, arr in samples.items():
                 if arr.ndim == 2:
                     input_samples[f"{seg.name} | {pname}"] = arr[:, 0]
@@ -93,12 +156,9 @@ class MonteCarloEngine:
                 decompose=True,
             )
             segment_evs[seg.name] = detail.ev
-
-            # ── Phase 2 metrics ───────────────────────────────────────
             segment_tv_ev[seg.name] = tv_ev_ratio(detail.pv_tv, detail.ev)
 
-            # ── Implied ROIC & reinvestment rate ───────────────────────────
-            # Use Year-1 (initial) values for the steady-state approximation
+            # Year-1 values for steady-state approximation
             def _y1(arr: np.ndarray) -> np.ndarray:
                 return arr[:, 0] if arr.ndim == 2 else arr
 
@@ -108,67 +168,61 @@ class MonteCarloEngine:
             seg_capex   = _y1(samples["CAPEX (% Umsatz)"])
             seg_nwc     = _y1(samples["NWC (% ΔUmsatz)"])
             seg_growth  = _y1(samples["Umsatzwachstum"])
+            seg_wacc    = samples["WACC"]
 
-            segment_roic[seg.name] = implied_roic(
-                ebitda_margin=seg_ebitda,
-                da_pct_revenue=seg_da,
-                tax_rate=seg_tax,
-                capex_pct_revenue=seg_capex,
-                nwc_pct_delta_revenue=seg_nwc,
-                revenue_growth=seg_growth,
+            seg_roic = implied_roic(
+                ebitda_margin=seg_ebitda, da_pct_revenue=seg_da,
+                tax_rate=seg_tax, capex_pct_revenue=seg_capex,
+                nwc_pct_delta_revenue=seg_nwc, revenue_growth=seg_growth,
             )
+            segment_roic[seg.name] = seg_roic
             segment_reinvest[seg.name] = reinvestment_rate(
-                capex_pct_revenue=seg_capex,
-                da_pct_revenue=seg_da,
-                nwc_pct_delta_revenue=seg_nwc,
-                revenue_growth=seg_growth,
-                ebitda_margin=seg_ebitda,
-                tax_rate=seg_tax,
+                capex_pct_revenue=seg_capex, da_pct_revenue=seg_da,
+                nwc_pct_delta_revenue=seg_nwc, revenue_growth=seg_growth,
+                ebitda_margin=seg_ebitda, tax_rate=seg_tax,
             )
 
-        # ── Aggregate ─────────────────────────────────────────────────
+            # Economic Profit
+            rev_y1 = seg.base_revenue * (1.0 + seg_growth)
+            segment_ep[seg.name] = economic_profit(
+                revenue=rev_y1, ebitda_margin=seg_ebitda,
+                da_pct_revenue=seg_da, tax_rate=seg_tax,
+                capex_pct_revenue=seg_capex,
+                nwc_pct_delta_revenue=seg_nwc,
+                revenue_growth=seg_growth, wacc=seg_wacc,
+            )
+            segment_pvd[seg.name] = prob_value_destruction(seg_roic, seg_wacc)
+
+        return (segment_evs, segment_tv_ev, segment_roic, segment_reinvest,
+                segment_ep, segment_pvd, input_samples)
+
+    def _compute_equity_bridge(self, segment_evs, input_samples, n):
+        """Aggregate segment EVs through the corporate bridge to equity."""
         total_ev = np.sum(
             np.column_stack(list(segment_evs.values())), axis=1
         )
 
         bridge = self.config.corporate_bridge
 
-        # Sample stochastic corporate bridge parameters
         corp_costs_arr = self._sample_bridge_param(
-            bridge.stochastic_corporate_costs,
-            bridge.annual_corporate_costs, n,
-        )
+            bridge.stochastic_corporate_costs, bridge.annual_corporate_costs, n)
         corp_disc_arr = self._sample_bridge_param(
             bridge.stochastic_corporate_cost_discount_rate,
-            bridge.corporate_cost_discount_rate, n,
-        )
+            bridge.corporate_cost_discount_rate, n)
         net_debt_arr = self._sample_bridge_param(
-            bridge.stochastic_net_debt,
-            bridge.net_debt, n,
-        )
+            bridge.stochastic_net_debt, bridge.net_debt, n)
         shares_arr = self._sample_bridge_param(
-            bridge.stochastic_shares,
-            bridge.shares_outstanding, n,
-        )
-        shares_arr = np.maximum(shares_arr, 1e-6)  # safety floor
+            bridge.stochastic_shares, bridge.shares_outstanding, n)
+        shares_arr = np.maximum(shares_arr, 1e-6)
 
-        # ── Extended bridge items ─────────────────────────────────────
         minority_arr = self._sample_bridge_param(
-            bridge.stochastic_minority_interests,
-            bridge.minority_interests, n,
-        )
+            bridge.stochastic_minority_interests, bridge.minority_interests, n)
         pension_arr = self._sample_bridge_param(
-            bridge.stochastic_pension_liabilities,
-            bridge.pension_liabilities, n,
-        )
+            bridge.stochastic_pension_liabilities, bridge.pension_liabilities, n)
         non_op_arr = self._sample_bridge_param(
-            bridge.stochastic_non_operating_assets,
-            bridge.non_operating_assets, n,
-        )
+            bridge.stochastic_non_operating_assets, bridge.non_operating_assets, n)
         associates_arr = self._sample_bridge_param(
-            bridge.stochastic_associate_investments,
-            bridge.associate_investments, n,
-        )
+            bridge.stochastic_associate_investments, bridge.associate_investments, n)
 
         # Track stochastic bridge inputs for sensitivity
         if bridge.stochastic_corporate_costs is not None:
@@ -188,34 +242,32 @@ class MonteCarloEngine:
         if bridge.stochastic_associate_investments is not None:
             input_samples["Bridge | Beteiligungen"] = associates_arr
 
-        pv_corp = compute_corporate_costs_pv(
-            corp_costs_arr,
-            corp_disc_arr,
-        )
-        # Extended equity bridge:
-        # Equity = Sum(EV) - PV(Corp) - NetDebt - Minority - Pension
-        #          + NonOperating + Associates
+        pv_corp = compute_corporate_costs_pv(corp_costs_arr, corp_disc_arr)
+
         equity_values = (
-            total_ev
-            - pv_corp
-            - net_debt_arr
-            - minority_arr
-            - pension_arr
-            + non_op_arr
-            + associates_arr
+            total_ev - pv_corp - net_debt_arr - minority_arr - pension_arr
+            + non_op_arr + associates_arr
         )
         price_per_share = equity_values / shares_arr
 
-        # Base-case means for the waterfall chart
         base_seg = {k: float(np.mean(v)) for k, v in segment_evs.items()}
 
-        # ── Convergence diagnostics ───────────────────────────────────
-        conv_idx, conv_mean, conv_lo, conv_hi = self._compute_convergence(
-            equity_values
-        )
+        bridge_bases = {
+            "pv_corp": pv_corp,
+            "base_corporate_costs_pv": float(np.mean(pv_corp)),
+            "base_net_debt": float(np.mean(net_debt_arr)),
+            "base_equity_value": float(np.mean(equity_values)),
+            "base_minority_interests": float(np.mean(minority_arr)),
+            "base_pension_liabilities": float(np.mean(pension_arr)),
+            "base_non_operating_assets": float(np.mean(non_op_arr)),
+            "base_associate_investments": float(np.mean(associates_arr)),
+        }
 
-        # ── Phase 2: Quality score ────────────────────────────────────
-        # Aggregate TV/EV across segments (weighted by mean EV)
+        return total_ev, equity_values, price_per_share, base_seg, bridge_bases
+
+    def _compute_quality_metrics(self, segment_tv_ev, segment_evs,
+                                  total_ev, equity_values, input_samples):
+        """Compute composite quality score."""
         total_mean_ev = float(np.mean(total_ev))
         if total_mean_ev > 1e-6:
             weighted_tv_ev = sum(
@@ -225,13 +277,13 @@ class MonteCarloEngine:
         else:
             weighted_tv_ev = 0.0
 
-        ci_width_pct = 0.0
-        if len(conv_hi) > 0 and abs(conv_mean[-1]) > 0:
-            ci_width_pct = float(
-                (conv_hi[-1] - conv_lo[-1]) / abs(conv_mean[-1]) * 100
-            )
+        # Quick convergence CI for quality score
+        n = len(equity_values)
+        m = float(np.mean(equity_values))
+        s = float(np.std(equity_values))
+        ci_width = 2 * 1.96 * s / np.sqrt(max(n, 1))
+        ci_width_pct = (ci_width / abs(m) * 100) if abs(m) > 0 else 0.0
 
-        # Sensitivity – computed via domain-level function (no app-layer import)
         from domain.statistics import compute_sensitivity as _compute_sens
         sensitivities = _compute_sens(equity_values, input_samples)
 
@@ -239,36 +291,10 @@ class MonteCarloEngine:
             mean_tv_ev=weighted_tv_ev,
             ci_width_pct=ci_width_pct,
             correlations=sensitivities,
-            equity_mean=float(np.mean(equity_values)),
-            equity_std=float(np.std(equity_values)),
+            equity_mean=m,
+            equity_std=s,
         )
-
-        return SimulationResults(
-            equity_values=equity_values,
-            total_ev=total_ev,
-            segment_evs=segment_evs,
-            pv_corporate_costs=pv_corp,
-            input_samples=input_samples,
-            base_segment_evs=base_seg,
-            base_corporate_costs_pv=float(np.mean(pv_corp)),
-            base_net_debt=float(np.mean(net_debt_arr)),
-            base_equity_value=float(np.mean(equity_values)),
-            base_minority_interests=float(np.mean(minority_arr)),
-            base_pension_liabilities=float(np.mean(pension_arr)),
-            base_non_operating_assets=float(np.mean(non_op_arr)),
-            base_associate_investments=float(np.mean(associates_arr)),
-            price_per_share=price_per_share,
-            n_simulations=n,
-            convergence_indices=conv_idx,
-            convergence_means=conv_mean,
-            convergence_ci_low=conv_lo,
-            convergence_ci_high=conv_hi,
-            segment_tv_ev_ratios=segment_tv_ev,
-            segment_implied_roic=segment_roic,
-            segment_reinvest_rates=segment_reinvest,
-
-            quality_score=q_score,
-        )
+        return q_score, weighted_tv_ev, ci_width_pct, sensitivities
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -386,21 +412,9 @@ class MonteCarloEngine:
 
         Respects ``self.config.sampling_method``:
         - PSEUDO_RANDOM: standard RNG draws
-        - ANTITHETIC: n/2 draws + mirror (1-u), doubles effective samples
         - SOBOL: quasi-random low-discrepancy Sobol sequence
         """
         method = self.config.sampling_method
-
-        if method == SamplingMethod.ANTITHETIC:
-            half = n // 2
-            u_half = self.rng.random(size=(d, half))
-            u = np.concatenate([u_half, 1.0 - u_half], axis=1)
-            # If n is odd, append one extra random column
-            if 2 * half < n:
-                u = np.concatenate(
-                    [u, self.rng.random(size=(d, 1))], axis=1,
-                )
-            return u[:, :n]
 
         if method == SamplingMethod.SOBOL:
             sampler = qmc.Sobol(d=d, scramble=True, seed=self.config.random_seed)
@@ -565,3 +579,30 @@ class MonteCarloEngine:
             ci_hi[i] = m + se
 
         return checkpoints, means, ci_lo, ci_hi
+
+    def _compute_convergence_full(
+        self,
+        equity_values: np.ndarray,
+        n_checkpoints: int = 200,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray,
+               np.ndarray, np.ndarray, np.ndarray]:
+        """Enhanced convergence: running mean + CI + running P5/P50/P95.
+
+        Returns (indices, means, ci_lo, ci_hi, p5, p50, p95).
+        """
+        idx, means, ci_lo, ci_hi = self._compute_convergence(
+            equity_values, n_checkpoints
+        )
+
+        # Compute running percentiles at the same checkpoints
+        p5  = np.empty(len(idx))
+        p50 = np.empty(len(idx))
+        p95 = np.empty(len(idx))
+
+        for i, k in enumerate(idx):
+            subset = equity_values[:k]
+            p5[i]  = np.percentile(subset, 5)
+            p50[i] = np.percentile(subset, 50)
+            p95[i] = np.percentile(subset, 95)
+
+        return idx, means, ci_lo, ci_hi, p5, p50, p95

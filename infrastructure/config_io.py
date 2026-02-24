@@ -13,6 +13,7 @@ import re
 from datetime import datetime
 
 import numpy as np
+from domain.models import CorporateBridgeConfig
 
 
 # ── Key registries (shared with the Streamlit widgets) ────────────────
@@ -22,10 +23,18 @@ SETUP_KEYS: list[str] = [
     "setup_mid_year", "setup_ext_bridge",
 ]
 
-BRIDGE_PREFIXES: list[str] = [
-    "bridge_cc", "bridge_cd", "bridge_nd", "bridge_sh",
-    "bridge_mi", "bridge_pn", "bridge_no", "bridge_as",
-]
+# Derived from CorporateBridgeConfig field names – single source of truth.
+_BRIDGE_FIELD_TO_PREFIX = {
+    "annual_corporate_costs": "bridge_cc",
+    "corporate_cost_discount_rate": "bridge_cd",
+    "net_debt": "bridge_nd",
+    "shares_outstanding": "bridge_sh",
+    "minority_interests": "bridge_mi",
+    "pension_liabilities": "bridge_pn",
+    "non_operating_assets": "bridge_no",
+    "associate_investments": "bridge_as",
+}
+BRIDGE_PREFIXES: list[str] = list(_BRIDGE_FIELD_TO_PREFIX.values())
 
 DIST_PARAMS: list[str] = [
     "rg", "em", "da", "tx", "cx", "nwc", "wacc", "tvg", "evm",

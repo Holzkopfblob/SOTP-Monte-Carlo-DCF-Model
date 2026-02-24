@@ -9,7 +9,7 @@ from application.portfolio_service import PortfolioResult
 
 # Fair-value distribution options for the portfolio app.
 # NOTE: These are portfolio-specific (include DCF-App bridge, exclude "Fest").
-DIST_OPTIONS = [
+PORTFOLIO_DIST_OPTIONS = [
     "Aus DCF-App (μ, σ, Schiefe)",
     "Normal",
     "Lognormal",

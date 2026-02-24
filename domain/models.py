@@ -42,7 +42,6 @@ class RevenueGrowthMode(str, Enum):
 class SamplingMethod(str, Enum):
     """Variance-reduction / quasi-random sampling strategies."""
     PSEUDO_RANDOM = "Pseudo-Random (Standard)"
-    ANTITHETIC    = "Antithetic Variates"
     SOBOL         = "Quasi-MC (Sobol)"
 
 
@@ -298,3 +297,19 @@ class SimulationResults:
     segment_reinvest_rates: dict[str, np.ndarray] = field(default_factory=dict)
     # Composite quality score dict (total, tv_ev, convergence, sensitivity, dispersion)
     quality_score: dict[str, float] = field(default_factory=dict)
+
+    # ── Phase 2b: Percentile convergence ──────────────────────────────
+    convergence_p5:  np.ndarray = field(default_factory=lambda: np.array([]))
+    convergence_p50: np.ndarray = field(default_factory=lambda: np.array([]))
+    convergence_p95: np.ndarray = field(default_factory=lambda: np.array([]))
+
+    # ── Phase 2b: Economic Profit ─────────────────────────────────────
+    # Per-segment economic profit distributions  (segment name → (n_sim,))
+    segment_economic_profit: dict[str, np.ndarray] = field(default_factory=dict)
+    # P(ROIC < WACC) per segment
+    segment_prob_value_destruction: dict[str, float] = field(default_factory=dict)
+
+    # ── Phase 2b: Tail Risk ───────────────────────────────────────────
+    equity_var_5: float = 0.0
+    equity_cvar_5: float = 0.0
+    equity_tail_ratio: float = 0.0

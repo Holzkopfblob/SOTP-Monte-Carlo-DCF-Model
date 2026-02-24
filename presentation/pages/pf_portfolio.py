@@ -12,7 +12,6 @@ from presentation.charts import (
     COLORS,
     cdf_with_reference,
     histogram_kde,
-    portfolio_radar_chart,
     portfolio_weights_comparison,
 )
 from presentation.pages.pf_common import active_results
@@ -113,49 +112,6 @@ Nur aktiv, wenn Views definiert sind. *(Neu)*
 
         # ── Radar chart ───────────────────────────────────────────
         st.divider()
-        st.subheader("🕸️ Methoden-Radar")
-        st.caption(
-            "Normalisiertes Radar-Diagramm – jede Achse skaliert auf "
-            "[0, 1] über alle Methoden. Rendite und Sharpe: höher = besser; "
-            "Vol., VaR, CVaR: invertiert (niedriger = besser)."
-        )
-
-        radar_data: dict[str, dict[str, float]] = {}
-        returns_raw = [pr.expected_return for pr in active.values()]
-        vols_raw = [pr.volatility for pr in active.values()]
-        sharpe_raw = [pr.sharpe_ratio for pr in active.values()]
-        var_raw = [abs(pr.var_5) for pr in active.values()]
-        cvar_raw = [abs(pr.cvar_5) for pr in active.values()]
-        div_raw = [pr.diversification_ratio for pr in active.values()]
-
-        def _norm(vals: list[float], invert: bool = False) -> list[float]:
-            lo, hi = min(vals), max(vals)
-            rng = hi - lo if hi != lo else 1.0
-            out = [(v - lo) / rng for v in vals]
-            return [1.0 - o for o in out] if invert else out
-
-        ret_n = _norm(returns_raw)
-        vol_n = _norm(vols_raw, invert=True)
-        sha_n = _norm(sharpe_raw)
-        var_n = _norm(var_raw, invert=True)
-        cva_n = _norm(cvar_raw, invert=True)
-        div_n = _norm(div_raw)
-
-        for i, (name, _pr) in enumerate(active.items()):
-            radar_data[name] = {
-                "Rendite": ret_n[i],
-                "Volatilität": vol_n[i],
-                "Sharpe": sha_n[i],
-                "VaR": var_n[i],
-                "CVaR": cva_n[i],
-                "Diversifikation": div_n[i],
-            }
-
-        st.plotly_chart(
-            portfolio_radar_chart(radar_data),
-            use_container_width=True,
-        )
-
         # ── Portfolio return distribution ─────────────────────────────
         st.divider()
         st.subheader("📈 Portfolio-Renditeverteilung")

@@ -842,109 +842,241 @@ def roic_vs_wacc_scatter(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Portfolio Radar Chart
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Margin-of-Safety Dashboard
 # ═══════════════════════════════════════════════════════════════════════════
 
-def portfolio_radar_chart(
-    methods: dict[str, dict[str, float]],
+def margin_of_safety_chart(
+    price_per_share: np.ndarray,
+    market_price: float,
 ) -> go.Figure:
-    """Radar / spider chart comparing portfolio methods across 6 dimensions.
+    """Histogram showing upside/downside with market price reference.
 
-    *methods* maps ``{method_name: {axis_name: normalised_value 0-1}}``.
+    Shades the upside region green and downside region red.
     """
-    if not methods:
-        return go.Figure()
-
-    categories = list(next(iter(methods.values())).keys())
-    categories_closed = categories + [categories[0]]  # close the polygon
-
     fig = go.Figure()
-    colors_cycle = PALETTE_EXTENDED
 
-    for i, (name, vals) in enumerate(methods.items()):
-        r_vals = [vals.get(c, 0) for c in categories] + [vals.get(categories[0], 0)]
-        fig.add_trace(go.Scatterpolar(
-            r=r_vals,
-            theta=categories_closed,
-            fill="toself",
-            name=name,
-            line=dict(color=colors_cycle[i % len(colors_cycle)], width=2),
-            opacity=0.65,
-        ))
+    # Split into upside / downside
+    upside = price_per_share[price_per_share >= market_price]
+    downside = price_per_share[price_per_share < market_price]
+
+    fig.add_trace(go.Histogram(
+        x=downside, nbinsx=50, name="Downside (FV < Kurs)",
+        marker_color=COLORS["negative"], opacity=0.6,
+        histnorm="probability density",
+    ))
+    fig.add_trace(go.Histogram(
+        x=upside, nbinsx=50, name="Upside (FV ≥ Kurs)",
+        marker_color=COLORS["positive"], opacity=0.6,
+        histnorm="probability density",
+    ))
+
+    fig.add_vline(
+        x=market_price, line_dash="solid", line_color=COLORS["neutral"],
+        line_width=3,
+        annotation_text=f"Marktpreis: {market_price:,.2f}",
+        annotation_font_size=12,
+    )
+
+    p_upside = float(np.mean(price_per_share >= market_price))
+    fig.add_annotation(
+        x=float(np.percentile(price_per_share, 75)),
+        yref="paper", y=0.95,
+        text=f"P(Upside) = {p_upside:.1%}",
+        showarrow=False,
+        font=dict(size=14, color=COLORS["positive"]),
+    )
 
     fig.update_layout(
-        polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
-        title="Portfolio-Methoden im Vergleich (Radar)",
+        title="Margin-of-Safety Analyse – Fair Value vs. Marktpreis",
+        xaxis_title="Fair Value je Aktie",
+        yaxis_title="Dichte",
+        barmode="stack",
         template=TEMPLATE,
-        height=560,
-        showlegend=True,
-        legend=dict(
-            orientation="h", yanchor="bottom", y=-0.2,
-            xanchor="center", x=0.5,
-        ),
+        height=480,
+        margin=dict(t=60, b=40),
+    )
+    return fig
+
+
+def implied_return_cdf(
+    price_per_share: np.ndarray,
+    market_price: float,
+) -> go.Figure:
+    """CDF of implied return (FV/Price - 1) with key probability markers."""
+    returns = (price_per_share / market_price - 1.0) * 100
+
+    sorted_r = np.sort(returns)
+    cdf_y = np.arange(1, len(sorted_r) + 1) / len(sorted_r)
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=sorted_r, y=cdf_y, mode="lines",
+        name="Implizierte Rendite",
+        line=dict(color=COLORS["primary"], width=2),
+    ))
+
+    # Breakeven line
+    fig.add_vline(x=0, line_dash="solid", line_color=COLORS["neutral"],
+                  line_width=2, annotation_text="Breakeven")
+
+    # Key percentile annotations
+    for pct in [5, 25, 50, 75, 95]:
+        val = float(np.percentile(returns, pct))
+        fig.add_annotation(
+            x=val, y=pct/100,
+            text=f"P{pct}: {val:+.1f}%",
+            showarrow=True, arrowhead=2,
+            font=dict(size=9),
+        )
+
+    fig.update_layout(
+        title="CDF – Implizierte Rendite (Fair Value vs. Marktpreis)",
+        xaxis_title="Implizierte Rendite (%)",
+        yaxis_title="Kumulative Wahrscheinlichkeit",
+        template=TEMPLATE, height=480,
+        yaxis=dict(tickformat=".0%"),
+        margin=dict(t=60, b=40),
     )
     return fig
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# SOTP Treemap
+# Economic Profit Chart
 # ═══════════════════════════════════════════════════════════════════════════
 
-def sotp_treemap(
-    segment_evs: dict[str, float],
-    total_ev: float,
-    adjustments: dict[str, float] | None = None,
+def economic_profit_chart(
+    segment_ep: dict[str, np.ndarray],
 ) -> go.Figure:
-    """Treemap showing segment EV decomposition as % of total.
+    """Box plot of economic profit per segment.
 
-    *segment_evs* maps ``{segment_name: mean_ev}``.
-    *adjustments* maps ``{label: value}`` for bridge items (optional).
+    Zero-line marks value-neutral territory.
     """
-    labels: list[str] = []
-    parents: list[str] = []
-    values: list[float] = []
-    colors: list[str] = []
-
-    root = "Enterprise Value"
-    labels.append(root)
-    parents.append("")
-    values.append(0)  # placeholder – updated below
-    colors.append(COLORS["primary"])
-
+    fig = go.Figure()
     colors_cycle = PALETTE_EXTENDED
-    for i, (seg_name, ev) in enumerate(segment_evs.items()):
-        pct = ev / max(total_ev, 1e-6) * 100
-        labels.append(f"{seg_name}\n{ev:,.0f} Mio.\n({pct:.1f}%)")
-        parents.append(root)
-        values.append(max(ev, 0))
-        colors.append(colors_cycle[i % len(colors_cycle)])
 
-    if adjustments:
-        for adj_name, adj_val in adjustments.items():
-            if adj_val != 0:
-                labels.append(f"{adj_name}\n{adj_val:,.0f} Mio.")
-                parents.append(root)
-                values.append(abs(adj_val))
-                clr = COLORS["positive"] if adj_val > 0 else COLORS["negative"]
-                colors.append(clr)
+    for i, (seg_name, ep_arr) in enumerate(segment_ep.items()):
+        fig.add_trace(go.Box(
+            y=ep_arr,
+            name=seg_name,
+            marker_color=colors_cycle[i % len(colors_cycle)],
+            boxmean="sd",
+        ))
 
-    # Root must equal sum of children for branchvalues="total"
-    values[0] = sum(values[1:])
+    fig.add_hline(
+        y=0, line_dash="dash", line_color=COLORS["negative"],
+        line_width=2,
+        annotation_text="EP = 0 (wertschöpfungsneutral)",
+        annotation_font_size=10,
+    )
 
-    fig = go.Figure(go.Treemap(
-        labels=labels,
-        parents=parents,
-        values=values,
-        marker=dict(colors=colors),
-        textinfo="label",
-        hovertemplate="<b>%{label}</b><extra></extra>",
-        branchvalues="total",
+    fig.update_layout(
+        title="Economic Profit (EVA) – Verteilung je Segment",
+        yaxis_title="Economic Profit (Mio.)",
+        template=TEMPLATE,
+        height=440,
+        showlegend=False,
+        margin=dict(t=60, b=40),
+    )
+    return fig
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Conditional Sensitivity (Bear vs Bull)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def conditional_tornado_chart(
+    bear_corr: dict[str, float],
+    bull_corr: dict[str, float],
+    top_n: int = 10,
+) -> go.Figure:
+    """Side-by-side tornado: what drives value in bear vs bull scenarios."""
+    # Merge keys, take top_n by max absolute correlation across both
+    all_keys = set(list(bear_corr.keys())[:top_n]) | set(list(bull_corr.keys())[:top_n])
+    if not all_keys:
+        return go.Figure()
+
+    sorted_keys = sorted(
+        all_keys,
+        key=lambda k: max(abs(bear_corr.get(k, 0)), abs(bull_corr.get(k, 0))),
+    )
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        y=sorted_keys,
+        x=[bear_corr.get(k, 0) for k in sorted_keys],
+        orientation="h",
+        name="Bear (P<25%)",
+        marker_color=COLORS["negative"],
+        opacity=0.7,
+    ))
+    fig.add_trace(go.Bar(
+        y=sorted_keys,
+        x=[bull_corr.get(k, 0) for k in sorted_keys],
+        orientation="h",
+        name="Bull (P>75%)",
+        marker_color=COLORS["positive"],
+        opacity=0.7,
     ))
 
     fig.update_layout(
-        title="SOTP Enterprise Value – Treemap",
+        title="Conditional Sensitivity – Bear vs. Bull",
+        xaxis_title="Spearman ρ",
+        barmode="group",
+        template=TEMPLATE,
+        height=max(400, len(sorted_keys) * 40 + 120),
+        xaxis=dict(range=[-1.05, 1.05]),
+        margin=dict(l=280, t=60, b=40),
+    )
+    return fig
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Percentile Convergence Chart
+# ═══════════════════════════════════════════════════════════════════════════
+
+def percentile_convergence_chart(
+    indices: np.ndarray,
+    p5: np.ndarray,
+    p50: np.ndarray,
+    p95: np.ndarray,
+) -> go.Figure:
+    """Running percentiles (P5/P50/P95) showing tail stability."""
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=indices, y=p95, mode="lines",
+        name="P95", line=dict(color=COLORS["positive"], width=2),
+    ))
+    fig.add_trace(go.Scatter(
+        x=indices, y=p50, mode="lines",
+        name="P50 (Median)", line=dict(color=COLORS["primary"], width=2.5),
+    ))
+    fig.add_trace(go.Scatter(
+        x=indices, y=p5, mode="lines",
+        name="P5", line=dict(color=COLORS["negative"], width=2),
+    ))
+
+    # Shade P5–P95 band
+    fig.add_trace(go.Scatter(
+        x=np.concatenate([indices, indices[::-1]]),
+        y=np.concatenate([p95, p5[::-1]]),
+        fill="toself",
+        fillcolor="rgba(31, 119, 180, 0.08)",
+        line=dict(width=0),
+        name="P5–P95 Band",
+        hoverinfo="skip",
+    ))
+
+    fig.update_layout(
+        title="Perzentil-Konvergenz – Tail-Stabilität",
+        xaxis_title="Anzahl Simulationen",
+        yaxis_title="Equity Value (Mio.)",
         template=TEMPLATE,
         height=480,
-        margin=dict(t=60, b=20, l=10, r=10),
+        showlegend=True,
+        margin=dict(t=60, b=40),
     )
     return fig

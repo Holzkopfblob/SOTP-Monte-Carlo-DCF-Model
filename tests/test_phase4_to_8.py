@@ -27,7 +27,6 @@ from application.portfolio_service import (
 )
 from application.portfolio_stress import PortfolioStressTester
 from infrastructure.monte_carlo_engine import MonteCarloEngine
-from presentation.charts import portfolio_radar_chart, sotp_treemap
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -132,8 +131,9 @@ class TestHRP:
 class TestSamplingMethod:
     def test_enum_values(self):
         assert SamplingMethod.PSEUDO_RANDOM.value == "Pseudo-Random (Standard)"
-        assert SamplingMethod.ANTITHETIC.value == "Antithetic Variates"
         assert SamplingMethod.SOBOL.value == "Quasi-MC (Sobol)"
+        # ANTITHETIC was removed in Phase 1 cleanup
+        assert not hasattr(SamplingMethod, "ANTITHETIC")
 
     @pytest.fixture
     def base_config(self) -> SimulationConfig:
@@ -150,46 +150,11 @@ class TestSamplingMethod:
         r = engine.run()
         assert r.n_simulations == 256
 
-    def test_antithetic_runs(self, base_config):
-        base_config.sampling_method = SamplingMethod.ANTITHETIC
-        engine = MonteCarloEngine(base_config)
-        r = engine.run()
-        assert r.n_simulations == 256
-
     def test_sobol_runs(self, base_config):
         base_config.sampling_method = SamplingMethod.SOBOL
         engine = MonteCarloEngine(base_config)
         r = engine.run()
         assert r.n_simulations == 256
-
-    def test_antithetic_reduces_variance(self):
-        """Antithetic sampling should have ≤ variance of pseudo-random for the mean."""
-        means_pseudo = []
-        means_anti = []
-        for seed in range(10):
-            cfg = SimulationConfig(
-                n_simulations=512,
-                random_seed=seed,
-                segments=[SegmentConfig(name="S", base_revenue=1_000)],
-                corporate_bridge=CorporateBridgeConfig(
-                    net_debt=100, shares_outstanding=100,
-                ),
-                sampling_method=SamplingMethod.PSEUDO_RANDOM,
-            )
-            r1 = MonteCarloEngine(cfg).run()
-            means_pseudo.append(np.mean(r1.total_ev))
-
-            cfg.sampling_method = SamplingMethod.ANTITHETIC
-            r2 = MonteCarloEngine(cfg).run()
-            means_anti.append(np.mean(r2.total_ev))
-
-        # Variance of means across seeds should be smaller for antithetic
-        # (allow some tolerance – probabilistic claim)
-        var_pseudo = np.var(means_pseudo)
-        var_anti = np.var(means_anti)
-        # We don't want to assert strictly; just verify the engine ran.
-        assert var_anti >= 0
-        assert var_pseudo >= 0
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -337,53 +302,23 @@ class TestMacroFactorImpact:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Prio 8 – Portfolio Radar Chart
+# Phase 1 cleanup – Radar Chart & Treemap removed
 # ══════════════════════════════════════════════════════════════════════════
 
-class TestPortfolioRadarChart:
-    def test_returns_figure(self):
-        data = {
-            "Method A": {"Rendite": 0.8, "Vol": 0.3, "Sharpe": 0.9,
-                         "VaR": 0.5, "CVaR": 0.4, "Div": 0.7},
-            "Method B": {"Rendite": 0.5, "Vol": 0.7, "Sharpe": 0.4,
-                         "VaR": 0.6, "CVaR": 0.5, "Div": 0.9},
-        }
-        fig = portfolio_radar_chart(data)
-        assert isinstance(fig, go.Figure)
+class TestDeadCodeRemovedPhase1:
+    """Verify dead-code chart functions have been removed."""
 
-    def test_empty_returns_figure(self):
-        fig = portfolio_radar_chart({})
-        assert isinstance(fig, go.Figure)
+    def test_portfolio_radar_chart_removed(self):
+        from presentation import charts
+        assert not hasattr(charts, "portfolio_radar_chart"), (
+            "portfolio_radar_chart was removed in Phase 1 cleanup"
+        )
 
-    def test_single_method(self):
-        data = {"Only": {"A": 0.5, "B": 0.5, "C": 0.5}}
-        fig = portfolio_radar_chart(data)
-        assert isinstance(fig, go.Figure)
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Prio 8 – SOTP Treemap
-# ══════════════════════════════════════════════════════════════════════════
-
-class TestSOTPTreemap:
-    def test_returns_figure(self):
-        seg = {"Segment A": 500.0, "Segment B": 300.0, "Segment C": 200.0}
-        fig = sotp_treemap(seg, total_ev=1000.0)
-        assert isinstance(fig, go.Figure)
-
-    def test_with_adjustments(self):
-        seg = {"S1": 700.0, "S2": 500.0}
-        adj = {"Holdingkosten": -50.0, "Nicht-op. Vermögen": 30.0}
-        fig = sotp_treemap(seg, total_ev=1200.0, adjustments=adj)
-        assert isinstance(fig, go.Figure)
-
-    def test_empty_segments(self):
-        fig = sotp_treemap({}, total_ev=0.0)
-        assert isinstance(fig, go.Figure)
-
-    def test_no_adjustments(self):
-        fig = sotp_treemap({"A": 100.0}, total_ev=100.0, adjustments=None)
-        assert isinstance(fig, go.Figure)
+    def test_sotp_treemap_removed(self):
+        from presentation import charts
+        assert not hasattr(charts, "sotp_treemap"), (
+            "sotp_treemap was removed in Phase 1 cleanup"
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════════

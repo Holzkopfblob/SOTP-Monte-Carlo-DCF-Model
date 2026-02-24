@@ -130,6 +130,23 @@ class TestMonteCarloEngine:
         widths = r.convergence_ci_high - r.convergence_ci_low
         assert widths[-1] <= widths[0] + 1e-6  # last should be <= first (or close)
 
+    def test_tail_risk_populated(self, minimal_sim_config):
+        engine = MonteCarloEngine(minimal_sim_config)
+        r = engine.run()
+        assert r.equity_var_5 is not None
+        assert r.equity_cvar_5 is not None
+        assert r.equity_tail_ratio is not None
+        assert np.isfinite(r.equity_var_5)
+        assert np.isfinite(r.equity_cvar_5)
+
+    def test_percentile_convergence_populated(self, minimal_sim_config):
+        engine = MonteCarloEngine(minimal_sim_config)
+        r = engine.run()
+        assert r.convergence_p5 is not None
+        assert r.convergence_p50 is not None
+        assert r.convergence_p95 is not None
+        assert len(r.convergence_p5) == len(r.convergence_indices)
+
 
 class TestExcelExport:
     def test_generates_bytes(self, minimal_sim_config):

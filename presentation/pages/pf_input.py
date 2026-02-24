@@ -17,7 +17,7 @@ from application.portfolio_service import (
     PortfolioAnalyser,
     generate_fv_samples,
 )
-from presentation.pages.pf_common import DIST_OPTIONS, SECTOR_LIST
+from presentation.pages.pf_common import PORTFOLIO_DIST_OPTIONS, SECTOR_LIST
 
 
 def render_input(tab, *, n_mc_sim: int, global_seed: int, risk_free_pct: float,
@@ -87,7 +87,7 @@ def render_input(tab, *, n_mc_sim: int, global_seed: int, risk_free_pct: float,
 
                 st.markdown("**Fair-Value-Verteilung**")
                 dist_type = st.selectbox(
-                    "Verteilungstyp", DIST_OPTIONS, key=f"a{i}_dist",
+                    "Verteilungstyp", PORTFOLIO_DIST_OPTIONS, key=f"a{i}_dist",
                 )
 
                 params: dict = {}

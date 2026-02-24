@@ -88,6 +88,7 @@ class TestComputeStatistics:
             "Mittelwert", "Median", "Std.-Abw.",
             "P5 (5%)", "P25 (25%)", "P75 (75%)", "P95 (95%)",
             "Min", "Max",
+            "Schiefe", "Kurtosis", "CV", "IQR",
         }
         assert set(stats.keys()) == expected_keys
 
