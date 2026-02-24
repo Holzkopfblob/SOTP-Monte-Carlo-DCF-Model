@@ -908,7 +908,7 @@ def sotp_treemap(
     root = "Enterprise Value"
     labels.append(root)
     parents.append("")
-    values.append(0)
+    values.append(0)  # placeholder – updated below
     colors.append(COLORS["primary"])
 
     colors_cycle = PALETTE_EXTENDED
@@ -927,6 +927,9 @@ def sotp_treemap(
                 values.append(abs(adj_val))
                 clr = COLORS["positive"] if adj_val > 0 else COLORS["negative"]
                 colors.append(clr)
+
+    # Root must equal sum of children for branchvalues="total"
+    values[0] = sum(values[1:])
 
     fig = go.Figure(go.Treemap(
         labels=labels,
