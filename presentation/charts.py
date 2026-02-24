@@ -594,19 +594,19 @@ def tv_ev_decomposition_chart(
     """
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        name="PV(FCFF)",
-        x=segment_names,
-        y=[v * 100 for v in mean_pv_fcff_shares],
-        marker_color=COLORS["primary"],
-        text=[f"{v*100:.1f}%" for v in mean_pv_fcff_shares],
-        textposition="inside",
-    ))
-    fig.add_trace(go.Bar(
         name="PV(TV)",
         x=segment_names,
         y=[v * 100 for v in mean_pv_tv_shares],
         marker_color=COLORS["secondary"],
         text=[f"{v*100:.1f}%" for v in mean_pv_tv_shares],
+        textposition="inside",
+    ))
+    fig.add_trace(go.Bar(
+        name="PV(FCFF)",
+        x=segment_names,
+        y=[v * 100 for v in mean_pv_fcff_shares],
+        marker_color=COLORS["primary"],
+        text=[f"{v*100:.1f}%" for v in mean_pv_fcff_shares],
         textposition="inside",
     ))
     fig.add_hline(
@@ -621,48 +621,6 @@ def tv_ev_decomposition_chart(
         template=TEMPLATE,
         height=420,
         yaxis=dict(range=[0, 105]),
-    )
-    return fig
-
-
-def implied_roic_chart(
-    segment_names: list[str],
-    roic_means: list[float],
-    roic_p5: list[float],
-    roic_p95: list[float],
-) -> go.Figure:
-    """Bar chart of implied ROIC per segment with P5/P95 error bars."""
-    fig = go.Figure()
-    errors_minus = [max(0, m - lo) for m, lo in zip(roic_means, roic_p5)]
-    errors_plus = [max(0, hi - m) for m, hi in zip(roic_means, roic_p95)]
-
-    fig.add_trace(go.Bar(
-        x=segment_names,
-        y=[v * 100 for v in roic_means],
-        marker_color=COLORS["accent"],
-        text=[f"{v*100:.0f}%" for v in roic_means],
-        textposition="outside",
-        error_y=dict(
-            type="data",
-            symmetric=False,
-            array=[v * 100 for v in errors_plus],
-            arrayminus=[v * 100 for v in errors_minus],
-            color=COLORS["neutral"],
-        ),
-    ))
-    # Common benchmark lines
-    fig.add_hline(y=15, line_dash="dot", line_color=COLORS["positive"],
-                  annotation_text="15 % (gutes Unternehmen)",
-                  annotation_font_size=9, annotation_position="top left")
-    fig.add_hline(y=8, line_dash="dot", line_color=COLORS["neutral"],
-                  annotation_text="8 % (Kapitalkosten-Richtwert)",
-                  annotation_font_size=9, annotation_position="bottom left")
-    fig.update_layout(
-        title="Implizierte ROIC je Segment (Steady-State)",
-        yaxis_title="ROIC (%)",
-        template=TEMPLATE,
-        height=420,
-        showlegend=False,
     )
     return fig
 
@@ -725,5 +683,265 @@ def quality_score_breakdown_chart(score: dict[str, float]) -> go.Figure:
         height=280,
         margin=dict(l=160, t=50, b=40),
         showlegend=False,
+    )
+    return fig
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Implied ROIC distribution per segment
+# ═══════════════════════════════════════════════════════════════════════════
+
+def roic_histogram(
+    segment_roic: dict[str, np.ndarray],
+    wacc_mean: float | None = None,
+) -> go.Figure:
+    """Overlaid histograms of implied ROIC per segment with optional WACC line.
+
+    Parameters
+    ----------
+    segment_roic : dict
+        ``{segment_name: (n,) array}`` of implied ROIC values.
+    wacc_mean : float, optional
+        Mean WACC to draw as a vertical reference line.
+    """
+    fig = go.Figure()
+    colors_cycle = PALETTE_EXTENDED
+
+    for i, (seg_name, roic_arr) in enumerate(segment_roic.items()):
+        fig.add_trace(go.Histogram(
+            x=roic_arr * 100,
+            nbinsx=60,
+            name=seg_name,
+            marker_color=colors_cycle[i % len(colors_cycle)],
+            opacity=0.6,
+            histnorm="probability density",
+        ))
+
+    if wacc_mean is not None:
+        fig.add_vline(
+            x=wacc_mean * 100,
+            line_dash="dash",
+            line_color=COLORS["negative"],
+            line_width=2.5,
+            annotation_text=f"Ø WACC: {wacc_mean * 100:.1f} %",
+            annotation_font_size=11,
+        )
+
+    fig.update_layout(
+        title="Implied ROIC – Verteilung je Segment",
+        xaxis_title="Implied ROIC (%)",
+        yaxis_title="Dichte",
+        barmode="overlay",
+        template=TEMPLATE,
+        height=480,
+        margin=dict(t=60, b=40),
+    )
+    return fig
+
+
+def reinvestment_rate_chart(
+    segment_reinvest: dict[str, np.ndarray],
+) -> go.Figure:
+    """Box plot of reinvestment rates per segment."""
+    fig = go.Figure()
+    colors_cycle = PALETTE_EXTENDED
+
+    for i, (seg_name, rr_arr) in enumerate(segment_reinvest.items()):
+        fig.add_trace(go.Box(
+            y=rr_arr * 100,
+            name=seg_name,
+            marker_color=colors_cycle[i % len(colors_cycle)],
+            boxmean="sd",
+        ))
+
+    fig.add_hline(
+        y=0, line_dash="dot", line_color=COLORS["neutral"],
+        annotation_text="Null-Reinvestition",
+        annotation_font_size=10,
+    )
+
+    fig.update_layout(
+        title="Reinvestitionsrate – Verteilung je Segment",
+        yaxis_title="Reinvestitionsrate (%)",
+        template=TEMPLATE,
+        height=440,
+        showlegend=False,
+        margin=dict(t=60, b=40),
+    )
+    return fig
+
+
+def roic_vs_wacc_scatter(
+    segment_roic: dict[str, np.ndarray],
+    segment_wacc: dict[str, np.ndarray],
+    max_points: int = 2000,
+) -> go.Figure:
+    """Scatter plot: Implied ROIC vs. WACC per segment – shows value creation.
+
+    Points above the diagonal create value; points below destroy value.
+    """
+    fig = go.Figure()
+    colors_cycle = PALETTE_EXTENDED
+
+    for i, seg_name in enumerate(segment_roic):
+        roic_arr = segment_roic[seg_name]
+        wacc_arr = segment_wacc[seg_name]
+        # Subsample for performance
+        n = len(roic_arr)
+        if n > max_points:
+            idx = np.linspace(0, n - 1, max_points, dtype=int)
+            roic_arr = roic_arr[idx]
+            wacc_arr = wacc_arr[idx]
+
+        fig.add_trace(go.Scattergl(
+            x=wacc_arr * 100,
+            y=roic_arr * 100,
+            mode="markers",
+            name=seg_name,
+            marker=dict(
+                color=colors_cycle[i % len(colors_cycle)],
+                size=3,
+                opacity=0.4,
+            ),
+        ))
+
+    # Diagonal: ROIC == WACC
+    axis_min = 0
+    axis_max = 50
+    fig.add_trace(go.Scatter(
+        x=[axis_min, axis_max],
+        y=[axis_min, axis_max],
+        mode="lines",
+        name="ROIC = WACC",
+        line=dict(color=COLORS["neutral"], dash="dash", width=2),
+        showlegend=True,
+    ))
+
+    fig.add_annotation(
+        x=30, y=40,
+        text="Wertschöpfung ↑",
+        showarrow=False,
+        font=dict(size=12, color=COLORS["positive"]),
+    )
+    fig.add_annotation(
+        x=30, y=20,
+        text="Wertvernichtung ↓",
+        showarrow=False,
+        font=dict(size=12, color=COLORS["negative"]),
+    )
+
+    fig.update_layout(
+        title="ROIC vs. WACC – Wertschöpfungsanalyse",
+        xaxis_title="WACC (%)",
+        yaxis_title="Implied ROIC (%)",
+        template=TEMPLATE,
+        height=520,
+        margin=dict(t=60, b=40),
+    )
+    return fig
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Portfolio Radar Chart
+# ═══════════════════════════════════════════════════════════════════════════
+
+def portfolio_radar_chart(
+    methods: dict[str, dict[str, float]],
+) -> go.Figure:
+    """Radar / spider chart comparing portfolio methods across 6 dimensions.
+
+    *methods* maps ``{method_name: {axis_name: normalised_value 0-1}}``.
+    """
+    if not methods:
+        return go.Figure()
+
+    categories = list(next(iter(methods.values())).keys())
+    categories_closed = categories + [categories[0]]  # close the polygon
+
+    fig = go.Figure()
+    colors_cycle = PALETTE_EXTENDED
+
+    for i, (name, vals) in enumerate(methods.items()):
+        r_vals = [vals.get(c, 0) for c in categories] + [vals.get(categories[0], 0)]
+        fig.add_trace(go.Scatterpolar(
+            r=r_vals,
+            theta=categories_closed,
+            fill="toself",
+            name=name,
+            line=dict(color=colors_cycle[i % len(colors_cycle)], width=2),
+            opacity=0.65,
+        ))
+
+    fig.update_layout(
+        polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
+        title="Portfolio-Methoden im Vergleich (Radar)",
+        template=TEMPLATE,
+        height=560,
+        showlegend=True,
+        legend=dict(
+            orientation="h", yanchor="bottom", y=-0.2,
+            xanchor="center", x=0.5,
+        ),
+    )
+    return fig
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SOTP Treemap
+# ═══════════════════════════════════════════════════════════════════════════
+
+def sotp_treemap(
+    segment_evs: dict[str, float],
+    total_ev: float,
+    adjustments: dict[str, float] | None = None,
+) -> go.Figure:
+    """Treemap showing segment EV decomposition as % of total.
+
+    *segment_evs* maps ``{segment_name: mean_ev}``.
+    *adjustments* maps ``{label: value}`` for bridge items (optional).
+    """
+    labels: list[str] = []
+    parents: list[str] = []
+    values: list[float] = []
+    colors: list[str] = []
+
+    root = "Enterprise Value"
+    labels.append(root)
+    parents.append("")
+    values.append(0)
+    colors.append(COLORS["primary"])
+
+    colors_cycle = PALETTE_EXTENDED
+    for i, (seg_name, ev) in enumerate(segment_evs.items()):
+        pct = ev / max(total_ev, 1e-6) * 100
+        labels.append(f"{seg_name}\n{ev:,.0f} Mio.\n({pct:.1f}%)")
+        parents.append(root)
+        values.append(max(ev, 0))
+        colors.append(colors_cycle[i % len(colors_cycle)])
+
+    if adjustments:
+        for adj_name, adj_val in adjustments.items():
+            if adj_val != 0:
+                labels.append(f"{adj_name}\n{adj_val:,.0f} Mio.")
+                parents.append(root)
+                values.append(abs(adj_val))
+                clr = COLORS["positive"] if adj_val > 0 else COLORS["negative"]
+                colors.append(clr)
+
+    fig = go.Figure(go.Treemap(
+        labels=labels,
+        parents=parents,
+        values=values,
+        marker=dict(colors=colors),
+        textinfo="label",
+        hovertemplate="<b>%{label}</b><extra></extra>",
+        branchvalues="total",
+    ))
+
+    fig.update_layout(
+        title="SOTP Enterprise Value – Treemap",
+        template=TEMPLATE,
+        height=480,
+        margin=dict(t=60, b=20, l=10, r=10),
     )
     return fig

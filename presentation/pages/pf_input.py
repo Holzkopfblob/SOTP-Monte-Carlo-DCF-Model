@@ -12,6 +12,8 @@ import streamlit as st
 
 from application.portfolio_service import (
     AssetInput,
+    CovarianceMethod,
+    InvestorView,
     PortfolioAnalyser,
     generate_fv_samples,
 )
@@ -243,6 +245,81 @@ verschiedene Cluster ≈ 0.15–0.40.
                 use_container_width=True,
             )
 
+        # ── Covariance estimation method ──────────────────────────────
+        st.divider()
+        st.subheader("📊 Kovarianzschätzung")
+
+        cov_method_label = st.radio(
+            "Methode zur Kovarianzschätzung",
+            [CovarianceMethod.SAMPLE.value, CovarianceMethod.LEDOIT_WOLF.value],
+            horizontal=True,
+            help="Ledoit-Wolf schrumpft die Sample-Kovarianz zum Identitäts-Target "
+                 "und reduziert Schätzfehler — besonders bei vielen Assets.",
+        )
+        cov_method = (
+            CovarianceMethod.LEDOIT_WOLF
+            if cov_method_label == CovarianceMethod.LEDOIT_WOLF.value
+            else CovarianceMethod.SAMPLE
+        )
+
+        # ── Black-Litterman views (optional) ──────────────────────────
+        st.divider()
+        st.subheader("🧭 Black-Litterman Views (optional)")
+
+        enable_bl = st.checkbox(
+            "Black-Litterman Modell aktivieren",
+            value=False,
+            key="bl_enable",
+            help="Kombination aus Marktgleichgewicht und subjektiven "
+                 "Analysteneinschätzungen für robustere Renditeerwartungen.",
+        )
+
+        bl_views: list[dict] = []
+        if enable_bl:
+            with st.expander("ℹ️ Was ist Black-Litterman?", expanded=False):
+                st.markdown(r"""
+Das **Black-Litterman-Modell** kombiniert ein Markt-Gleichgewicht (Prior)
+mit subjektiven Analystenmeinungen (Views):
+
+$$\mu_{BL} = \left[(\tau\Sigma)^{-1} + P'\Omega^{-1}P\right]^{-1}
+\left[(\tau\Sigma)^{-1}\pi + P'\Omega^{-1}q\right]$$
+
+- **π** = Gleichgewichtsrenditen (aus CAPM)
+- **P, q** = Ihre Views (»Aktie X liefert r %«)
+- **Ω** = Unsicherheit Ihrer Views (gesteuert durch Konfidenz)
+- **τ** = Prior-Unsicherheit (Standard: 0,05)
+
+**Vorteil:** Stabilere Gewichtungen als reines Mean-Variance,
+weil Schätzfehler in den Renditeerwartungen reduziert werden.
+""")
+
+            n_views = st.number_input(
+                "Anzahl Views", min_value=1, max_value=min(n_total, 10),
+                value=min(n_total, 1), key="bl_n_views",
+            )
+            asset_names = [ac["name"] for ac in asset_configs]
+            for vi in range(int(n_views)):
+                vc1, vc2, vc3 = st.columns([2, 1, 1])
+                bl_asset = vc1.selectbox(
+                    f"Asset (View {vi+1})", asset_names,
+                    key=f"bl_asset_{vi}",
+                )
+                bl_ret = vc2.number_input(
+                    f"Erw. Rendite (%) View {vi+1}",
+                    value=10.0, min_value=-100.0, max_value=500.0,
+                    format="%.1f", key=f"bl_ret_{vi}",
+                )
+                bl_conf = vc3.slider(
+                    f"Konfidenz View {vi+1}",
+                    min_value=0.1, max_value=0.99, value=0.5,
+                    step=0.05, key=f"bl_conf_{vi}",
+                )
+                bl_views.append({
+                    "asset_name": bl_asset,
+                    "expected_return": bl_ret / 100.0,
+                    "confidence": bl_conf,
+                })
+
         # ── Save config as JSON ───────────────────────────────────────
         st.divider()
 
@@ -292,12 +369,32 @@ verschiedene Cluster ≈ 0.15–0.40.
                 asset_metrics = analyser.analyse_all(asset_inputs)
                 returns_matrix = analyser.build_returns_matrix(asset_inputs)
                 mu_vec, std_vec, cov_matrix = analyser.build_covariance(
-                    returns_matrix, corr_matrix,
+                    returns_matrix,
+                    corr_matrix if cov_method == CovarianceMethod.SAMPLE else None,
+                    method=cov_method,
                 )
                 bounds = [(ai.min_weight, ai.max_weight) for ai in asset_inputs]
                 opt_results = analyser.run_all_optimisations(
                     asset_metrics, mu_vec, cov_matrix, std_vec, returns_matrix, bounds,
                 )
+
+                # Black-Litterman (if views provided)
+                if enable_bl and bl_views:
+                    asset_names = [ac["name"] for ac in asset_configs]
+                    view_objects = [
+                        InvestorView(
+                            asset_index=asset_names.index(v["asset_name"]),
+                            expected_return=v["expected_return"],
+                            confidence=v["confidence"],
+                        )
+                        for v in bl_views
+                    ]
+                    bl_result = analyser.black_litterman(
+                        mu_vec, cov_matrix, std_vec, returns_matrix,
+                        view_objects, bounds=bounds,
+                    )
+                    if bl_result is not None:
+                        opt_results["Black-Litterman"] = bl_result
 
                 if n_total >= 2:
                     ef_vols, ef_rets = analyser.efficient_frontier(
@@ -324,6 +421,7 @@ verschiedene Cluster ≈ 0.15–0.40.
 
             st.success(
                 f"✅ Analyse abgeschlossen – {n_total} Assets · "
-                f"{int(n_mc_sim):,} MC-Simulationen · 7 Optimierungsmethoden"
+                f"{int(n_mc_sim):,} MC-Simulationen · "
+                f"{sum(1 for v in opt_results.values() if v is not None)} Optimierungsmethoden"
             )
             st.balloons()

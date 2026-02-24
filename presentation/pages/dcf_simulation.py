@@ -11,6 +11,7 @@ from domain.models import (
     CorporateBridgeConfig,
     DistributionConfig,
     DistributionType,
+    SamplingMethod,
     SegmentConfig,
     SimulationConfig,
 )
@@ -117,6 +118,7 @@ def render_simulation(
                         stochastic_associate_investments=as_stoch,
                     ),
                     mid_year_convention=setup["mid_year_conv"],
+                    sampling_method=setup.get("sampling_method", SamplingMethod.PSEUDO_RANDOM),
                     segment_correlation=setup.get("segment_correlation"),
                 )
 

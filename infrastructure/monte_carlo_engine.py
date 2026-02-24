@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import numpy as np
 from scipy import stats as sp_stats
+from scipy.stats import qmc
 
 from domain.distributions import create_distribution
 from domain.fade import build_fade_curve
 from domain.models import (
     DistributionConfig,
     RevenueGrowthMode,
+    SamplingMethod,
     SegmentConfig,
     SimulationConfig,
     SimulationResults,
@@ -48,6 +50,7 @@ class MonteCarloEngine:
         segment_tv_ev: dict[str, np.ndarray] = {}
         segment_roic: dict[str, np.ndarray] = {}
         segment_reinvest: dict[str, np.ndarray] = {}
+
         input_samples: dict[str, np.ndarray] = {}
 
         # ── Phase 3: choose sampling strategy ─────────────────────────
@@ -94,26 +97,33 @@ class MonteCarloEngine:
             # ── Phase 2 metrics ───────────────────────────────────────
             segment_tv_ev[seg.name] = tv_ev_ratio(detail.pv_tv, detail.ev)
 
-            # implied ROIC / reinvestment use (n,) scalars; when fade
-            # yields (n, T), take the Year-1 column as representative.
+            # ── Implied ROIC & reinvestment rate ───────────────────────────
+            # Use Year-1 (initial) values for the steady-state approximation
             def _y1(arr: np.ndarray) -> np.ndarray:
                 return arr[:, 0] if arr.ndim == 2 else arr
 
+            seg_ebitda  = _y1(samples["EBITDA-Marge"])
+            seg_da      = _y1(samples["D&A (% Umsatz)"])
+            seg_tax     = _y1(samples["Steuersatz"])
+            seg_capex   = _y1(samples["CAPEX (% Umsatz)"])
+            seg_nwc     = _y1(samples["NWC (% ΔUmsatz)"])
+            seg_growth  = _y1(samples["Umsatzwachstum"])
+
             segment_roic[seg.name] = implied_roic(
-                _y1(samples["EBITDA-Marge"]),
-                _y1(samples["D&A (% Umsatz)"]),
-                _y1(samples["Steuersatz"]),
-                _y1(samples["CAPEX (% Umsatz)"]),
-                _y1(samples["NWC (% ΔUmsatz)"]),
-                samples["Umsatzwachstum"],
+                ebitda_margin=seg_ebitda,
+                da_pct_revenue=seg_da,
+                tax_rate=seg_tax,
+                capex_pct_revenue=seg_capex,
+                nwc_pct_delta_revenue=seg_nwc,
+                revenue_growth=seg_growth,
             )
             segment_reinvest[seg.name] = reinvestment_rate(
-                _y1(samples["CAPEX (% Umsatz)"]),
-                _y1(samples["D&A (% Umsatz)"]),
-                _y1(samples["NWC (% ΔUmsatz)"]),
-                samples["Umsatzwachstum"],
-                _y1(samples["EBITDA-Marge"]),
-                _y1(samples["Steuersatz"]),
+                capex_pct_revenue=seg_capex,
+                da_pct_revenue=seg_da,
+                nwc_pct_delta_revenue=seg_nwc,
+                revenue_growth=seg_growth,
+                ebitda_margin=seg_ebitda,
+                tax_rate=seg_tax,
             )
 
         # ── Aggregate ─────────────────────────────────────────────────
@@ -221,17 +231,9 @@ class MonteCarloEngine:
                 (conv_hi[-1] - conv_lo[-1]) / abs(conv_mean[-1]) * 100
             )
 
-        # Sensitivity (will be computed externally, pass empty for now
-        # and let the service layer fill it in after construction)
-        from application.simulation_service import SimulationService
-        _tmp_results = SimulationResults(
-            equity_values=equity_values,
-            total_ev=total_ev,
-            segment_evs=segment_evs,
-            pv_corporate_costs=pv_corp,
-            input_samples=input_samples,
-        )
-        sensitivities = SimulationService.compute_sensitivity(_tmp_results)
+        # Sensitivity – computed via domain-level function (no app-layer import)
+        from domain.statistics import compute_sensitivity as _compute_sens
+        sensitivities = _compute_sens(equity_values, input_samples)
 
         q_score = valuation_quality_score(
             mean_tv_ev=weighted_tv_ev,
@@ -264,6 +266,7 @@ class MonteCarloEngine:
             segment_tv_ev_ratios=segment_tv_ev,
             segment_implied_roic=segment_roic,
             segment_reinvest_rates=segment_reinvest,
+
             quality_score=q_score,
         )
 
@@ -306,6 +309,47 @@ class MonteCarloEngine:
 
     # ── Segment sampling ──────────────────────────────────────────────
 
+    # Order of the 7 core value-driver parameters used by the
+    # intra-segment Gaussian copula.  Must match the 7×7 matrix layout
+    # in ``SegmentConfig.intra_param_correlation``.
+    _INTRA_PARAM_ORDER = [
+        "revenue_growth", "ebitda_margin", "da_pct_revenue",
+        "tax_rate", "capex_pct_revenue", "nwc_pct_delta_revenue", "wacc",
+    ]
+
+    # ── Variance-reduction helpers ────────────────────────────────────
+
+    def _uniform_samples(self, d: int, n: int) -> np.ndarray:
+        """Generate (d, n) uniform [0, 1] samples.
+
+        Respects ``self.config.sampling_method``:
+        - PSEUDO_RANDOM: standard RNG draws
+        - ANTITHETIC: n/2 draws + mirror (1-u), doubles effective samples
+        - SOBOL: quasi-random low-discrepancy Sobol sequence
+        """
+        method = self.config.sampling_method
+
+        if method == SamplingMethod.ANTITHETIC:
+            half = n // 2
+            u_half = self.rng.random(size=(d, half))
+            u = np.concatenate([u_half, 1.0 - u_half], axis=1)
+            # If n is odd, append one extra random column
+            if 2 * half < n:
+                u = np.concatenate(
+                    [u, self.rng.random(size=(d, 1))], axis=1,
+                )
+            return u[:, :n]
+
+        if method == SamplingMethod.SOBOL:
+            sampler = qmc.Sobol(d=d, scramble=True, seed=self.config.random_seed)
+            # Sobol needs power-of-2 sample count
+            m = int(np.ceil(np.log2(max(n, 2))))
+            u_all = sampler.random_base2(m=m)  # (2^m, d)
+            return u_all[:n].T  # (d, n)
+
+        # Default: PSEUDO_RANDOM
+        return self.rng.random(size=(d, n))
+
     def _sample_segment(
         self, seg: SegmentConfig, n: int
     ) -> dict[str, np.ndarray]:
@@ -314,32 +358,73 @@ class MonteCarloEngine:
         domain-specific guards (e.g. WACC floor, TV-growth ceiling).
         When a terminal DistributionConfig is set for a param, the
         parameter fades from sampling-initial → terminal over *T* years.
+
+        When ``seg.intra_param_correlation`` is set, a Gaussian copula
+        ensures that the 7 core value drivers share a joint dependency
+        structure **within** the segment, while each marginal distribution
+        is preserved exactly.
         """
+        # ── Build distributions for the 7 core params ─────────────────
+        dist_map = {
+            "revenue_growth":        seg.revenue_growth,
+            "ebitda_margin":         seg.ebitda_margin,
+            "da_pct_revenue":        seg.da_pct_revenue,
+            "tax_rate":              seg.tax_rate,
+            "capex_pct_revenue":     seg.capex_pct_revenue,
+            "nwc_pct_delta_revenue": seg.nwc_pct_delta_revenue,
+            "wacc":                  seg.wacc,
+        }
+        distributions = {k: create_distribution(v) for k, v in dist_map.items()}
+
+        # ── Draw initial samples ──────────────────────────────────────
+        if seg.intra_param_correlation is not None:
+            # Gaussian copula across the 7 params
+            corr_mat = np.asarray(seg.intra_param_correlation, dtype=np.float64)
+            L = np.linalg.cholesky(corr_mat)
+            z_indep = self.rng.standard_normal(size=(7, n))
+            z_corr = L @ z_indep            # (7, n)
+            u_corr = sp_stats.norm.cdf(z_corr)  # (7, n) uniform marginals
+
+            raw: dict[str, np.ndarray] = {}
+            for idx, pname in enumerate(self._INTRA_PARAM_ORDER):
+                raw[pname] = distributions[pname].ppf(u_corr[idx])
+        else:
+            # Independent sampling – with optional variance reduction
+            u = self._uniform_samples(7, n)  # (7, n)
+            raw = {}
+            for idx, pname in enumerate(self._INTRA_PARAM_ORDER):
+                raw[pname] = distributions[pname].ppf(u[idx])
+
+        # ── Map to output dict with German labels ─────────────────────
+        label_map = {
+            "revenue_growth":        "Umsatzwachstum",
+            "ebitda_margin":         "EBITDA-Marge",
+            "da_pct_revenue":        "D&A (% Umsatz)",
+            "tax_rate":              "Steuersatz",
+            "capex_pct_revenue":     "CAPEX (% Umsatz)",
+            "nwc_pct_delta_revenue": "NWC (% ΔUmsatz)",
+            "wacc":                  "WACC",
+        }
+        fade_terminals = {
+            "ebitda_margin":         seg.ebitda_margin_terminal,
+            "da_pct_revenue":        seg.da_pct_revenue_terminal,
+            "tax_rate":              seg.tax_rate_terminal,
+            "capex_pct_revenue":     seg.capex_pct_revenue_terminal,
+            "nwc_pct_delta_revenue": seg.nwc_pct_delta_revenue_terminal,
+        }
+
         s: dict[str, np.ndarray] = {}
-        s["Umsatzwachstum"]   = create_distribution(seg.revenue_growth).sample(n, self.rng)
+        s["Umsatzwachstum"] = raw["revenue_growth"]
 
         # Value drivers – (n,) or (n, T) when fade is active
-        s["EBITDA-Marge"]     = self._apply_param_fade(
-            create_distribution(seg.ebitda_margin).sample(n, self.rng),
-            seg.ebitda_margin_terminal, n, seg.forecast_years, seg.fade_speed,
-        )
-        s["D&A (% Umsatz)"]  = self._apply_param_fade(
-            create_distribution(seg.da_pct_revenue).sample(n, self.rng),
-            seg.da_pct_revenue_terminal, n, seg.forecast_years, seg.fade_speed,
-        )
-        s["Steuersatz"]       = self._apply_param_fade(
-            create_distribution(seg.tax_rate).sample(n, self.rng),
-            seg.tax_rate_terminal, n, seg.forecast_years, seg.fade_speed,
-        )
-        s["CAPEX (% Umsatz)"] = self._apply_param_fade(
-            create_distribution(seg.capex_pct_revenue).sample(n, self.rng),
-            seg.capex_pct_revenue_terminal, n, seg.forecast_years, seg.fade_speed,
-        )
-        s["NWC (% ΔUmsatz)"]  = self._apply_param_fade(
-            create_distribution(seg.nwc_pct_delta_revenue).sample(n, self.rng),
-            seg.nwc_pct_delta_revenue_terminal, n, seg.forecast_years, seg.fade_speed,
-        )
-        s["WACC"]             = create_distribution(seg.wacc).sample(n, self.rng)
+        for pkey in ["ebitda_margin", "da_pct_revenue", "tax_rate",
+                     "capex_pct_revenue", "nwc_pct_delta_revenue"]:
+            s[label_map[pkey]] = self._apply_param_fade(
+                raw[pkey], fade_terminals[pkey],
+                n, seg.forecast_years, seg.fade_speed,
+            )
+
+        s["WACC"] = raw["wacc"]
 
         # Guard: WACC must be > 0
         s["WACC"] = np.maximum(s["WACC"], 0.005)
@@ -376,9 +461,12 @@ class MonteCarloEngine:
         3. Use the inverse CDF (ppf) of each parameter's distribution to
            map the uniform draws back to the desired marginal.
 
-        The same inter-segment correlation drives **all** stochastic params
-        within a segment, preserving each param's marginal distribution while
-        introducing dependence *between* segments.
+        When a segment also has ``intra_param_correlation`` set, the
+        inter-segment uniform is used as the *shared factor* and the
+        intra-segment copula adds within-segment dependency across the
+        7 value drivers.  This means cross-segment correlation is
+        maintained **and** intra-segment parameter dependencies are
+        captured simultaneously.
         """
         m = len(segments)
         L = np.linalg.cholesky(corr_matrix)   # (m, m)
@@ -393,41 +481,78 @@ class MonteCarloEngine:
         all_samples: list[dict[str, np.ndarray]] = []
 
         for idx, seg in enumerate(segments):
-            u = u_corr[idx]  # (n,) uniform marginals for this segment
+            u_base = u_corr[idx]  # (n,) uniform marginals for this segment
+
+            dist_map = {
+                "revenue_growth":        seg.revenue_growth,
+                "ebitda_margin":         seg.ebitda_margin,
+                "da_pct_revenue":        seg.da_pct_revenue,
+                "tax_rate":              seg.tax_rate,
+                "capex_pct_revenue":     seg.capex_pct_revenue,
+                "nwc_pct_delta_revenue": seg.nwc_pct_delta_revenue,
+                "wacc":                  seg.wacc,
+            }
+            distributions = {k: create_distribution(v) for k, v in dist_map.items()}
+
+            if seg.intra_param_correlation is not None:
+                # Combine inter-segment + intra-segment copula:
+                # Use the inter-segment z as a shared factor, then build
+                # 7 correlated normals around it via the intra-segment matrix.
+                intra_corr = np.asarray(seg.intra_param_correlation, dtype=np.float64)
+                L_intra = np.linalg.cholesky(intra_corr)
+                z_inner_indep = self.rng.standard_normal(size=(7, n))
+                z_inner_corr = L_intra @ z_inner_indep  # (7, n)
+                u_inner = sp_stats.norm.cdf(z_inner_corr)  # (7, n)
+
+                raw: dict[str, np.ndarray] = {}
+                for pidx, pname in enumerate(self._INTRA_PARAM_ORDER):
+                    raw[pname] = distributions[pname].ppf(u_inner[pidx])
+            else:
+                # Legacy: single uniform drives all params (perfect intra correlation)
+                raw = {}
+                for pname in self._INTRA_PARAM_ORDER:
+                    raw[pname] = distributions[pname].ppf(u_base)
+
+            # Map to output dict with German labels + fade
+            fade_terminals = {
+                "ebitda_margin":         seg.ebitda_margin_terminal,
+                "da_pct_revenue":        seg.da_pct_revenue_terminal,
+                "tax_rate":              seg.tax_rate_terminal,
+                "capex_pct_revenue":     seg.capex_pct_revenue_terminal,
+                "nwc_pct_delta_revenue": seg.nwc_pct_delta_revenue_terminal,
+            }
+            label_map = {
+                "ebitda_margin":         "EBITDA-Marge",
+                "da_pct_revenue":        "D&A (% Umsatz)",
+                "tax_rate":              "Steuersatz",
+                "capex_pct_revenue":     "CAPEX (% Umsatz)",
+                "nwc_pct_delta_revenue": "NWC (% ΔUmsatz)",
+            }
 
             s: dict[str, np.ndarray] = {}
+            s["Umsatzwachstum"] = raw["revenue_growth"]
 
-            # Revenue growth – always use copula for initial draw
-            s["Umsatzwachstum"] = create_distribution(seg.revenue_growth).ppf(u)
-
-            # Value drivers – copula for initial, then optionally fade
-            _PARAM_MAP = [
-                ("EBITDA-Marge",     seg.ebitda_margin,         seg.ebitda_margin_terminal),
-                ("D&A (% Umsatz)",  seg.da_pct_revenue,        seg.da_pct_revenue_terminal),
-                ("Steuersatz",       seg.tax_rate,              seg.tax_rate_terminal),
-                ("CAPEX (% Umsatz)", seg.capex_pct_revenue,    seg.capex_pct_revenue_terminal),
-                ("NWC (% ΔUmsatz)",  seg.nwc_pct_delta_revenue, seg.nwc_pct_delta_revenue_terminal),
-            ]
-            for pname, init_cfg, term_cfg in _PARAM_MAP:
-                initial = create_distribution(init_cfg).ppf(u)
-                s[pname] = self._apply_param_fade(
-                    initial, term_cfg, n, seg.forecast_years, seg.fade_speed,
+            for pkey in ["ebitda_margin", "da_pct_revenue", "tax_rate",
+                         "capex_pct_revenue", "nwc_pct_delta_revenue"]:
+                s[label_map[pkey]] = self._apply_param_fade(
+                    raw[pkey], fade_terminals[pkey],
+                    n, seg.forecast_years, seg.fade_speed,
                 )
 
-            s["WACC"] = create_distribution(seg.wacc).ppf(u)
+            s["WACC"] = raw["wacc"]
             s["WACC"] = np.maximum(s["WACC"], 0.005)
 
             if seg.terminal_method == TerminalValueMethod.GORDON_GROWTH:
                 s["TV-Wachstum"] = create_distribution(
                     seg.terminal_growth_rate
-                ).ppf(u)
+                ).ppf(u_base)
                 s["TV-Wachstum"] = np.minimum(
                     s["TV-Wachstum"], s["WACC"] - 0.005
                 )
             else:
                 s["Exit-Multiple"] = create_distribution(
                     seg.exit_multiple
-                ).ppf(u)
+                ).ppf(u_base)
                 s["Exit-Multiple"] = np.maximum(s["Exit-Multiple"], 0.1)
 
             all_samples.append(s)

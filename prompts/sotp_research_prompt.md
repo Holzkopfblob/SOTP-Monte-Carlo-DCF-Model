@@ -19,7 +19,7 @@ EXAKT an die unten definierten Formate und Einheiten.
 
 
 ╔═══════════════════════════════════════════════════════════════════════╗
-║  MODELLARCHITEKTUR – IMMER IM HINTERKOPF BEHALTEN                   ║
+║  MODELLARCHITEKTUR – IMMER IM HINTERKOPF BEHALTEN                     ║
 ╚═══════════════════════════════════════════════════════════════════════╝
 
 BEWERTUNGSANSATZ
@@ -27,11 +27,23 @@ BEWERTUNGSANSATZ
   • Sum-of-the-Parts: Equity = Σ EV_i − PV(Holdingkosten)
       − Nettoverschuldung − Minderheiten − Pensionen
       + Nicht-operative Assets + Beteiligungen
-  • Mid-Year Discounting Convention (FCFFs werden bei t − 0,5
-    abgezinst; TV am Periodenende T)
+  • Mid-Year Discounting Convention (FCFFs bei t − 0,5; TV bei T)
 
-STOCHASTIK
+STOCHASTIK & SAMPLING
   • Monte-Carlo-Simulation (Standard: 50 000 Iterationen)
+  • 3 Sampling-Strategien:
+      ┌─────────────────────────┬──────────────────────────────────────┐
+      │ Strategie               │ Eigenschaften                        │
+      ├─────────────────────────┼──────────────────────────────────────┤
+      │ Pseudo-Random (Standard)│ Klassisches MC, NumPy-RNG            │
+      │ Antithetic Variates     │ u + (1−u) Spiegelung → Varianz↓     │
+      │ Quasi-MC (Sobol)        │ Scrambled Sobol → schnellere Konverg.│
+      └─────────────────────────┴──────────────────────────────────────┘
+
+  Empfehlung: Sobol bei ≤ 7 stochastischen Parametern pro Segment
+  (optimale Diskrepanz). Antithetic als guter Kompromiss. Pseudo-Random
+  wenn maximale Flexibilität bei vielen korrelierten Segmenten nötig.
+
   • 6 Verteilungstypen pro Parameter:
       ┌────────────────────┬────────────────────────────────────────┐
       │ Typ                │ Eingabe-Parameter                      │
@@ -41,7 +53,7 @@ STOCHASTIK
       │ Lognormalverteilung│ μ, σ  (der unterliegenden Normalvert.) │
       │ Dreiecksverteilung │ Min, Mode, Max                         │
       │ Gleichverteilung   │ Min, Max                               │
-      │ PERT-Verteilung    │ Min, Mode, Max  (λ = 4, intern)       │
+      │ PERT-Verteilung    │ Min, Mode, Max  (λ = 4, intern)        │
       └────────────────────┴────────────────────────────────────────┘
 
   Entscheidungshilfe Verteilungswahl:
@@ -74,10 +86,23 @@ CROSS-SEGMENT-KORRELATION
   korreliert ALLE stochastischen Parameter beider Segmente
   gleichzeitig, ohne die Marginalverteilungen zu verzerren.
 
+INTRA-SEGMENT-COPULA (NEU)
+  7×7-Gauss-Copula INNERHALB jedes Segments für die 7 Kern-Werttreiber:
+    Revenue Growth, EBITDA-Marge, D&A, Steuersatz, CAPEX, NWC, WACC
+
+  Modelliert ökonomische Abhängigkeiten wie:
+    • Wachstum ↔ Marge (Skaleneffekte: ρ > 0)
+    • Marge ↔ CAPEX (Investitionsintensität: ρ < 0 oder ρ > 0)
+    • WACC ↔ Wachstum (risikoreichere Segmente wachsen schneller)
+
+  ⚠️ Dies ist OPTIONAL. Nur aktivieren, wenn fundierte Schätzungen
+     für die paarweisen Abhängigkeiten vorliegen.
+
 QUALITÄTSMETRIKEN (automatisch berechnet, aber relevant für Checks)
   • TV/EV-Ratio pro Segment (PV des Terminal Value / Enterprise Value)
   • Implied ROIC pro Segment
   • Reinvestment Rate pro Segment
+  • SOTP-Treemap (proportionale Segment-EV-Visualisierung)
   • Composite Quality Score (0–100):
       TV/EV-Sub (0–25) + Konvergenz-Sub (0–25)
       + Sensitivity-Sub (0–25) + Dispersion-Sub (0–25)
@@ -103,13 +128,17 @@ Analysiere die Geschäftsstruktur von [UNTERNEHMEN]:
    c) Letzter berichteter Jahresumsatz (Mio. Berichtswährung)
    d) Strategische Positionierung:
       Wachstumsmotor | Cash Cow | Turnaround | Restrukturierung
+   e) Sektorklassifikation (für Portfolio-App-Brücke):
+      Technologie | Konsumgüter | Gesundheit | Finanzen | Energie |
+      Industrie | Grundstoffe | Immobilien | Telekommunikation |
+      Versorger | Sonstige
 3. Sortiere absteigend nach Umsatz.
 
 Ausgabe als Tabelle:
 
-| # | Segment | Umsatz (Mio.) | Beschreibung | Positionierung |
-|---|---------|---------------|--------------|----------------|
-| 1 | …       | …             | …            | …              |
+| # | Segment | Umsatz (Mio.) | Beschreibung | Positionierung | Sektor |
+|---|---------|---------------|--------------|----------------|--------|
+| 1 | …       | …             | …            | …              | …      |
 
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -292,26 +321,21 @@ OPTION A – Gordon Growth Model
   • Benchmark: nominales BIP-Wachstum (2–3 %)
   • MUSS deutlich < WACC sein (Faustregel: g < WACC − 3 pp)
   • Schrumpfende Segmente: 0 % oder negativ
-  • ALS VERTEILUNG angeben! PERT bevorzugt (z. B. Min=1 %, Mode=2 %,
-    Max=3 %). So wird TV-Unsicherheit in der MC-Simulation erfasst.
+  • ALS VERTEILUNG angeben! PERT bevorzugt.
 
 OPTION B – Exit Multiple
   App-Feld: „Exit-Multiple (EV/EBITDA)" (Verteilungsinput)
   • Basierend auf: aktuellen Peer-Trading-Multiples,
     historischen M&A-Transaktionsmultiples,
     langfristigem Branchendurchschnitt
-  • ALS VERTEILUNG angeben! PERT oder Dreieck (Bear/Base/Bull).
+  • ALS VERTEILUNG angeben! PERT oder Dreieck.
 
   ⚠️ SONDERFALL: Exit Multiple + Fade-Modell
     Wenn für ein Segment das Fade-Modell UND Exit Multiple gewählt
     werden, muss zusätzlich ein „Langfristiges Umsatzwachstum
     (Fade-Ziel)" angegeben werden:
     App-Feld: „Langfristiges Umsatzwachstum (Fade-Ziel)"
-    → Dieses g_terminal wird als Konvergenzziel des Fade-Modells
-      für das Umsatzwachstum benötigt, da der TV nicht über
-      Gordon Growth berechnet wird.
-    → Typisch: nominales BIP-Wachstum (2–3 %).
-    → PERT empfohlen.
+    → Typisch: nominales BIP-Wachstum (2–3 %). PERT empfohlen.
 
 Leitlinie:
   • Stabile, vorhersagbare FCFF → Gordon Growth
@@ -327,9 +351,9 @@ Ein einziger λ-Wert pro Segment, der für ALLE Parameter dieses
 Segments gilt (Umsatzwachstum, EBITDA-Marge, D&A, Steuer, CAPEX, NWC).
 
 Orientierung:
-  • 0,2–0,3 = langsam (langfristige strukturelle Shifts, z. B. Industrie)
+  • 0,2–0,3 = langsam (langfristige strukturelle Shifts)
   • 0,5     = mittel  (Standard-Empfehlung)
-  • 0,8–1,5 = schnell (kurzfristige Normalisierung, z. B. nach Krise)
+  • 0,8–1,5 = schnell (kurzfristige Normalisierung)
   • > 1,5   = sehr schnell (fast sofortige Normalisierung)
 
 FEST. Begründe die Wahl.
@@ -369,7 +393,6 @@ bei Beteiligungen.
 ────────────────────────────────────────────────────────────────────────
 App-Feld: „Holdingkosten (Mio. p.a.)" (Verteilungsinput)
 • Nicht segmentzugeordnete Kosten aus der Segmentüberleitung
-  (Corporate/Überleitung/Sonstiges)
 • Inkl. Vorstandsvergütung, zentrale IT, Konzernfunktionen
 • Quelle: Segmentüberleitung im Geschäftsbericht
 • App berechnet PV als Perpetuity: PV = Holdingkosten / Diskontierungssatz
@@ -379,62 +402,50 @@ App-Feld: „Holdingkosten (Mio. p.a.)" (Verteilungsinput)
 ────────────────────────────────────────────────────────────────────────
 App-Feld: „Diskontierungssatz (%)" (Verteilungsinput)
 • Typisch: Konzern-WACC
-• Auch als Verteilung modellierbar (z. B. PERT um WACC-Punktwert),
-  um die Diskontierungsunsicherheit in der MC-Simulation zu erfassen.
+• Auch als Verteilung modellierbar
 
 ────────────────────────────────────────────────────────────────────────
 3.3  Nettoverschuldung (Mio.)                           → Abzug
 ────────────────────────────────────────────────────────────────────────
 App-Feld: „Nettoverschuldung (Mio.)" (Verteilungsinput)
-• Net Debt = Finanzschulden (kurz- + langfristig)
-           − Cash & Äquivalente − kurzfristige Finanzanlagen
-• KEINE Pensionen oder Leasing hier (→ separate Posten 3.6)
+• Net Debt = Finanzschulden − Cash & Äquivalente − Finanzanlagen
+• KEINE Pensionen oder Leasing hier (→ separate Posten)
 • Quelle: Letzte berichtete Bilanz
-• Verteilung bei erwartetem Schuldenabbau, geplanter Refinanzierung
-  oder anstehender M&A
 
 ────────────────────────────────────────────────────────────────────────
 3.4  Aktien ausstehend (Mio., voll verwässert)          → Divisor
 ────────────────────────────────────────────────────────────────────────
 App-Feld: „Aktien ausstehend (Mio.)" (Verteilungsinput)
-• Basic Shares + Verwässerung (Treasury Stock Method):
-  Optionen, Wandelanleihen, RSUs
-• Quelle: Geschäftsbericht → Ergebnis je Aktie (verwässert)
-• Verteilung bei laufenden Rückkaufprogrammen oder erwarteter
-  Verwässerung
+• Basic Shares + Verwässerung (Treasury Stock Method)
+• Verteilung bei laufenden Rückkaufprogrammen
 
 ────────────────────────────────────────────────────────────────────────
 3.5  Minderheitsanteile (Mio.)                          → Abzug
 ────────────────────────────────────────────────────────────────────────
-App-Feld: „Minderheitsanteile (Mio.)" (erweiterter Bridge-Posten)
-• Buchwert Anteile Dritter an konsolidierten Tochtergesellschaften
-• Quelle: Bilanz → Eigenkapital → „Non-controlling Interests"
+App-Feld: „Minderheitsanteile (Mio.)"
+• Buchwert Non-controlling Interests
 • Falls nicht vorhanden → Fest: 0
 
 ────────────────────────────────────────────────────────────────────────
 3.6  Pensionsrückstellungen (Mio.)                      → Abzug
 ────────────────────────────────────────────────────────────────────────
-App-Feld: „Pensionsrückstellungen (Mio.)" (erweiterter Bridge-Posten)
+App-Feld: „Pensionsrückstellungen (Mio.)"
 • Netto-Pensionsverpflichtung = DBO − Plan Assets
-• Quelle: Anhang „Leistungen an Arbeitnehmer"
-• Besonders relevant bei europäischen Industrieunternehmen
 • Falls nicht vorhanden → Fest: 0
 
 ────────────────────────────────────────────────────────────────────────
 3.7  Nicht-operative Assets (Mio.)                      → Zuschlag
 ────────────────────────────────────────────────────────────────────────
-App-Feld: „Nicht-operative Assets (Mio.)" (erweiterter Bridge-Posten)
+App-Feld: „Nicht-operative Assets (Mio.)"
 • Equity-Method-Beteiligungen, überschüssige Immobilien,
   langfristige Finanzanlagen außerhalb des operativen Kerns
-• Quelle: Bilanz → langfristige Vermögenswerte (nicht-operativ)
 • Falls nicht vorhanden → Fest: 0
 
 ────────────────────────────────────────────────────────────────────────
 3.8  Beteiligungen (Mio.)                               → Zuschlag
 ────────────────────────────────────────────────────────────────────────
-App-Feld: „Beteiligungen (Mio.)" (erweiterter Bridge-Posten)
+App-Feld: „Beteiligungen (Mio.)"
 • Equity-Buchwert strategischer Minderheitsbeteiligungen
-• Quelle: Anhang „Anteile an assoziierten Unternehmen"
 • Falls nicht vorhanden → Fest: 0
 
 
@@ -455,8 +466,36 @@ Orientierungshilfe:
 | Diversifiziert (z. B. Industrie + Finanz)    | 0,0 – 0,3  |
 | Gegenläufig (z. B. Upstream + Downstream)    | −0,2 – 0,1 |
 
-Hinweis: Die resultierende Korrelationsmatrix muss positiv semi-definit
-sein. Die App validiert und korrigiert dies automatisch.
+Hinweis: Die App validiert automatisch positiv-semidefinite Korrelation.
+
+
+═══════════════════════════════════════════════════════════════════════════
+SCHRITT 4b · INTRA-SEGMENT-COPULA (OPTIONAL)
+═══════════════════════════════════════════════════════════════════════════
+
+Die App unterstützt optional eine 7×7-Gauss-Copula INNERHALB jedes
+Segments, die Abhängigkeiten zwischen den 7 Werttreibern modelliert:
+
+  Revenue Growth, EBITDA-Marge, D&A, Steuersatz, CAPEX, NWC, WACC
+
+Falls aktiviert, schätze für jedes Segment die paarweisen
+Korrelationskoeffizienten zwischen diesen Parametern.
+
+Typische Muster:
+
+| Paar                    | Richtung | Typisches ρ | Begründung |
+|-------------------------|----------|-------------|------------|
+| Wachstum ↔ Marge        | +        | 0,1 – 0,4  | Skaleneffekte |
+| Wachstum ↔ CAPEX        | +        | 0,2 – 0,5  | Investition für Wachstum |
+| Marge ↔ NWC             | −        | −0,3 – 0,0 | Höhere Marge → strafferes WC |
+| WACC ↔ Wachstum         | +        | 0,1 – 0,3  | Risiko-Rendite-Tradeoff |
+| D&A ↔ CAPEX             | +        | 0,3 – 0,6  | Investition → Abschreibung |
+| Steuer ↔ andere         | ≈ 0      | 0,0 – 0,1  | Steuer weitgehend extern |
+
+⚠️ NUR aktivieren, wenn fundierte Schätzungen möglich. Bei Unsicherheit
+   besser weglassen – die App funktioniert auch ohne Intra-Segment-Copula.
+
+Ausgabeformat: 7×7-Matrix pro Segment (nur untere Dreieck nötig).
 
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -468,6 +507,12 @@ SCHRITT 5 · SIMULATIONSPARAMETER
 | MC-Iterationen          | 50 000           | Anzahl MC-Iterationen|
 | Random Seed             | 42               | Random Seed          |
 | Mid-Year Convention     | Ja (Standard)    | Mid-Year Discounting |
+| Sampling-Methode        | Sobol (oder PR)  | Sampling-Methode     |
+
+Sampling-Empfehlung:
+  • 1–3 Segmente, wenig stochastische Params → Quasi-MC (Sobol)
+  • Viele Segmente + Cross-Segment-Copula → Pseudo-Random
+  • Varianzreduktion ohne Sobol-Limitierungen → Antithetic Variates
 
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -494,18 +539,13 @@ Liefere die Ergebnisse in EXAKT diesen Tabellen:
 | TV-Methode | – | [Gordon Growth / Exit Multiple] | – | – | – | – | – | – | – | [Warum diese Methode?] |
 | TV-Wachstum (%) | – | [Typ]: … | … | … | … | … | … | – | – | [BIP-Benchmark, WACC-Spread] ★ |
 | ODER: Exit-Multiple | – | [Typ]: … | … | … | … | … | … | – | – | [Peer-Multiples, M&A-Comps] ★ |
-| (bei Exit+Fade: Langfr. g) | – | [Typ]: … | … | … | … | … | … | – | – | [BIP-Wachstum als Fade-Ziel] ★★ |
 
-★  TV-Wachstum und Exit-Multiple sind VOLLSTÄNDIGE Verteilungen
-   (alle 6 Typen möglich). PERT besonders empfohlen. NICHT Fest
-   angeben, außer bei extremer Sicherheit.
-★★ Nur bei Kombination Exit Multiple + Fade-Modell erforderlich.
+★ ALS VERTEILUNG, nicht Fest. PERT bevorzugt.
 
-Hinweise zur Tabelle:
+Hinweise:
   • „Terminal": Langfristiger Zielwert für Parameter-Fade. „–" wenn kein Fade.
   • „λ": Nur in Zeile Umsatzwachstum; gilt für ALLE Fade-Parameter.
   • Nicht benötigte Spalten mit „–" füllen.
-  • Verteilungstypen: Fest | Normal | Lognormal | Dreieck | Gleichverteilung | PERT
 
 ─────────────── CORPORATE BRIDGE ───────────────
 
@@ -513,22 +553,33 @@ Hinweise zur Tabelle:
 
 | Posten | Wert / Verteilung | Wirkung | Begründung |
 |---|---|---|---|
-| Holdingkosten p.a. (Mio.) | [Wert oder Verteilung] | Abzug (PV) | [Quelle: Segmentüberleitung, GJ] |
-| Diskontierungssatz (%) | [Wert oder Verteilung] | für PV(Holding) | [= Konzern-WACC, weil …] |
-| Nettoverschuldung (Mio.) | [Wert oder Verteilung] | Abzug | [Berechnung: Schulden − Cash zeigen] |
-| Aktien (Mio., verwässert) | [Wert oder Verteilung] | Divisor | [Quelle, Verwässerungsmethode] |
-| Minderheitsanteile (Mio.) | [Wert oder 0] | Abzug | [Quelle oder „nicht vorhanden"] |
-| Pensionsrückstellungen (Mio.) | [Wert oder 0] | Abzug | [DBO − Plan Assets zeigen] |
-| Nicht-operative Assets (Mio.) | [Wert oder 0] | Zuschlag | [Welche Assets konkret?] |
-| Beteiligungen (Mio.) | [Wert oder 0] | Zuschlag | [Welche Beteiligungen konkret?] |
+| Holdingkosten p.a. (Mio.) | [Wert oder Verteilung] | Abzug (PV) | [Quelle] |
+| Diskontierungssatz (%) | [Wert oder Verteilung] | für PV(Holding) | [= Konzern-WACC] |
+| Nettoverschuldung (Mio.) | [Wert oder Verteilung] | Abzug | [Berechnung zeigen] |
+| Aktien (Mio., verwässert) | [Wert oder Verteilung] | Divisor | [Quelle] |
+| Minderheitsanteile (Mio.) | [Wert oder 0] | Abzug | [Quelle] |
+| Pensionsrückstellungen (Mio.) | [Wert oder 0] | Abzug | [DBO − Plan Assets] |
+| Nicht-operative Assets (Mio.) | [Wert oder 0] | Zuschlag | [Welche?] |
+| Beteiligungen (Mio.) | [Wert oder 0] | Zuschlag | [Welche?] |
 
 ─────────────── KORRELATIONSMATRIX ───────────────
 
-### KORRELATIONSMATRIX
+### CROSS-SEGMENT-KORRELATION
 
 | Segment i | Segment j | ρ | Begründung |
 |---|---|---|---|
 | … | … | … | [Warum diese Höhe?] |
+
+─────────────── INTRA-SEGMENT-COPULA (optional) ───────────────
+
+### INTRA-SEGMENT-COPULA [Segmentname]
+
+Nur ausfüllen, wenn explizit empfohlen.
+
+| Param 1 | Param 2 | ρ | Begründung |
+|---|---|---|---|
+| Revenue Growth | EBITDA-Marge | … | … |
+| … | … | … | … |
 
 ─────────────── SIMULATIONSPARAMETER ───────────────
 
@@ -539,6 +590,7 @@ Hinweise zur Tabelle:
 | MC-Iterationen | 50 000 |
 | Random Seed | 42 |
 | Mid-Year Convention | Ja |
+| Sampling-Methode | [Pseudo-Random / Antithetic / Sobol] |
 
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -555,8 +607,7 @@ korrigierte Begründung ergänzen.
 Check 1 · Umsatz-Cross-Check
 ────────────────────────────────────────────────────────────────────────
 Σ Basisumsätze aller Segmente ≈ berichteter Konzernumsatz?
-Abweichung < 5 % → ✅. Sonst: Differenz erklären (Eliminierungen,
-Sonstiges-Posten).
+Abweichung < 5 % → ✅. Sonst: Differenz erklären.
 
 ────────────────────────────────────────────────────────────────────────
 Check 2 · Margin-Cross-Check
@@ -575,51 +626,39 @@ Check 4 · TV-Growth ≪ WACC
 ────────────────────────────────────────────────────────────────────────
 Für JEDES Gordon-Growth-Segment: g < WACC − 3 pp?
 Falls nicht → g senken.
-(Die App erzwingt zusätzlich: g < WACC − 0,5 pp als Hard-Cap.)
 
 ────────────────────────────────────────────────────────────────────────
 Check 5 · TV/EV-Ratio (Vorab-Schätzung)
 ────────────────────────────────────────────────────────────────────────
 Schätze grob PV(TV) / EV je Segment:
-  < 60 %  → ✅ nachhaltig
-  60–75 % → ⚠️ akzeptabel, Terminal-Annahmen hinterfragen
-  > 75 %  → ❌ aggressiv → Prognosezeitraum verlängern oder
-              Terminal-Annahmen konservativer wählen
+  < 60 %  → ✅  |  60–75 % → ⚠️  |  > 75 % → ❌
 
 ────────────────────────────────────────────────────────────────────────
 Check 6 · Implied ROIC
 ────────────────────────────────────────────────────────────────────────
-Schätze je Segment:
-  ROIC ≈ NOPAT-Marge × (1 + g) / Reinvestment Rate
+ROIC ≈ NOPAT-Marge × (1 + g) / Reinvestment Rate
 Plausibel für die Branche?
   Software 25–50 % | Industrie 10–20 % | Handel 8–15 %
-Falls unplausibel → Marge oder CAPEX/NWC anpassen.
 
 ────────────────────────────────────────────────────────────────────────
 Check 7 · Fade-Konsistenz
 ────────────────────────────────────────────────────────────────────────
-Konvergieren alle Terminal-Werte zu branchenüblichen Langfrist-
-Niveaus? Ist die Fade-Richtung ökonomisch sinnvoll?
-  • CAPEX: Growth → Maintenance (sinkt)
-  • Marge: Überdurchschnittlich → Branchenmittel (sinkt)
-  • Steuersatz: Sondereffekte → statutory rate
+Konvergieren alle Terminal-Werte zu branchenüblichen Niveaus?
+Ist die Fade-Richtung ökonomisch sinnvoll?
 
 ────────────────────────────────────────────────────────────────────────
 Check 8 · Korrelationslogik
 ────────────────────────────────────────────────────────────────────────
 Gleicher Endmarkt → höhere Korrelation. Matrix konsistent?
-(App validiert automatisch positive Semi-Definitheit.)
+Intra-Segment-Copula: Vorzeichenlogik prüfen (Wachstum↔CAPEX > 0?).
 
 ────────────────────────────────────────────────────────────────────────
 Check 9 · Impliziter Fair Value (Überschlagsrechnung)
 ────────────────────────────────────────────────────────────────────────
-Berechne grob:
-  Equity ≈ (Σ EV − PV(Holding) − NetDebt − Minority − Pension
-            + NonOp + Associates) / Aktien
-Vergleiche mit aktuellem Aktienkurs:
-  → Premium/Discount in % angeben
-  → Größenordnung plausibel? (±50 % wäre noch denkbar,
-    > 100 % Abweichung deutet auf Parameterfehler hin)
+Equity ≈ (Σ EV − PV(Holding) − NetDebt − Minority − Pension
+          + NonOp + Associates) / Aktien
+Vergleiche mit aktuellem Aktienkurs: Premium/Discount in %.
+> 100 % Abweichung → Parameterfehler wahrscheinlich.
 
 ────────────────────────────────────────────────────────────────────────
 
@@ -642,12 +681,10 @@ Ergebnistabelle:
 SCHRITT 8 · QUELLEN & DATENBASIS
 ═══════════════════════════════════════════════════════════════════════════
 
-Liste ALLE verwendeten Quellen auf:
-
 | Typ | Quelle | Datum / GJ |
 |---|---|---|
 | Geschäftsbericht | [UNTERNEHMEN] Annual Report [GJ] | … |
-| Analystenberichte | [Bloomberg Consensus / LSEG I/B/E/S / …] | … |
+| Analystenberichte | [Bloomberg Consensus / LSEG / …] | … |
 | Branchenreports | [Gartner / IDC / McKinsey / Statista / …] | … |
 | Damodaran | [Betas, ERP, Multiples – pages.stern.nyu.edu/~adamodar/] | … |
 | Marktdaten | [Anleiherenditen, CDS, Ratings] | … |
@@ -662,7 +699,7 @@ Schließe mit einer Executive Summary (max. 5 Sätze):
   1. Berichtswährung + Anzahl Segmente
   2. Wichtigste Werttreiber-Unsicherheiten (die breitesten Verteilungen)
   3. Welche Segmente treiben den Wert, welche sind marginal?
-  4. Erwartete Bewertungsrichtung vs. aktueller Kurs (Aufschlag/Abschlag)
+  4. Erwartete Bewertungsrichtung vs. aktueller Kurs
   5. Empfehlung zur Interpretation der MC-Ergebnisse
      (auf welche Quantile achten, wo liegt das Risiko?)
 ```

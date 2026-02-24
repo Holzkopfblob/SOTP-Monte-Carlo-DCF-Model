@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 import streamlit as st
 
-from domain.models import DistributionConfig
+from domain.models import DistributionConfig, SamplingMethod
 from presentation.ui_helpers import (
     render_distribution_input,
     render_info_corporate_bridge,
@@ -46,6 +46,19 @@ def render_setup(tab) -> dict:
                 help="Für jedes Segment wird ein separater DCF berechnet.",
                 key="setup_n_seg",
             )
+
+        col_c, col_d = st.columns(2)
+        with col_c:
+            sampling_label = st.selectbox(
+                "Sampling-Methode (Varianzreduktion)",
+                [s.value for s in SamplingMethod],
+                index=0,
+                key="setup_sampling",
+                help="Antithetic Variates halbiert die Varianz bei gleicher "
+                     "Iterationsanzahl. Sobol (Quasi-MC) erzeugt gleichmäßigere "
+                     "Abtastung des Parameterraums.",
+            )
+            sampling_method = SamplingMethod(sampling_label)
 
         st.markdown("")
         mid_year_conv = st.checkbox(
@@ -212,6 +225,7 @@ def render_setup(tab) -> dict:
         "random_seed": int(random_seed),
         "n_segments": int(n_segments),
         "mid_year_conv": bool(mid_year_conv),
+        "sampling_method": sampling_method,
         "bridge_corp_costs": bridge_corp_costs,
         "bridge_corp_discount": bridge_corp_discount,
         "bridge_net_debt": bridge_net_debt,

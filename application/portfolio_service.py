@@ -25,6 +25,8 @@ import numpy as np
 from domain.portfolio_models import (
     AssetInput,
     AssetMetrics,
+    CovarianceMethod,
+    InvestorView,
     PortfolioResult,
     StressTestResult,
 )
@@ -40,6 +42,8 @@ from application.portfolio_stress import PortfolioStressTester
 __all__ = [
     "AssetInput",
     "AssetMetrics",
+    "CovarianceMethod",
+    "InvestorView",
     "PortfolioResult",
     "StressTestResult",
     "PortfolioAnalyser",
@@ -47,6 +51,7 @@ __all__ = [
     "PortfolioOptimiser",
     "PortfolioStressTester",
     "generate_fv_samples",
+    "ledoit_wolf_shrinkage",
     "SECTOR_CLUSTERS",
     "SAME_SECTOR_CORR",
     "DEFAULT_CROSS_CORR",
@@ -172,6 +177,52 @@ def _map_portfolio_dist(dist_type: str, params: dict) -> DistributionConfig:
     )
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Ledoit-Wolf Shrinkage Estimator
+# ═══════════════════════════════════════════════════════════════════════════
+
+def ledoit_wolf_shrinkage(
+    returns_matrix: np.ndarray,
+) -> tuple[np.ndarray, float]:
+    """Ledoit-Wolf (2004) analytical linear shrinkage estimator.
+
+    Shrinks the sample covariance matrix toward a scaled identity
+    (constant-variance) target.  This reduces estimation error in
+    the covariance matrix, especially when *p* (assets) is large
+    relative to *n* (observations).
+
+    Returns ``(shrunk_cov, shrinkage_intensity)`` where intensity ∈ [0, 1].
+    """
+    n, p = returns_matrix.shape
+    if p < 2 or n < 2:
+        S = np.cov(returns_matrix, rowvar=False, ddof=1)
+        if S.ndim == 0:
+            S = np.array([[float(S)]])
+        return S, 0.0
+
+    X = returns_matrix - returns_matrix.mean(axis=0)
+    S = (X.T @ X) / n                      # biased sample cov
+
+    # Target: scaled identity  F = μ · I  where μ = trace(S) / p
+    mu_target = np.trace(S) / p
+    delta_mat = S - mu_target * np.eye(p)
+
+    # Squared Frobenius norms
+    delta_sq_sum = np.sum(delta_mat ** 2)   # ||S - F||²_F
+
+    # Compute φ̂² (numerator of optimal shrinkage)
+    # φ̂² = (1/n²) Σ_k ||x_k x_k' - S||²_F
+    Y = X ** 2
+    phi = np.sum((Y.T @ Y) / n - S ** 2)
+
+    # Optimal shrinkage
+    kappa = phi / max(delta_sq_sum, 1e-18)
+    shrinkage = max(0.0, min(1.0, kappa / n))
+
+    S_shrunk = (1.0 - shrinkage) * S + shrinkage * mu_target * np.eye(p)
+    return S_shrunk, float(shrinkage)
+
+
 def generate_fv_samples(
     dist_type: str,
     params: dict,
@@ -247,10 +298,21 @@ class PortfolioAnalyser:
     def build_covariance(
         returns_matrix: np.ndarray,
         correlation_matrix: np.ndarray | None = None,
+        method: CovarianceMethod = CovarianceMethod.SAMPLE,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Compute (mu, std, cov) from returns."""
+        """Compute (mu, std, cov) from returns.
+
+        When *method* is ``LEDOIT_WOLF``, the covariance is computed
+        via the Ledoit-Wolf shrinkage estimator (ignoring
+        *correlation_matrix*).
+        """
         mu = np.mean(returns_matrix, axis=0)
         stds = np.std(returns_matrix, axis=0)
+
+        if method == CovarianceMethod.LEDOIT_WOLF:
+            cov, _ = ledoit_wolf_shrinkage(returns_matrix)
+            return mu, stds, cov
+
         if correlation_matrix is not None:
             corr = correlation_matrix
         else:
@@ -289,6 +351,15 @@ class PortfolioAnalyser:
     def run_all_optimisations(self, asset_metrics, mu, cov, std_vec, returns_matrix, bounds=None):
         """Backward-compatible alias for ``PortfolioOptimiser.run_all``."""
         return self._optimiser.run_all(asset_metrics, mu, cov, std_vec, returns_matrix, bounds)
+
+    def optimise_hrp(self, mu, cov, std_vec, returns_matrix):
+        return self._optimiser.optimise_hrp(mu, cov, std_vec, returns_matrix)
+
+    def black_litterman(self, mu_mkt, cov, std_vec, returns_matrix, views,
+                        tau=0.05, bounds=None):
+        return self._optimiser.black_litterman(
+            mu_mkt, cov, std_vec, returns_matrix, views, tau, bounds,
+        )
 
     # ── Stress testing (→ PortfolioStressTester) ──────────────────────
 

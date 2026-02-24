@@ -39,6 +39,13 @@ class RevenueGrowthMode(str, Enum):
     FADE     = "Fade-Modell (g konvergiert zum Terminal-Wachstum)"
 
 
+class SamplingMethod(str, Enum):
+    """Variance-reduction / quasi-random sampling strategies."""
+    PSEUDO_RANDOM = "Pseudo-Random (Standard)"
+    ANTITHETIC    = "Antithetic Variates"
+    SOBOL         = "Quasi-MC (Sobol)"
+
+
 # ---------------------------------------------------------------------------
 # Distribution configuration
 # ---------------------------------------------------------------------------
@@ -135,6 +142,40 @@ class SegmentConfig:
     capex_pct_revenue_terminal:     DistributionConfig | None = None
     nwc_pct_delta_revenue_terminal: DistributionConfig | None = None
 
+    # ── Phase 4: Intra-segment parameter correlation ──────────────────
+    # Optional 7×7 correlation matrix for the value drivers within this
+    # segment.  Parameter order:
+    #   [revenue_growth, ebitda_margin, da_pct, tax_rate,
+    #    capex_pct, nwc_pct, wacc]
+    # When not None, a Gaussian copula is used so that each parameter
+    # retains its marginal distribution but draws become dependent.
+    intra_param_correlation: list[list[float]] | None = None
+
+
+# ── Default intra-segment correlation matrix ──────────────────────────────
+# Sensible empirical defaults reflecting typical accounting identities:
+#   revenue_growth ↔ ebitda_margin: moderate positive (operating leverage)
+#   ebitda_margin ↔ capex: moderate positive (margin expansion needs investment)
+#   capex ↔ da_pct: strong positive (more capex → more depreciation)
+#   revenue_growth ↔ nwc: moderate positive (growth ties working capital)
+#   wacc: mildly correlated with margins (risk ↔ profitability)
+
+INTRA_PARAM_LABELS = [
+    "Umsatzwachstum", "EBITDA-Marge", "D&A (% Umsatz)",
+    "Steuersatz", "CAPEX (% Umsatz)", "NWC (% ΔUmsatz)", "WACC",
+]
+
+#                              rg    ebitda  da    tax   capex  nwc   wacc
+DEFAULT_INTRA_PARAM_CORR = [
+    [ 1.00,  0.30,  0.10, 0.00,  0.15,  0.35, -0.10],  # revenue_growth
+    [ 0.30,  1.00,  0.20, 0.00,  0.25,  0.10, -0.20],  # ebitda_margin
+    [ 0.10,  0.20,  1.00, 0.00,  0.70,  0.05,  0.00],  # da_pct
+    [ 0.00,  0.00,  0.00, 1.00,  0.00,  0.00,  0.10],  # tax_rate
+    [ 0.15,  0.25,  0.70, 0.00,  1.00,  0.10,  0.05],  # capex_pct
+    [ 0.35,  0.10,  0.05, 0.00,  0.10,  1.00,  0.00],  # nwc_pct
+    [-0.10, -0.20,  0.00, 0.10,  0.05,  0.00,  1.00],  # wacc
+]
+
 
 # ---------------------------------------------------------------------------
 # Corporate bridge
@@ -183,6 +224,9 @@ class SimulationConfig:
     segments:      list[SegmentConfig]     = field(default_factory=list)
     corporate_bridge: CorporateBridgeConfig = field(default_factory=CorporateBridgeConfig)
     mid_year_convention: bool      = True     # discount FCFFs at t−0.5 (standard practice)
+
+    # ── Sampling method ───────────────────────────────────────────────
+    sampling_method: SamplingMethod = SamplingMethod.PSEUDO_RANDOM
 
     # ── Phase 3: Cross-segment correlation ────────────────────────────
     # Correlation matrix (n_seg × n_seg) stored as list-of-lists.

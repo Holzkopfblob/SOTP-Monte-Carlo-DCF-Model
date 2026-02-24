@@ -17,9 +17,12 @@ from presentation.charts import (
     cdf_plot,
     convergence_chart,
     histogram_kde,
-    implied_roic_chart,
     quality_score_breakdown_chart,
     quality_score_gauge,
+    reinvestment_rate_chart,
+    roic_histogram,
+    roic_vs_wacc_scatter,
+    sotp_treemap,
     tornado_chart,
     tv_ev_decomposition_chart,
     waterfall_chart,
@@ -178,18 +181,43 @@ def render_results(tab) -> None:
             use_container_width=True,
         )
 
+        # ── SOTP Treemap ──────────────────────────────────────────
+        if results.base_segment_evs:
+            st.subheader("🗺️ SOTP Enterprise Value – Treemap")
+            st.caption(
+                "Proportionale Darstellung der Segment-EV-Beiträge "
+                "zum Gesamt-EV."
+            )
+
+            mean_seg_evs = {
+                seg: float(np.mean(arr))
+                for seg, arr in results.segment_evs.items()
+            }
+            adj_items: dict[str, float] = {}
+            if results.base_corporate_costs_pv != 0:
+                adj_items["Holdingkosten"] = -abs(results.base_corporate_costs_pv)
+            if results.base_non_operating_assets != 0:
+                adj_items["Nicht-op. Vermögen"] = results.base_non_operating_assets
+
+            st.plotly_chart(
+                sotp_treemap(
+                    mean_seg_evs,
+                    total_ev=float(np.mean(results.total_ev)),
+                    adjustments=adj_items if adj_items else None,
+                ),
+                use_container_width=True,
+            )
+
         st.divider()
 
         # ── Phase 2: TV/EV Decomposition ──────────────────────────────
         _render_tv_ev_section(results)
 
         st.divider()
-
-        # ── Phase 2: Implied ROIC ─────────────────────────────────────
-        _render_roic_section(results)
+        # ── Implied ROIC & Reinvestment Rate ─────────────────────────
+        _render_roic_section(results, config)
 
         st.divider()
-
         # ── Phase 2: Quality Score ────────────────────────────────────
         _render_quality_section(results)
 
@@ -430,61 +458,6 @@ $$\text{TV/EV} = \frac{PV(\text{TV})}{PV(\text{FCFF}) + PV(\text{TV})}$$
                    delta_color="off")
 
 
-# ── Phase 2: Implied ROIC section ────────────────────────────────────────
-
-def _render_roic_section(results) -> None:
-    """Show implied ROIC per segment."""
-    if not results.segment_implied_roic:
-        return
-
-    st.subheader("💰 Implizierte ROIC")
-    st.caption(
-        "Return on Invested Capital, impliziert durch die Modell-Annahmen "
-        "(Steady-State-Approximation). Vergleichen Sie mit der tatsächlichen "
-        "ROIC des Unternehmens als Plausibilitätscheck."
-    )
-
-    with st.expander("ℹ️ Wie wird die implizierte ROIC berechnet?", expanded=False):
-        st.markdown(r"""
-Im Steady State gilt:
-
-$$\text{NOPAT-Marge} = (\text{EBITDA\%} - \text{D\&A\%}) \times (1 - t)$$
-
-$$\text{Reinvest-Marge} = \text{CAPEX\%} - \text{D\&A\%} + \text{NWC\%}
- \times \frac{g}{1+g}$$
-
-$$\text{ROIC} \approx \frac{\text{NOPAT-Marge}}{\text{Reinvest-Marge}}$$
-
-| ROIC | Einschätzung |
-|------|-------------|
-| > WACC | Wertschöpfung (positiver Economic Profit) |
-| ≈ WACC | Grenzwertig – gerade Kapitalkosten gedeckt |
-| < WACC | Wertvernichtung – Prüfen Sie die Annahmen |
-""")
-
-    seg_names = list(results.segment_implied_roic.keys())
-    roic_means = [float(np.mean(results.segment_implied_roic[s])) for s in seg_names]
-    roic_p5 = [float(np.percentile(results.segment_implied_roic[s], 5)) for s in seg_names]
-    roic_p95 = [float(np.percentile(results.segment_implied_roic[s], 95)) for s in seg_names]
-
-    st.plotly_chart(
-        implied_roic_chart(seg_names, roic_means, roic_p5, roic_p95),
-        use_container_width=True,
-    )
-
-    # Reinvestment rate detail
-    if results.segment_reinvest_rates:
-        st.markdown("##### Reinvestitionsquote")
-        ri_cols = st.columns(len(seg_names))
-        for col, name in zip(ri_cols, seg_names):
-            ri = results.segment_reinvest_rates.get(name)
-            if ri is not None:
-                col.metric(
-                    f"Reinvest – {name}",
-                    f"{float(np.mean(ri)):.1%}",
-                )
-
-
 # ── Phase 2: Quality Score section ───────────────────────────────────────
 
 def _render_quality_section(results) -> None:
@@ -525,4 +498,92 @@ def _render_quality_section(results) -> None:
         st.plotly_chart(
             quality_score_breakdown_chart(q),
             use_container_width=True,
+        )
+
+
+# ── Implied ROIC & Reinvestment section ──────────────────────────────────
+
+def _render_roic_section(results, config) -> None:
+    """Show implied ROIC and reinvestment rate per segment."""
+    if not results.segment_implied_roic:
+        return
+
+    st.subheader("📊 Implied ROIC & Reinvestitionsrate")
+    st.caption(
+        "Implizierter Return on Invested Capital, abgeleitet aus den "
+        "Modellannahmen (Marge, CAPEX, NWC, Wachstum). "
+        "Vergleichen Sie mit dem historischen ROIC des Unternehmens "
+        "als Plausibilitäts-Check."
+    )
+
+    with st.expander("ℹ️ Was zeigt die Implied ROIC?", expanded=False):
+        st.markdown(r"""
+Der **Implied ROIC** wird nicht direkt modelliert, sondern ergibt sich
+*implizit* aus den Value-Driver-Annahmen:
+
+$$\text{NOPAT-Marge} = (\text{EBITDA\%} - \text{D\&A\%}) \times (1 - t)$$
+
+$$\text{Reinvest.-Marge} = \text{CAPEX\%} - \text{D\&A\%} + \text{NWC\%} \times \frac{g}{1+g}$$
+
+$$\text{Implied ROIC} = \frac{\text{NOPAT-Marge}}{\text{Reinvest.-Marge}}$$
+
+| ROIC vs. WACC | Bedeutung |
+|---|---|
+| **ROIC > WACC** | Wertschöpfung – das Segment erwirtschaftet mehr als die Kapitalkosten |
+| **ROIC ≈ WACC** | Weder Wert geschaffen noch vernichtet |
+| **ROIC < WACC** | Wertvernichtung – Kapitalkosten werden nicht gedeckt |
+
+> **Tipp:** Wenn der Implied ROIC deutlich über dem historischen ROIC liegt,
+> sind die Annahmen möglicherweise zu optimistisch.
+""")
+
+    # Compute per-segment WACC means for the reference line
+    seg_wacc: dict[str, np.ndarray] = {}
+    weighted_wacc = 0.0
+    total_ev_sum = 0.0
+    for seg in config.segments:
+        seg_key = f"{seg.name} | WACC"
+        if seg_key in results.input_samples:
+            seg_wacc[seg.name] = results.input_samples[seg_key]
+            mean_wacc = float(np.mean(results.input_samples[seg_key]))
+            mean_ev = float(np.mean(results.segment_evs.get(seg.name, np.array([0]))))
+            weighted_wacc += mean_wacc * mean_ev
+            total_ev_sum += mean_ev
+
+    avg_wacc = weighted_wacc / max(total_ev_sum, 1e-6)
+
+    # -- ROIC Histogram
+    rc1, rc2 = st.columns(2)
+    with rc1:
+        st.plotly_chart(
+            roic_histogram(results.segment_implied_roic, wacc_mean=avg_wacc),
+            use_container_width=True,
+        )
+
+    # -- Reinvestment rate box plot
+    with rc2:
+        st.plotly_chart(
+            reinvestment_rate_chart(results.segment_reinvest_rates),
+            use_container_width=True,
+        )
+
+    # -- ROIC vs WACC scatter (only if we have WACC samples)
+    if seg_wacc:
+        st.plotly_chart(
+            roic_vs_wacc_scatter(results.segment_implied_roic, seg_wacc),
+            use_container_width=True,
+        )
+
+    # Metric tiles
+    cols = st.columns(len(results.segment_implied_roic))
+    for col, (seg_name, roic_arr) in zip(cols, results.segment_implied_roic.items()):
+        mean_roic = float(np.mean(roic_arr))
+        wacc_ref = float(np.mean(seg_wacc.get(seg_name, np.array([avg_wacc]))))
+        spread = mean_roic - wacc_ref
+        label = "🟢" if spread > 0.02 else ("🟡" if spread > -0.02 else "🔴")
+        col.metric(
+            f"ROIC – {seg_name}",
+            f"{mean_roic:.1%}",
+            delta=f"{spread:+.1%} vs WACC {label}",
+            delta_color="normal",
         )

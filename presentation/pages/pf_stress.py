@@ -8,6 +8,8 @@ import pandas as pd
 import streamlit as st
 
 from application.portfolio_service import PortfolioAnalyser
+from application.portfolio_stress import PortfolioStressTester
+from domain.portfolio_models import HISTORICAL_SCENARIOS, MACRO_SECTOR_SENSITIVITY
 from presentation.charts import stress_comparison_chart
 from presentation.pages.pf_common import active_results
 
@@ -164,4 +166,121 @@ Stress-Tests prüfen die **Robustheit** Ihres Portfolios.
 
 > **Faustregel:** CVaR (5%) unter Stress > −40% → Konzentration
 > reduzieren oder defensivere Assets beimischen.
+""")
+
+        # ── Historical Scenario Comparison ────────────────────────────
+        st.divider()
+        st.subheader("📜 Historische Krisenszenarien")
+
+        with st.expander("ℹ️ Was wird hier verglichen?", expanded=False):
+            st.markdown("""
+Jedes historische Szenario wendet **sektorspezifische Schocks** auf
+Ihr Portfolio an, basierend auf realen Krisen.  Korrelationen werden
+analog zur tatsächlichen Marktdynamik angehoben.
+
+So sehen Sie auf einen Blick, wie sich Ihr Portfolio in vergangenen
+Krisen verhalten hätte — und welche Methode die robusteste ist.
+""")
+
+        if st.button("📜 Alle historischen Szenarien berechnen",
+                      use_container_width=True):
+            tester = PortfolioStressTester(risk_free_rate=pf["rf"])
+            portfolio_weights = {
+                name: pr.weights for name, pr in active.items()
+            }
+
+            scenario_rows = []
+            for sc_name, scenario in HISTORICAL_SCENARIOS.items():
+                sc_results, _ = tester.stress_test_scenario(
+                    scenario, portfolio_weights,
+                    pf["returns_matrix"], pf["sectors"],
+                )
+                for sr in sc_results:
+                    scenario_rows.append({
+                        "Szenario": sc_name,
+                        "Methode": sr.method_name,
+                        "Δ Rendite": f"{sr.delta_return:+.1%}",
+                        "CVaR 5%": f"{sr.cvar_5_stressed:+.1%}",
+                        "P(Verlust)": f"{sr.prob_loss:.1%}",
+                    })
+
+            if scenario_rows:
+                st.dataframe(
+                    pd.DataFrame(scenario_rows),
+                    use_container_width=True, hide_index=True,
+                )
+
+                # Scenario description cards
+                for sc_name, scenario in HISTORICAL_SCENARIOS.items():
+                    with st.expander(f"📋 {sc_name}", expanded=False):
+                        st.markdown(f"""
+**{scenario.description}**
+
+| Parameter | Wert |
+|---|---|
+| Marktschock | {scenario.market_shock_pct:+.0f} % |
+| Korrelation ≥ | {scenario.corr_stress:.2f} |
+| Dauer | ~{scenario.duration_months} Monate |
+| Sektorschocks | {', '.join(f'{s}: {v:+.0f}%' for s, v in scenario.sector_shocks.items()) or 'Keine'} |
+""")
+
+        # ── Macro Factor Sensitivity ──────────────────────────────────
+        st.divider()
+        st.subheader("🌍 Makrofaktor-Sensitivität")
+
+        with st.expander("ℹ️ Hinweis zur Makro-Analyse", expanded=False):
+            st.markdown("""
+Diese Analyse schätzt, wie sich **Zinsänderungen**, **Inflationserwartungen**
+und **BIP-Wachstumsänderungen** auf Ihr Portfolio auswirken könnten.
+
+Die Sensitivitäten basieren auf empirischen Sektorstudien und sind
+**Näherungswerte**, keine Prognosen. Die Analyse hilft bei der
+Einordnung der Portfolioexposition gegenüber Makrofaktoren.
+""")
+
+        mc1, mc2, mc3 = st.columns(3)
+        ir_delta = mc1.slider(
+            "Δ Langfristzins (pp)", min_value=-3.0, max_value=3.0,
+            value=0.0, step=0.25, key="macro_ir",
+        )
+        infl_delta = mc2.slider(
+            "Δ Inflation (pp)", min_value=-3.0, max_value=3.0,
+            value=0.0, step=0.25, key="macro_infl",
+        )
+        gdp_delta = mc3.slider(
+            "Δ BIP-Wachstum (pp)", min_value=-3.0, max_value=3.0,
+            value=0.0, step=0.25, key="macro_gdp",
+        )
+
+        if ir_delta != 0 or infl_delta != 0 or gdp_delta != 0:
+            impacts = PortfolioStressTester.macro_factor_impact(
+                pf["sectors"], ir_delta, infl_delta, gdp_delta,
+            )
+            names = [am.name for am in pf["asset_metrics"]]
+
+            impact_rows = []
+            for i, am in enumerate(pf["asset_metrics"]):
+                impact_rows.append({
+                    "Asset": am.name,
+                    "Sektor": am.sector,
+                    "Impact (pp)": f"{impacts[i]*100:+.2f}",
+                })
+            st.dataframe(
+                pd.DataFrame(impact_rows),
+                use_container_width=True, hide_index=True,
+            )
+
+            # Portfolio-level impact
+            st.markdown("**Portfolio-Impact je Methode:**")
+            port_impact_rows = []
+            for method_name, pr in active.items():
+                port_impact = float(pr.weights @ impacts)
+                port_impact_rows.append({
+                    "Methode": method_name,
+                    "Portfolio-Impact (pp)": f"{port_impact*100:+.2f}",
+                })
+            st.dataframe(
+                pd.DataFrame(port_impact_rows),
+                use_container_width=True, hide_index=True,
+            )
 """)

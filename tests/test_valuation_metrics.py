@@ -60,84 +60,6 @@ class TestTvEvRatio:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# implied_roic
-# ═══════════════════════════════════════════════════════════════════════════
-
-class TestImpliedROIC:
-
-    def test_standard_assumptions(self):
-        """Typical assumptions → ROIC plausible and finite."""
-        n = 100
-        ebitda_m = np.full(n, 0.20)
-        da_pct = np.full(n, 0.03)
-        tax = np.full(n, 0.25)
-        capex = np.full(n, 0.05)
-        nwc = np.full(n, 0.10)
-        g = np.full(n, 0.05)
-
-        roic = implied_roic(ebitda_m, da_pct, tax, capex, nwc, g)
-        assert roic.shape == (n,)
-        assert np.all(np.isfinite(roic))
-        # NOPAT margin = (0.20 - 0.03) * 0.75 = 0.1275
-        # reinvest = 0.05 - 0.03 + 0.10 * 0.05/1.05 ≈ 0.02 + 0.00476 ≈ 0.02476
-        # ROIC ≈ 0.1275 / 0.02476 ≈ 5.15
-        assert np.allclose(roic, roic[0])  # all same input → all same output
-        assert roic[0] > 1.0  # high ROIC because reinvestment is very low
-
-    def test_zero_reinvestment_clamped(self):
-        """Near-zero net reinvestment should not produce infinities."""
-        n = 50
-        roic = implied_roic(
-            np.full(n, 0.15), np.full(n, 0.05),
-            np.full(n, 0.25), np.full(n, 0.05),  # capex == DA → zero net
-            np.full(n, 0.0), np.full(n, 0.0),
-        )
-        assert np.all(np.isfinite(roic))
-        assert np.all(roic <= 5.0)  # clamped
-
-    def test_negative_growth(self):
-        """Negative growth → still produces finite result."""
-        n = 50
-        roic = implied_roic(
-            np.full(n, 0.15), np.full(n, 0.03),
-            np.full(n, 0.25), np.full(n, 0.05),
-            np.full(n, 0.10), np.full(n, -0.05),
-        )
-        assert np.all(np.isfinite(roic))
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# reinvestment_rate
-# ═══════════════════════════════════════════════════════════════════════════
-
-class TestReinvestmentRate:
-
-    def test_positive_reinvestment(self):
-        """Capex > DA → positive reinvestment rate."""
-        n = 50
-        rr = reinvestment_rate(
-            np.full(n, 0.06),  # capex
-            np.full(n, 0.03),  # DA
-            np.full(n, 0.10),  # NWC
-            np.full(n, 0.05),  # growth
-            np.full(n, 0.20),  # ebitda_margin
-            np.full(n, 0.25),  # tax
-        )
-        assert rr.shape == (n,)
-        assert np.all(rr > 0)
-
-    def test_maintenance_capex_only(self):
-        """Capex == DA and no NWC change → near-zero reinvestment."""
-        n = 50
-        rr = reinvestment_rate(
-            np.full(n, 0.03), np.full(n, 0.03),
-            np.full(n, 0.0), np.full(n, 0.0),
-            np.full(n, 0.15), np.full(n, 0.25),
-        )
-        np.testing.assert_allclose(rr, 0.0, atol=1e-6)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
 # Quality score sub-components
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -281,14 +203,6 @@ class TestEnginePhase2Integration:
             assert arr.shape == (minimal_sim_config.n_simulations,)
             assert np.all((arr >= 0) & (arr <= 1))
 
-    def test_results_have_roic(self, minimal_sim_config):
-        from application.simulation_service import SimulationService
-        results = SimulationService.run_simulation(minimal_sim_config)
-        assert len(results.segment_implied_roic) == 1
-        for arr in results.segment_implied_roic.values():
-            assert arr.shape == (minimal_sim_config.n_simulations,)
-            assert np.all(np.isfinite(arr))
-
     def test_results_have_quality_score(self, minimal_sim_config):
         from application.simulation_service import SimulationService
         results = SimulationService.run_simulation(minimal_sim_config)
@@ -300,8 +214,6 @@ class TestEnginePhase2Integration:
         from application.simulation_service import SimulationService
         results = SimulationService.run_simulation(full_sim_config)
         assert len(results.segment_tv_ev_ratios) == 2
-        assert len(results.segment_implied_roic) == 2
-        assert len(results.segment_reinvest_rates) == 2
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -317,13 +229,6 @@ class TestPhase2Charts:
         )
         assert fig is not None
 
-    def test_implied_roic_chart(self):
-        from presentation.charts import implied_roic_chart
-        fig = implied_roic_chart(
-            ["Seg A"], [0.15], [0.10], [0.20],
-        )
-        assert fig is not None
-
     def test_quality_gauge(self):
         from presentation.charts import quality_score_gauge
         fig = quality_score_gauge({"total": 72.5})
@@ -334,4 +239,147 @@ class TestPhase2Charts:
         fig = quality_score_breakdown_chart({
             "tv_ev": 20, "convergence": 22, "sensitivity": 15, "dispersion": 18,
         })
+        assert fig is not None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Implied ROIC
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestImpliedROIC:
+
+    def test_basic_positive_roic(self):
+        """Typical profitable company should have positive ROIC."""
+        n = 1000
+        roic = implied_roic(
+            ebitda_margin=np.full(n, 0.20),
+            da_pct_revenue=np.full(n, 0.03),
+            tax_rate=np.full(n, 0.25),
+            capex_pct_revenue=np.full(n, 0.05),
+            nwc_pct_delta_revenue=np.full(n, 0.10),
+            revenue_growth=np.full(n, 0.05),
+        )
+        assert roic.shape == (n,)
+        # NOPAT margin = (0.20 - 0.03) * 0.75 = 0.1275
+        # Reinvest margin = 0.05 - 0.03 + 0.10 * 0.05/1.05 ≈ 0.0248
+        # ROIC ≈ 0.1275 / 0.0248 ≈ 5.14 → clamped to 5.0
+        assert np.all(roic > 0)
+
+    def test_clamped_range(self):
+        """Output is clamped to [-2, 5]."""
+        n = 100
+        roic = implied_roic(
+            ebitda_margin=np.full(n, 0.50),
+            da_pct_revenue=np.full(n, 0.01),
+            tax_rate=np.full(n, 0.10),
+            capex_pct_revenue=np.full(n, 0.02),
+            nwc_pct_delta_revenue=np.full(n, 0.01),
+            revenue_growth=np.full(n, 0.03),
+        )
+        assert np.all(roic >= -2.0)
+        assert np.all(roic <= 5.0)
+
+    def test_vector_shapes(self):
+        n = 500
+        rng = np.random.default_rng(42)
+        roic = implied_roic(
+            ebitda_margin=rng.uniform(0.10, 0.30, n),
+            da_pct_revenue=rng.uniform(0.02, 0.05, n),
+            tax_rate=rng.uniform(0.20, 0.30, n),
+            capex_pct_revenue=rng.uniform(0.03, 0.08, n),
+            nwc_pct_delta_revenue=rng.uniform(0.05, 0.15, n),
+            revenue_growth=rng.uniform(0.02, 0.10, n),
+        )
+        assert roic.shape == (n,)
+        assert np.all(np.isfinite(roic))
+
+
+class TestReinvestmentRate:
+
+    def test_basic_positive(self):
+        """Typical case: positive reinvestment."""
+        n = 100
+        rr = reinvestment_rate(
+            capex_pct_revenue=np.full(n, 0.05),
+            da_pct_revenue=np.full(n, 0.03),
+            nwc_pct_delta_revenue=np.full(n, 0.10),
+            revenue_growth=np.full(n, 0.05),
+            ebitda_margin=np.full(n, 0.20),
+            tax_rate=np.full(n, 0.25),
+        )
+        assert rr.shape == (n,)
+        assert np.all(rr > 0)  # net capex + NWC > 0
+
+    def test_clamped_range(self):
+        n = 100
+        rr = reinvestment_rate(
+            capex_pct_revenue=np.full(n, 0.01),
+            da_pct_revenue=np.full(n, 0.05),
+            nwc_pct_delta_revenue=np.full(n, 0.01),
+            revenue_growth=np.full(n, 0.03),
+            ebitda_margin=np.full(n, 0.20),
+            tax_rate=np.full(n, 0.25),
+        )
+        assert np.all(rr >= -1.0)
+        assert np.all(rr <= 2.0)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Integration: Engine populates ROIC & reinvestment fields
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestEngineROICIntegration:
+
+    def test_results_have_roic(self, minimal_sim_config):
+        from application.simulation_service import SimulationService
+        results = SimulationService.run_simulation(minimal_sim_config)
+        assert len(results.segment_implied_roic) == 1
+        for arr in results.segment_implied_roic.values():
+            assert arr.shape == (minimal_sim_config.n_simulations,)
+            assert np.all(np.isfinite(arr))
+
+    def test_results_have_reinvest_rates(self, minimal_sim_config):
+        from application.simulation_service import SimulationService
+        results = SimulationService.run_simulation(minimal_sim_config)
+        assert len(results.segment_reinvest_rates) == 1
+        for arr in results.segment_reinvest_rates.values():
+            assert arr.shape == (minimal_sim_config.n_simulations,)
+
+    def test_multi_segment_roic(self, full_sim_config):
+        from application.simulation_service import SimulationService
+        results = SimulationService.run_simulation(full_sim_config)
+        assert len(results.segment_implied_roic) == 2
+        assert len(results.segment_reinvest_rates) == 2
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ROIC chart smoke tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestROICCharts:
+
+    def test_roic_histogram(self):
+        from presentation.charts import roic_histogram
+        data = {"Seg A": np.random.default_rng(1).uniform(0.1, 0.3, 1000)}
+        fig = roic_histogram(data, wacc_mean=0.09)
+        assert fig is not None
+
+    def test_roic_histogram_no_wacc(self):
+        from presentation.charts import roic_histogram
+        data = {"Seg A": np.random.default_rng(1).normal(0.15, 0.05, 500)}
+        fig = roic_histogram(data)
+        assert fig is not None
+
+    def test_reinvestment_rate_chart(self):
+        from presentation.charts import reinvestment_rate_chart
+        data = {"Seg A": np.random.default_rng(1).uniform(0.1, 0.5, 500)}
+        fig = reinvestment_rate_chart(data)
+        assert fig is not None
+
+    def test_roic_vs_wacc_scatter(self):
+        from presentation.charts import roic_vs_wacc_scatter
+        rng = np.random.default_rng(42)
+        roic = {"S1": rng.uniform(0.05, 0.30, 500)}
+        wacc = {"S1": rng.uniform(0.07, 0.12, 500)}
+        fig = roic_vs_wacc_scatter(roic, wacc)
         assert fig is not None

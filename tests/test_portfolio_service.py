@@ -160,11 +160,11 @@ class TestOptimisation:
         self._check_weights(r)
         np.testing.assert_allclose(r.weights, [1/3, 1/3, 1/3])
 
-    def test_run_all_returns_7(self):
+    def test_run_all_returns_8(self):
         res = self.pa.run_all_optimisations(
             self.metrics, self.mu, self.cov, self.stds, self.R, self.bounds,
         )
-        assert len(res) == 7
+        assert len(res) == 8
         # At least equal-weight and kelly should always succeed
         assert res["Gleichgewicht (1/N)"] is not None
         assert res["Kelly (Multi-Asset)"] is not None

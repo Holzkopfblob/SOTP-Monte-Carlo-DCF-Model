@@ -12,6 +12,7 @@ from presentation.charts import (
     COLORS,
     cdf_with_reference,
     histogram_kde,
+    portfolio_radar_chart,
     portfolio_weights_comparison,
 )
 from presentation.pages.pf_common import active_results
@@ -28,7 +29,7 @@ def render_portfolio(tab) -> None:
         st.header("📊 Portfolio-Optimierung")
         active = active_results(pf)
 
-        with st.expander("ℹ️ Erklärung der 7 Optimierungsmethoden", expanded=False):
+        with st.expander("ℹ️ Erklärung der 9 Optimierungsmethoden", expanded=False):
             st.markdown(r"""
 **1. Gleichgewicht (1/N)** – Naives Benchmark.  Überraschend robust,
 da keine Schätzfehler einfließen.
@@ -44,16 +45,25 @@ bei institutionellen Investoren (z.B. Bridgewater All Weather).
 
 **5. Min CVaR (Expected Shortfall)** – Minimiert den *erwarteten Verlust
 im schlimmsten 5%-Tail* der Monte-Carlo-Verteilung.  Robuster als
-Varianzminimierung bei Tail-Risiken. *(Neu)*
+Varianzminimierung bei Tail-Risiken.
 
 **6. Max Diversifikation** – Maximiert das Diversifikationsratio
 $DR = \frac{\sum w_i \sigma_i}{\sigma_P}$.  Verteilt risiko-optimal
-über möglichst unkorrelierte Assets. *(Neu)*
+über möglichst unkorrelierte Assets.
 
 **7. Kelly (Multi-Asset)** – Maximiert
 $w^T\mu - \frac{1}{2} w^T \Sigma w$ (erwartetes Log-Wachstum) mit
-Half-Kelly-Skalierung.  Berücksichtigt Kovarianzen zwischen Assets
-(Verbesserung: Multi-Asset statt Einzel-Kelly). *(Verbessert)*
+Half-Kelly-Skalierung.
+
+**8. HRP (Hierarchical Risk Parity)** – Hierarchisches Clustering
+auf der Korrelationsmatrix + rekursive Bisektionsallokation.
+Benötigt **keine Matrixinversion** und ist robuster gegenüber
+Schätzfehlern als Markowitz. *(Neu)*
+
+**9. Black-Litterman** – Kombiniert Marktgleichgewichtsrenditen
+mit subjektiven Analysteneinschätzungen:
+$\mu_{BL} = [(\tau\Sigma)^{-1} + P'\Omega^{-1}P]^{-1}[(\tau\Sigma)^{-1}\pi + P'\Omega^{-1}q]$.
+Nur aktiv, wenn Views definiert sind. *(Neu)*
 """)
 
         names = [am.name for am in pf["asset_metrics"]]
@@ -99,6 +109,51 @@ Half-Kelly-Skalierung.  Berücksichtigt Kovarianzen zwischen Assets
         st.dataframe(
             pd.DataFrame(metrics_rows),
             use_container_width=True, hide_index=True,
+        )
+
+        # ── Radar chart ───────────────────────────────────────────
+        st.divider()
+        st.subheader("🕸️ Methoden-Radar")
+        st.caption(
+            "Normalisiertes Radar-Diagramm – jede Achse skaliert auf "
+            "[0, 1] über alle Methoden. Rendite und Sharpe: höher = besser; "
+            "Vol., VaR, CVaR: invertiert (niedriger = besser)."
+        )
+
+        radar_data: dict[str, dict[str, float]] = {}
+        returns_raw = [pr.expected_return for pr in active.values()]
+        vols_raw = [pr.volatility for pr in active.values()]
+        sharpe_raw = [pr.sharpe_ratio for pr in active.values()]
+        var_raw = [abs(pr.var_5) for pr in active.values()]
+        cvar_raw = [abs(pr.cvar_5) for pr in active.values()]
+        div_raw = [pr.diversification_ratio for pr in active.values()]
+
+        def _norm(vals: list[float], invert: bool = False) -> list[float]:
+            lo, hi = min(vals), max(vals)
+            rng = hi - lo if hi != lo else 1.0
+            out = [(v - lo) / rng for v in vals]
+            return [1.0 - o for o in out] if invert else out
+
+        ret_n = _norm(returns_raw)
+        vol_n = _norm(vols_raw, invert=True)
+        sha_n = _norm(sharpe_raw)
+        var_n = _norm(var_raw, invert=True)
+        cva_n = _norm(cvar_raw, invert=True)
+        div_n = _norm(div_raw)
+
+        for i, (name, _pr) in enumerate(active.items()):
+            radar_data[name] = {
+                "Rendite": ret_n[i],
+                "Volatilität": vol_n[i],
+                "Sharpe": sha_n[i],
+                "VaR": var_n[i],
+                "CVaR": cva_n[i],
+                "Diversifikation": div_n[i],
+            }
+
+        st.plotly_chart(
+            portfolio_radar_chart(radar_data),
+            use_container_width=True,
         )
 
         # ── Portfolio return distribution ─────────────────────────────

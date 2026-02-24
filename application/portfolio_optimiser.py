@@ -8,9 +8,11 @@ Also includes efficient frontier computation.
 from __future__ import annotations
 
 import numpy as np
+from scipy.cluster.hierarchy import leaves_list, linkage
 from scipy.optimize import minimize
+from scipy.spatial.distance import squareform
 
-from domain.portfolio_models import AssetMetrics, PortfolioResult
+from domain.portfolio_models import AssetMetrics, InvestorView, PortfolioResult
 
 
 class PortfolioOptimiser:
@@ -251,6 +253,154 @@ class PortfolioOptimiser:
             "Gleichgewicht (1/N)", w, mu, cov, std_vec, returns_matrix,
         )
 
+    # ── Hierarchical Risk Parity (HRP) ──────────────────────────────
+
+    def optimise_hrp(
+        self,
+        mu: np.ndarray,
+        cov: np.ndarray,
+        std_vec: np.ndarray,
+        returns_matrix: np.ndarray,
+    ) -> PortfolioResult:
+        """Hierarchical Risk Parity – clustering-based allocation.
+
+        HRP uses hierarchical clustering on the correlation matrix,
+        quasi-diagonalisation, and recursive bisection to allocate
+        risk.  It does **not** require matrix inversion and is therefore
+        more robust to estimation error than Markowitz methods.
+        """
+        n = cov.shape[0]
+        if n < 2:
+            return self._make_result(
+                "HRP", np.ones(1), mu, cov, std_vec, returns_matrix,
+            )
+
+        # 1. Correlation → distance → clustering
+        safe_std = np.maximum(std_vec, 1e-12)
+        corr = cov / np.outer(safe_std, safe_std)
+        corr = np.clip(corr, -1, 1)
+        np.fill_diagonal(corr, 1.0)
+
+        dist = np.sqrt(0.5 * (1.0 - corr))
+        np.fill_diagonal(dist, 0.0)
+        condensed = squareform(dist, checks=False)
+        link = linkage(condensed, method="single")
+        sort_ix = leaves_list(link).tolist()
+
+        # 2. Recursive bisection
+        w = np.ones(n, dtype=np.float64)
+        clusters = [sort_ix]
+
+        while clusters:
+            next_clusters: list[list[int]] = []
+            for cluster in clusters:
+                if len(cluster) <= 1:
+                    continue
+                mid = len(cluster) // 2
+                left = cluster[:mid]
+                right = cluster[mid:]
+
+                # Inverse-variance portfolio within each sub-cluster
+                def _cluster_var(idx_list: list[int]) -> float:
+                    sub_cov = cov[np.ix_(idx_list, idx_list)]
+                    ivp = 1.0 / np.maximum(np.diag(sub_cov), 1e-12)
+                    ivp /= ivp.sum()
+                    return float(ivp @ sub_cov @ ivp)
+
+                v_left = _cluster_var(left)
+                v_right = _cluster_var(right)
+                alpha = 1.0 - v_left / max(v_left + v_right, 1e-18)
+
+                for i in left:
+                    w[i] *= alpha
+                for i in right:
+                    w[i] *= (1.0 - alpha)
+
+                if len(left) > 1:
+                    next_clusters.append(left)
+                if len(right) > 1:
+                    next_clusters.append(right)
+            clusters = next_clusters
+
+        w /= w.sum()
+        return self._make_result("HRP", w, mu, cov, std_vec, returns_matrix)
+
+    # ── Black-Litterman ───────────────────────────────────────────────
+
+    def black_litterman(
+        self,
+        mu_mkt: np.ndarray,
+        cov: np.ndarray,
+        std_vec: np.ndarray,
+        returns_matrix: np.ndarray,
+        views: list[InvestorView],
+        tau: float = 0.05,
+        bounds: list[tuple[float, float]] | None = None,
+    ) -> PortfolioResult | None:
+        """Black-Litterman portfolio optimisation.
+
+        Starts from a market-equilibrium prior (π = δ·Σ·w_eq) and
+        blends in subjective investor views.  The posterior expected
+        returns are then used for mean-variance optimisation.
+
+        Parameters
+        ----------
+        mu_mkt : array-like  – sample / equilibrium expected returns
+        cov : covariance matrix
+        views : list of :class:`InvestorView` (absolute views only)
+        tau : scalar uncertainty of the prior (typically 0.025–0.10)
+        """
+        n = len(mu_mkt)
+        if not views:
+            return None
+
+        # π = equilibrium excess returns
+        w_eq = np.ones(n) / n
+        delta = 2.5  # risk aversion
+        pi = delta * cov @ w_eq
+
+        # Build P (k×n) and q (k,) from views
+        k = len(views)
+        P = np.zeros((k, n))
+        q = np.zeros(k)
+        omega_diag = np.zeros(k)
+
+        for idx, v in enumerate(views):
+            P[idx, v.asset_index] = 1.0
+            q[idx] = v.expected_return
+            # Ω_ii = (1/confidence - 1) * τ * σ²_i
+            conf = np.clip(v.confidence, 0.05, 0.99)
+            omega_diag[idx] = (1.0 / conf - 1.0) * tau * cov[v.asset_index, v.asset_index]
+
+        Omega = np.diag(omega_diag)
+        tau_cov = tau * cov
+
+        # Posterior: μ_BL = [(τΣ)^-1 + P'Ω^-1 P]^-1 [(τΣ)^-1 π + P'Ω^-1 q]
+        inv_tau_cov = np.linalg.inv(tau_cov)
+        inv_omega = np.linalg.inv(Omega)
+
+        M = np.linalg.inv(inv_tau_cov + P.T @ inv_omega @ P)
+        mu_bl = M @ (inv_tau_cov @ pi + P.T @ inv_omega @ q)
+
+        # Mean-variance optimisation with BL returns
+        if bounds is None:
+            bounds = [(0.0, 1.0)] * n
+        w0 = np.ones(n) / n
+        cons = [{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}]
+
+        def neg_sharpe_bl(w):
+            r = w @ mu_bl
+            v = np.sqrt(w @ cov @ w)
+            return -(r - self.rf) / max(v, 1e-12)
+
+        res = minimize(neg_sharpe_bl, w0, method="SLSQP",
+                       bounds=bounds, constraints=cons)
+        if not res.success:
+            return None
+        return self._make_result(
+            "Black-Litterman", res.x, mu_mkt, cov, std_vec, returns_matrix,
+        )
+
     # ── Efficient frontier ────────────────────────────────────────────
 
     def efficient_frontier(
@@ -331,5 +481,12 @@ class PortfolioOptimiser:
         results["Kelly (Multi-Asset)"] = self.kelly_weights(
             asset_metrics, mu, cov, std_vec, returns_matrix,
         )
+
+        if n >= 2:
+            results["HRP"] = self.optimise_hrp(
+                mu, cov, std_vec, returns_matrix,
+            )
+        else:
+            results["HRP"] = None
 
         return results

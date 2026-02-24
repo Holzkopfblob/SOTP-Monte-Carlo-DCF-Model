@@ -32,6 +32,8 @@ METHOD_ORDER = [
     "Min CVaR",
     "Max Diversifikation",
     "Kelly (Multi-Asset)",
+    "HRP",
+    "Black-Litterman",
 ]
 
 

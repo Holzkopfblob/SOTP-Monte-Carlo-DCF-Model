@@ -512,3 +512,164 @@ class TestSegmentEVWithFadingParams:
         assert ev.shape == (n,)
         assert np.all(np.isfinite(ev))
         assert np.all(ev > 0)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 7.  compute_sensitivity in domain/statistics.py  (was in application layer)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestComputeSensitivityDomain:
+
+    def test_sorted_by_abs_correlation(self):
+        from domain.statistics import compute_sensitivity
+        rng = np.random.default_rng(42)
+        n = 5_000
+        x1 = rng.normal(0, 1, n)
+        x2 = rng.normal(0, 1, n)
+        target = 2.0 * x1 + 0.5 * x2 + rng.normal(0, 0.1, n)
+        sens = compute_sensitivity(target, {"x1": x1, "x2": x2})
+        abs_vals = [abs(v) for v in sens.values()]
+        assert abs_vals == sorted(abs_vals, reverse=True)
+        assert abs(sens["x1"]) > abs(sens["x2"])
+
+    def test_constant_input_excluded(self):
+        from domain.statistics import compute_sensitivity
+        target = np.arange(100, dtype=float)
+        sens = compute_sensitivity(target, {"const": np.ones(100)})
+        assert len(sens) == 0
+
+    def test_empty_inputs(self):
+        from domain.statistics import compute_sensitivity
+        sens = compute_sensitivity(np.arange(50, dtype=float), {})
+        assert sens == {}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 8.  Intra-segment parameter correlation (Phase 4)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestIntraSegmentCorrelation:
+
+    def test_intra_corr_produces_valid_results(self):
+        """Segment with intra-param correlation should produce finite EVs."""
+        from domain.models import DEFAULT_INTRA_PARAM_CORR
+        seg = SegmentConfig(
+            name="IntraCorr",
+            base_revenue=1_000.0,
+            forecast_years=5,
+            revenue_growth=DistributionConfig(
+                dist_type=DistributionType.NORMAL, mean=0.06, std=0.02,
+            ),
+            ebitda_margin=DistributionConfig(
+                dist_type=DistributionType.NORMAL, mean=0.20, std=0.03,
+            ),
+            capex_pct_revenue=DistributionConfig(
+                dist_type=DistributionType.NORMAL, mean=0.05, std=0.01,
+            ),
+            wacc=DistributionConfig(
+                dist_type=DistributionType.NORMAL, mean=0.09, std=0.01,
+            ),
+            intra_param_correlation=DEFAULT_INTRA_PARAM_CORR,
+        )
+        cfg = SimulationConfig(
+            n_simulations=1_000, random_seed=42, segments=[seg],
+        )
+        r = MonteCarloEngine(cfg).run()
+        assert np.all(np.isfinite(r.total_ev))
+        assert r.n_simulations == 1_000
+
+    def test_intra_corr_creates_dependency(self):
+        """With positive EBITDA↔CAPEX correlation, samples should correlate."""
+        from domain.models import DEFAULT_INTRA_PARAM_CORR
+        seg = SegmentConfig(
+            name="CorrCheck",
+            base_revenue=1_000.0,
+            forecast_years=5,
+            revenue_growth=DistributionConfig(
+                dist_type=DistributionType.NORMAL, mean=0.06, std=0.02,
+            ),
+            ebitda_margin=DistributionConfig(
+                dist_type=DistributionType.NORMAL, mean=0.20, std=0.03,
+            ),
+            capex_pct_revenue=DistributionConfig(
+                dist_type=DistributionType.NORMAL, mean=0.05, std=0.01,
+            ),
+            wacc=DistributionConfig(
+                dist_type=DistributionType.NORMAL, mean=0.09, std=0.01,
+            ),
+            intra_param_correlation=DEFAULT_INTRA_PARAM_CORR,
+        )
+        cfg = SimulationConfig(
+            n_simulations=5_000, random_seed=42, segments=[seg],
+        )
+        r = MonteCarloEngine(cfg).run()
+        ebitda = r.input_samples["CorrCheck | EBITDA-Marge"]
+        capex = r.input_samples["CorrCheck | CAPEX (% Umsatz)"]
+        from scipy import stats as sp_stats
+        corr, _ = sp_stats.spearmanr(ebitda, capex)
+        # Default matrix has 0.25 correlation → Spearman should be positive
+        assert corr > 0.10, f"Expected positive Spearman, got {corr}"
+
+    def test_intra_corr_with_cross_segment(self):
+        """Intra + inter segment correlation should work together."""
+        from domain.models import DEFAULT_INTRA_PARAM_CORR
+        segs = [
+            SegmentConfig(
+                name="A",
+                revenue_growth=DistributionConfig(
+                    dist_type=DistributionType.NORMAL, mean=0.06, std=0.02,
+                ),
+                wacc=DistributionConfig(
+                    dist_type=DistributionType.NORMAL, mean=0.09, std=0.01,
+                ),
+                intra_param_correlation=DEFAULT_INTRA_PARAM_CORR,
+            ),
+            SegmentConfig(
+                name="B",
+                revenue_growth=DistributionConfig(
+                    dist_type=DistributionType.NORMAL, mean=0.04, std=0.01,
+                ),
+                wacc=DistributionConfig(
+                    dist_type=DistributionType.NORMAL, mean=0.08, std=0.01,
+                ),
+                intra_param_correlation=DEFAULT_INTRA_PARAM_CORR,
+            ),
+        ]
+        cfg = SimulationConfig(
+            n_simulations=1_000, random_seed=42, segments=segs,
+            segment_correlation=[[1.0, 0.5], [0.5, 1.0]],
+        )
+        r = MonteCarloEngine(cfg).run()
+        assert len(r.segment_evs) == 2
+        assert np.all(np.isfinite(r.total_ev))
+
+    def test_no_intra_corr_independent(self):
+        """Without intra-corr, EBITDA and CAPEX should be ~independent."""
+        seg = SegmentConfig(
+            name="IndepCheck",
+            base_revenue=1_000.0,
+            forecast_years=5,
+            revenue_growth=DistributionConfig(
+                dist_type=DistributionType.NORMAL, mean=0.06, std=0.02,
+            ),
+            ebitda_margin=DistributionConfig(
+                dist_type=DistributionType.NORMAL, mean=0.20, std=0.03,
+            ),
+            capex_pct_revenue=DistributionConfig(
+                dist_type=DistributionType.NORMAL, mean=0.05, std=0.01,
+            ),
+            wacc=DistributionConfig(
+                dist_type=DistributionType.NORMAL, mean=0.09, std=0.01,
+            ),
+            intra_param_correlation=None,  # no intra-segment correlation
+        )
+        cfg = SimulationConfig(
+            n_simulations=5_000, random_seed=42, segments=[seg],
+        )
+        r = MonteCarloEngine(cfg).run()
+        ebitda = r.input_samples["IndepCheck | EBITDA-Marge"]
+        capex = r.input_samples["IndepCheck | CAPEX (% Umsatz)"]
+        from scipy import stats as sp_stats
+        corr, _ = sp_stats.spearmanr(ebitda, capex)
+        # Should be approximately zero (independent)
+        assert abs(corr) < 0.10, f"Expected near-zero Spearman, got {corr}"

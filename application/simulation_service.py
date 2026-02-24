@@ -9,10 +9,12 @@ from __future__ import annotations
 
 
 import numpy as np
-from scipy import stats as sp_stats
 
 from domain.models import SimulationConfig, SimulationResults
-from domain.statistics import compute_statistics as _compute_statistics
+from domain.statistics import (
+    compute_statistics as _compute_statistics,
+    compute_sensitivity as _compute_sensitivity,
+)
 from infrastructure.monte_carlo_engine import MonteCarloEngine
 
 
@@ -35,25 +37,12 @@ class SimulationService:
 
     @staticmethod
     def compute_sensitivity(results: SimulationResults) -> dict[str, float]:
-        """
+        """Delegate to domain-level sensitivity computation.
+
         Spearman rank-correlation of each stochastic input with equity value.
-
         Returns a dict sorted by **absolute** correlation (descending).
-        Constant inputs (σ ≈ 0) are silently excluded.
         """
-        target = results.equity_values
-        correlations: dict[str, float] = {}
-
-        for name, samples in results.input_samples.items():
-            if np.std(samples) < 1e-12:
-                continue  # skip deterministic (fixed) parameters
-            corr, _ = sp_stats.spearmanr(samples, target)
-            if np.isfinite(corr):
-                correlations[name] = float(corr)
-
-        return dict(
-            sorted(correlations.items(), key=lambda x: abs(x[1]), reverse=True)
-        )
+        return _compute_sensitivity(results.equity_values, results.input_samples)
 
     # ------------------------------------------------------------------
     # Descriptive statistics helper  (delegates to domain.statistics)

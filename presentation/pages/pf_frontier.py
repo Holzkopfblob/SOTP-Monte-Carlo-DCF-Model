@@ -78,6 +78,8 @@ bietet bei gleichem Risiko mehr Rendite.
             "Min CVaR": "hexagon",
             "Max Diversifikation": "cross",
             "Kelly (Multi-Asset)": "pentagon",
+            "HRP": "triangle-up",
+            "Black-Litterman": "bowtie",
         }
         point_colors = {
             "Gleichgewicht (1/N)": COLORS["neutral"],
@@ -87,6 +89,8 @@ bietet bei gleichem Risiko mehr Rendite.
             "Min CVaR": COLORS["negative"],
             "Max Diversifikation": COLORS["positive"],
             "Kelly (Multi-Asset)": COLORS["accent"],
+            "HRP": "#e377c2",
+            "Black-Litterman": "#bcbd22",
         }
 
         for method_name, pr in active.items():

@@ -4,10 +4,14 @@ DCF Segments Tab – Per-segment FCFF assumptions
 """
 from __future__ import annotations
 
+import numpy as np
+import pandas as pd
 import streamlit as st
 
 from domain.models import (
+    DEFAULT_INTRA_PARAM_CORR,
     DistributionConfig,
+    INTRA_PARAM_LABELS,
     RevenueGrowthMode,
     SegmentConfig,
     TerminalValueMethod,
@@ -241,6 +245,44 @@ def render_segments(tab, n_segments: int) -> list[SegmentConfig]:
                             )
 
                 # ── Build config object ───────────────────────────────
+                # ── Intra-segment parameter correlation ─────────────
+                st.markdown("---")
+                st.markdown("##### 🔗 Intra-Segment Parameterkorrelation")
+                enable_intra_corr = st.checkbox(
+                    "Parameterkorrelation innerhalb des Segments aktivieren",
+                    value=False, key=f"seg_{i}_intra_corr",
+                    help=(
+                        "Wenn aktiv, werden die 7 Werttreiber (Wachstum, Marge, "
+                        "D&A, Steuer, CAPEX, NWC, WACC) über eine Gaussian Copula "
+                        "miteinander korreliert. Z.B.: Hohe EBITDA-Marge geht "
+                        "tendenziell mit höherem CAPEX einher."
+                    ),
+                )
+                intra_corr_matrix: list[list[float]] | None = None
+                if enable_intra_corr:
+                    st.caption(
+                        "💡 Die Standardwerte basieren auf typischen Unternehmensbeziehungen "
+                        "(Operating Leverage, CAPEX↔D&A, Wachstum↔NWC). "
+                        "Passen Sie die Matrix bei Bedarf an."
+                    )
+                    corr_df = pd.DataFrame(
+                        DEFAULT_INTRA_PARAM_CORR,
+                        index=INTRA_PARAM_LABELS,
+                        columns=INTRA_PARAM_LABELS,
+                    )
+                    edited_corr = st.data_editor(
+                        corr_df,
+                        key=f"seg_{i}_intra_corr_matrix",
+                        use_container_width=True,
+                        num_rows="fixed",
+                    )
+                    # Make symmetric + force diagonal = 1
+                    corr_np = edited_corr.values.astype(float)
+                    corr_np = (corr_np + corr_np.T) / 2.0
+                    np.fill_diagonal(corr_np, 1.0)
+                    # Clip to valid range
+                    corr_np = np.clip(corr_np, -1.0, 1.0)
+                    intra_corr_matrix = corr_np.tolist()
                 segment_configs.append(SegmentConfig(
                     name=seg_name,
                     base_revenue=float(base_rev),
@@ -263,6 +305,8 @@ def render_segments(tab, n_segments: int) -> list[SegmentConfig]:
                     tax_rate_terminal=tax_r_term,
                     capex_pct_revenue_terminal=capex_term,
                     nwc_pct_delta_revenue_terminal=nwc_term,
+                    # Phase 4: intra-segment parameter correlation
+                    intra_param_correlation=intra_corr_matrix,
                 ))
 
     return segment_configs
