@@ -19,48 +19,95 @@ EXAKT an die unten definierten Formate und Einheiten.
 
 
 ╔═══════════════════════════════════════════════════════════════════════╗
-║  MODELLARCHITEKTUR – IMMER IM HINTERKOPF BEHALTEN                     ║
+║  MODELLARCHITEKTUR – LIES DIES VOLLSTÄNDIG, BEVOR DU BEGINNST        ║
 ╚═══════════════════════════════════════════════════════════════════════╝
 
-BEWERTUNGSANSATZ
-  • FCFF-basierter DCF (Free Cash Flow to Firm) je Segment
-  • Sum-of-the-Parts: Equity = Σ EV_i − PV(Holdingkosten)
-      − Nettoverschuldung − Minderheiten − Pensionen
-      + Nicht-operative Assets + Beteiligungen
-  • Mid-Year Discounting Convention (FCFFs bei t − 0,5; TV bei T)
+Das Modell bewertet jedes Segment einzeln über einen FCFF-basierten DCF
+und aggregiert die Segmentwerte dann zu einem Gesamtunternehmenswert.
+Verstehe die exakte Berechnungskette – JEDER Parameter, den du lieferst,
+fließt in diese Formeln ein.
 
-STOCHASTIK & SAMPLING
-  • Monte-Carlo-Simulation (Standard: 50 000 Iterationen)
-  • 3 Sampling-Strategien:
-      ┌─────────────────────────┬──────────────────────────────────────┐
-      │ Strategie               │ Eigenschaften                        │
-      ├─────────────────────────┼──────────────────────────────────────┤
-      │ Pseudo-Random (Standard)│ Klassisches MC, NumPy-RNG            │
-      │ Antithetic Variates     │ u + (1−u) Spiegelung → Varianz↓     │
-      │ Quasi-MC (Sobol)        │ Scrambled Sobol → schnellere Konverg.│
-      └─────────────────────────┴──────────────────────────────────────┘
 
-  Empfehlung: Sobol bei ≤ 7 stochastischen Parametern pro Segment
-  (optimale Diskrepanz). Antithetic als guter Kompromiss. Pseudo-Random
-  wenn maximale Flexibilität bei vielen korrelierten Segmenten nötig.
+────────────────────────────────────────────────────────────────────────
+A · FCFF-BERECHNUNGSKETTE (exakte Formeln im Modell)
+────────────────────────────────────────────────────────────────────────
 
-  • 6 Verteilungstypen pro Parameter:
-      ┌────────────────────┬────────────────────────────────────────┐
-      │ Typ                │ Eingabe-Parameter                      │
-      ├────────────────────┼────────────────────────────────────────┤
-      │ Fest               │ Wert                                   │
-      │ Normalverteilung   │ μ, σ                                   │
-      │ Lognormalverteilung│ μ, σ  (der unterliegenden Normalvert.) │
-      │ Dreiecksverteilung │ Min, Mode, Max                         │
-      │ Gleichverteilung   │ Min, Max                               │
-      │ PERT-Verteilung    │ Min, Mode, Max  (λ = 4, intern)        │
-      └────────────────────┴────────────────────────────────────────┘
+Für jede Simulation und jedes Jahr t ∈ {1, …, T}:
+
+  1. Revenue_t (Konstant):   Base_Revenue × (1 + g)^t
+     Revenue_t (Fade):       Revenue_{t−1} × (1 + g_t)
+       mit  g_t = g_terminal + (g_initial − g_terminal) · e^(−λ · t)
+
+  2. EBITDA_t              = Revenue_t × EBITDA-Marge
+  3. D&A_t                 = Revenue_t × D&A%
+  4. EBIT_t                = EBITDA_t − D&A_t
+  5. Steuern_t             = max(EBIT_t, 0) × Steuersatz
+     (Steuern nur auf positives EBIT!)
+  6. NOPAT_t               = EBIT_t − Steuern_t
+  7. CAPEX_t               = Revenue_t × CAPEX%
+  8. ΔNWC_t                = (Revenue_t − Revenue_{t−1}) × NWC%
+     ⚠️ NWC% ist der Anteil der UMSATZVERÄNDERUNG, NICHT des Umsatzes!
+     Revenue_0 = Base_Revenue
+
+  9. FCFF_t = NOPAT_t + D&A_t − CAPEX_t − ΔNWC_t
+
+Terminal Value (nach Jahr T):
+  Gordon Growth:  TV = FCFF_T × (1 + g_TV) / (WACC − g_TV)
+  Exit Multiple:  TV = EBITDA_T × Multiple
+
+Diskontierung:
+  Mid-Year Convention (Standard):
+    PV(FCFF_t) = FCFF_t / (1 + WACC)^(t − 0,5)
+  PV(TV)       = TV / (1 + WACC)^T
+
+  Segment-EV = Σ PV(FCFF_t) + PV(TV)
+
+
+────────────────────────────────────────────────────────────────────────
+B · EQUITY BRIDGE (vom Enterprise Value zum Aktienkurs)
+────────────────────────────────────────────────────────────────────────
+
+  Equity = Σ Segment-EV_i
+         − PV(Holdingkosten)       [= Holdingkosten p.a. / Diskontierungssatz]
+         − Nettoverschuldung
+         − Minderheitsanteile
+         − Pensionsrückstellungen
+         + Nicht-operative Assets
+         + Beteiligungen
+
+  Kurs je Aktie = Equity / Aktien ausstehend (voll verwässert)
+
+
+────────────────────────────────────────────────────────────────────────
+C · VERTEILUNGSTYPEN & EINGABEFORMAT
+────────────────────────────────────────────────────────────────────────
+
+Die App unterstützt 6 Verteilungstypen. Für JEDEN stochastischen
+Parameter musst du den Typ und die zugehörigen Werte angeben.
+
+  ┌────────────────────┬────────────────────────────────────────────────┐
+  │ Typ                │ Was du in der App eingibst                     │
+  ├────────────────────┼────────────────────────────────────────────────┤
+  │ Fest               │ Wert                                          │
+  │ Normalverteilung   │ μ (Mittelwert), σ (Std.-Abw.)                │
+  │ Lognormalverteilung│ Gewünschter Mittelwert, Gewünschte Std.-Abw. │
+  │                    │ ⚠️ NICHT μ/σ der unterliegenden Normalvert.!  │
+  │                    │ Die App konvertiert intern automatisch.        │
+  │ Dreiecksverteilung │ Min, Mode, Max                                │
+  │ Gleichverteilung   │ Min, Max                                      │
+  │ PERT-Verteilung    │ Min, Mode, Max  (λ = 4, intern fest)          │
+  └────────────────────┴────────────────────────────────────────────────┘
+
+  ⚠️ LOGNORMAL: Du gibst den ERWARTETEN Mittelwert und die ERWARTETE
+     Standardabweichung der Zielverteilung direkt ein. Beispiel:
+     EBITDA-Marge soll ~20 % ± 3 % sein → Eingabe: μ = 20, σ = 3.
+     Die App berechnet daraus die darunterliegenden Normal-Parameter.
 
   Entscheidungshilfe Verteilungswahl:
     → Hohe Sicherheit, historischer Fakt      → Fest
     → Symmetrische Unsicherheit               → Normal
     → Nur positive Werte, rechtsschief        → Lognormal
-    → Min/Mode/Max bekannt, moderate Gewichte → PERT (BEVORZUGT)
+    → Min/Mode/Max bekannt, moderate Gewichte → PERT ★ BEVORZUGT
     → Min/Mode/Max bekannt, Extremwerte fair  → Dreieck
     → Nur Grenzen bekannt, kein Mode          → Gleichverteilung
 
@@ -68,7 +115,23 @@ STOCHASTIK & SAMPLING
   ⚠️ Bei Unsicherheit: BREITERE Verteilung wählen – das ist der
      Mehrwert einer MC-Simulation gegenüber einem Punkt-DCF.
 
-FADE-MODELL (Universal, exponentiell)
+
+────────────────────────────────────────────────────────────────────────
+D · EINHEITEN – KRITISCH!
+────────────────────────────────────────────────────────────────────────
+
+  • Alle Prozentangaben als %, NICHT als Dezimalzahl.
+    Beispiel: 5 % Wachstum → Eingabe: 5.0  (NICHT 0.05)
+    Die App konvertiert intern durch Division mit 100.
+  • Absolute Werte in Mio. Berichtswährung.
+  • Berichtswährung von [UNTERNEHMEN] konsistent nutzen und EINMALIG
+    am Anfang nennen.
+
+
+────────────────────────────────────────────────────────────────────────
+E · FADE-MODELL (exponentiell, universell)
+────────────────────────────────────────────────────────────────────────
+
   Jeder Werttreiber kann von einem initialen zu einem terminalen Wert
   konvergieren:
 
@@ -76,42 +139,94 @@ FADE-MODELL (Universal, exponentiell)
 
   • p_initial = gesampelter Startwert (aus der Verteilung)
   • p_terminal = langfristiges Gleichgewicht (eigene Verteilung)
-  • λ = Fade-Geschwindigkeit (ein λ pro Segment, gilt für ALLE
-    Parameter dieses Segments)
-  • Fade unterstützt für: Umsatzwachstum, EBITDA-Marge, D&A,
-    Steuersatz, CAPEX, NWC
+  • λ = Fade-Geschwindigkeit (EIN λ pro Segment, gilt für ALLE
+    Parameter dieses Segments gleichzeitig)
 
-CROSS-SEGMENT-KORRELATION
-  Gauss-Copula: Ein Korrelationskoeffizient ρ pro Segmentpaar
-  korreliert ALLE stochastischen Parameter beider Segmente
-  gleichzeitig, ohne die Marginalverteilungen zu verzerren.
+  Fade unterstützt für:
+    Umsatzwachstum, EBITDA-Marge, D&A%, Steuersatz, CAPEX%, NWC%
 
-INTRA-SEGMENT-COPULA (NEU)
-  7×7-Gauss-Copula INNERHALB jedes Segments für die 7 Kern-Werttreiber:
-    Revenue Growth, EBITDA-Marge, D&A, Steuersatz, CAPEX, NWC, WACC
+  ⚠️ WACC hat KEIN Fade. WACC wird als konstant über den gesamten
+     Prognosezeitraum gesampelt.
 
-  Modelliert ökonomische Abhängigkeiten wie:
-    • Wachstum ↔ Marge (Skaleneffekte: ρ > 0)
-    • Marge ↔ CAPEX (Investitionsintensität: ρ < 0 oder ρ > 0)
-    • WACC ↔ Wachstum (risikoreichere Segmente wachsen schneller)
 
-  ⚠️ Dies ist OPTIONAL. Nur aktivieren, wenn fundierte Schätzungen
-     für die paarweisen Abhängigkeiten vorliegen.
+────────────────────────────────────────────────────────────────────────
+F · STOCHASTIK & SAMPLING
+────────────────────────────────────────────────────────────────────────
 
-QUALITÄTSMETRIKEN (automatisch berechnet, aber relevant für Checks)
-  • TV/EV-Ratio pro Segment (PV des Terminal Value / Enterprise Value)
-  • Implied ROIC pro Segment
-  • Reinvestment Rate pro Segment
-  • SOTP-Treemap (proportionale Segment-EV-Visualisierung)
+  Monte-Carlo-Simulation (Standard: 50 000 Iterationen).
+
+  3 Sampling-Strategien:
+    ┌─────────────────────────┬──────────────────────────────────────┐
+    │ Strategie               │ Eigenschaften                        │
+    ├─────────────────────────┼──────────────────────────────────────┤
+    │ Pseudo-Random (Standard)│ Klassisches MC, NumPy-RNG            │
+    │ Antithetic Variates     │ u + (1−u) Spiegelung → Varianz↓     │
+    │ Quasi-MC (Sobol)        │ Scrambled Sobol → schnellere Konverg.│
+    └─────────────────────────┴──────────────────────────────────────┘
+
+  Empfehlung: Sobol bei ≤ 7 stochastischen Parametern pro Segment
+  (optimale Diskrepanz). Antithetic als guter Kompromiss. Pseudo-Random
+  wenn maximale Flexibilität bei vielen korrelierten Segmenten nötig.
+
+
+────────────────────────────────────────────────────────────────────────
+G · KORRELATIONSSTRUKTUR
+────────────────────────────────────────────────────────────────────────
+
+  CROSS-SEGMENT-KORRELATION (Gauss-Copula):
+    Ein Korrelationskoeffizient ρ pro Segmentpaar korreliert ALLE
+    stochastischen Parameter beider Segmente gleichzeitig, ohne die
+    Marginalverteilungen zu verzerren.
+    Eingabe: N×N-Matrix in der App. Diagonale = 1 (fest, nicht editierbar).
+    Oberes Dreieck editierbar, unteres wird automatisch gespiegelt.
+    Validierung: positive Semidefinitheit wird automatisch geprüft.
+
+  INTRA-SEGMENT-COPULA (7×7-Gauss-Copula, OPTIONAL):
+    Modelliert Abhängigkeiten INNERHALB eines Segments zwischen:
+      [Umsatzwachstum, EBITDA-Marge, D&A, Steuersatz, CAPEX, NWC, WACC]
+
+    Eingabe: 7×7-Matrix in der App. Diagonale = 1 (fest).
+    Oberes Dreieck editierbar, unteres wird automatisch gespiegelt.
+
+    Standard-Defaults (überschreibbar):
+                        Wachst.  EBITDA   D&A    Steuer  CAPEX   NWC    WACC
+      Wachstum           1.00    0.30    0.10    0.00    0.15    0.35   −0.10
+      EBITDA-Marge        0.30    1.00    0.20    0.00    0.25    0.10   −0.20
+      D&A                 0.10    0.20    1.00    0.00    0.70    0.05    0.00
+      Steuersatz          0.00    0.00    0.00    1.00    0.00    0.00    0.10
+      CAPEX               0.15    0.25    0.70    0.00    1.00    0.10    0.05
+      NWC                 0.35    0.10    0.05    0.00    0.10    1.00    0.00
+      WACC               −0.10   −0.20    0.00    0.10    0.05    0.00    1.00
+
+    ⚠️ NUR aktivieren, wenn du fundierte Schätzungen für die paarweisen
+       Abhängigkeiten liefern kannst. Die App funktioniert auch ohne.
+
+
+────────────────────────────────────────────────────────────────────────
+H · QUALITÄTSMETRIKEN (automatisch berechnet – für deine Checks)
+────────────────────────────────────────────────────────────────────────
+
+  Die App berechnet automatisch pro Segment:
+
+  • TV/EV-Ratio = PV(Terminal Value) / Segment-EV
+    Ziel: < 60 %. > 75 % → Prognosezeitraum zu kurz oder FCFF-Margin zu niedrig.
+
+  • Implied ROIC (exakte Formel im Modell):
+      NOPAT-Marge = (EBITDA% − D&A%) × (1 − Steuersatz)
+      Reinvest-Marge = CAPEX% − D&A% + NWC% × g / (1 + g)
+      ROIC = g × NOPAT-Marge / Reinvest-Marge
+
+    ⚠️ Das ist NICHT die klassische Lehrbuchformel! Das Modell
+       leitet ROIC aus der Steady-State-Identität g = ROIC × b ab:
+       ROIC = g / b,  wobei b = Reinvest-Marge / NOPAT-Marge.
+    Plausible Bereiche: Software 25–50 % | Industrie 10–20 % | Handel 8–15 %
+
+  • Reinvestment Rate = Reinvest-Marge / NOPAT-Marge
+    (Anteil des NOPAT, der reinvestiert wird)
+
   • Composite Quality Score (0–100):
       TV/EV-Sub (0–25) + Konvergenz-Sub (0–25)
       + Sensitivity-Sub (0–25) + Dispersion-Sub (0–25)
-
-EINHEITEN
-  • Alle Prozentangaben als %, NICHT als Dezimalzahl.
-    Beispiel: 5,0 % Wachstum, NICHT 0,05. Die App konvertiert intern.
-  • Berichtswährung von [UNTERNEHMEN] konsistent nutzen und EINMALIG
-    am Anfang nennen.
 
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -176,8 +291,8 @@ App-Feld: „Detail-Prognosezeitraum (Jahre)"  [1–30, ganzzahlig]
 ────────────────────────────────────────────────────────────────────────
 2.3  Umsatzwachstum (%)
 ────────────────────────────────────────────────────────────────────────
-App-Feld: „Umsatzwachstum" (Verteilungsinput)
-Wachstumsmodell: „Konstant" oder „Fade-Modell"
+App-Feld: „Umsatzwachstum" (Verteilungsinput, Einheit: %)
+Wachstumsmodell-Auswahl: „Konstant" oder „Fade-Modell"
 
 Recherchiere:
   • Historisches CAGR (3 J / 5 J) des Segments
@@ -195,10 +310,14 @@ Fade (dringend empfohlen):
     von g_initial nach g_terminal konvergieren.
   Nenne explizit: g_initial (Verteilung) UND g_terminal (%).
 
+Numerisches Beispiel (bei PERT):
+  „Umsatzwachstum: PERT(Min=3, Mode=7, Max=12)"
+  bedeutet: Min 3 %, wahrscheinlichstes 7 %, Max 12 %
+
 ────────────────────────────────────────────────────────────────────────
 2.4  EBITDA-Marge (%)
 ────────────────────────────────────────────────────────────────────────
-App-Feld: „EBITDA-Marge" (Verteilungsinput)
+App-Feld: „EBITDA-Marge" (Verteilungsinput, Einheit: %)
 
 Recherchiere:
   • Historische Segmentmarge (3–5 J, Trend?)
@@ -208,6 +327,11 @@ Recherchiere:
 
 Verteilung: PERT bevorzugt. Normal bei Symmetrie.
 
+Rolle im Modell:
+  EBITDA = Revenue × EBITDA-Marge
+  → Direkt proportional zum FCFF. Eine um 1 pp höhere Marge
+    erhöht EBITDA und damit NOPAT und FCFF direkt.
+
 Fade-Terminal (empfohlen):
   → Langfristig nachhaltige EBITDA-Marge.
   → Marge über Peer-Median? → Fade nach unten (Mean Reversion).
@@ -216,7 +340,7 @@ Fade-Terminal (empfohlen):
 ────────────────────────────────────────────────────────────────────────
 2.5  D&A als % vom Umsatz
 ────────────────────────────────────────────────────────────────────────
-App-Feld: „D&A (% Umsatz)" (Verteilungsinput)
+App-Feld: „D&A (% Umsatz)" (Verteilungsinput, Einheit: %)
 
 Recherchiere:
   • Historische D&A/Umsatz-Ratio (Segment oder Konzern)
@@ -225,6 +349,13 @@ Recherchiere:
 
 Verteilung: Fest oder Dreieck/PERT (D&A ist relativ stabil).
 
+Rolle im Modell:
+  D&A erscheint an ZWEI Stellen:
+  1. EBIT = EBITDA − D&A  (senkt den operativen Gewinn → senkt Steuern)
+  2. FCFF = NOPAT + D&A − CAPEX − ΔNWC  (wird zum NOPAT addiert,
+     da nicht zahlungswirksam)
+  → Netto-Effekt: D&A wirkt als Tax Shield. Höhere D&A senkt Steuern.
+
 Fade-Terminal (optional):
   → Bei reifem Asset-Bestand sinkt D&A/Umsatz langfristig zum
     Maintenance-Level.
@@ -232,7 +363,7 @@ Fade-Terminal (optional):
 ────────────────────────────────────────────────────────────────────────
 2.6  Effektiver Steuersatz (%)
 ────────────────────────────────────────────────────────────────────────
-App-Feld: „Steuersatz" (Verteilungsinput)
+App-Feld: „Steuersatz" (Verteilungsinput, Einheit: %)
 
 Recherchiere:
   • Historischer effektiver Konzern-ETR (3 J)
@@ -242,13 +373,18 @@ Recherchiere:
 
 Verteilung: Fest (typisch). Dreieck bei Steuerreform-Unsicherheit.
 
+Rolle im Modell:
+  Steuern = max(EBIT, 0) × Steuersatz
+  → Steuern fallen NUR auf positives EBIT an. Bei negativem EBIT
+    werden keine Steuern berechnet (kein Verlustvortrag modelliert).
+
 Fade-Terminal (optional):
   → Nur bei erwarteten regulatorischen Änderungen.
 
 ────────────────────────────────────────────────────────────────────────
 2.7  CAPEX als % vom Umsatz
 ────────────────────────────────────────────────────────────────────────
-App-Feld: „CAPEX (% Umsatz)" (Verteilungsinput)
+App-Feld: „CAPEX (% Umsatz)" (Verteilungsinput, Einheit: %)
 
 Recherchiere:
   • Historische CAPEX/Umsatz-Quote (Trend?)
@@ -259,6 +395,10 @@ Recherchiere:
 
 Verteilung: PERT oder Dreieck.
 
+Rolle im Modell:
+  CAPEX = Revenue × CAPEX%
+  → Wird vom FCFF ABGEZOGEN. Höhere CAPEX = niedrigerer FCFF.
+
 Fade-Terminal (dringend empfohlen):
   → Terminal-CAPEX = Erhaltungsinvestitionen (Maintenance CAPEX).
   → Faustregel: Maintenance CAPEX ≈ D&A langfristig.
@@ -267,7 +407,15 @@ Fade-Terminal (dringend empfohlen):
 ────────────────────────────────────────────────────────────────────────
 2.8  NWC-Veränderung als % der Umsatzveränderung
 ────────────────────────────────────────────────────────────────────────
-App-Feld: „NWC (% ΔUmsatz)" (Verteilungsinput)
+App-Feld: „NWC (% ΔUmsatz)" (Verteilungsinput, Einheit: %)
+
+⚠️ ACHTUNG: Dieser Parameter ist NICHT NWC als % des Umsatzes!
+   Er ist der Anteil der UMSATZVERÄNDERUNG, der in Net Working Capital
+   gebunden/freigesetzt wird.
+
+   Formel im Modell: ΔNWC_t = (Revenue_t − Revenue_{t−1}) × NWC%
+   → Bei wachsendem Umsatz: ΔNWC > 0 → Cash-Abfluss (FCFF sinkt)
+   → Bei schrumpfendem Umsatz: ΔNWC < 0 → Cash-Zufluss (FCFF steigt)
 
 Recherchiere:
   • Historische NWC/Umsatz-Quote und deren Veränderung
@@ -283,7 +431,7 @@ Fade-Terminal (optional):
 ────────────────────────────────────────────────────────────────────────
 2.9  WACC (%)
 ────────────────────────────────────────────────────────────────────────
-App-Feld: „WACC" (Verteilungsinput)
+App-Feld: „WACC" (Verteilungsinput, Einheit: %)
 
 Berechne segmentspezifisch und ZEIGE die vollständige Herleitung:
 
@@ -306,7 +454,14 @@ Berechne segmentspezifisch und ZEIGE die vollständige Herleitung:
 
 Verteilung: Normal oder PERT (σ typisch 0,5–2,0 Prozentpunkte).
 
+⚠️ WACC hat KEIN Fade. Er bleibt konstant über alle Jahre.
 Hinweis: Die App erzwingt WACC ≥ 0,5 % als Sicherheitsgrenze.
+
+Rolle im Modell:
+  WACC dient als Diskontierungssatz für FCFF und Terminal Value.
+  Er beeinflusst auch den Terminal Value über den Nenner (WACC − g).
+  → Der sensibelste Parameter. 1 pp mehr WACC kann 15–25 % Wertverlust
+    bedeuten.
 
 ────────────────────────────────────────────────────────────────────────
 2.10  Terminal-Value-Methode & Parameter
@@ -316,25 +471,28 @@ App-Feld: „Terminal-Value-Methode" (Selectbox)
 Empfehle PRO SEGMENT eine der beiden Methoden und begründe:
 
 OPTION A – Gordon Growth Model
-  App-Feld: „TV-Wachstumsrate" (Verteilungsinput)
+  App-Feld: „TV-Wachstumsrate" (Verteilungsinput, Einheit: %)
   • g = langfristiges nachhaltiges Wachstum
+  • Formel: TV = FCFF_T × (1 + g) / (WACC − g)
   • Benchmark: nominales BIP-Wachstum (2–3 %)
   • MUSS deutlich < WACC sein (Faustregel: g < WACC − 3 pp)
   • Schrumpfende Segmente: 0 % oder negativ
   • ALS VERTEILUNG angeben! PERT bevorzugt.
 
 OPTION B – Exit Multiple
-  App-Feld: „Exit-Multiple (EV/EBITDA)" (Verteilungsinput)
+  App-Feld: „Exit-Multiple (EV/EBITDA)" (Verteilungsinput, KEIN %)
+  • Formel: TV = EBITDA_T × Multiple
   • Basierend auf: aktuellen Peer-Trading-Multiples,
     historischen M&A-Transaktionsmultiples,
     langfristigem Branchendurchschnitt
   • ALS VERTEILUNG angeben! PERT oder Dreieck.
+  ⚠️ Einheit: reiner Multiplikator (z.B. 10.0), NICHT Prozent!
 
   ⚠️ SONDERFALL: Exit Multiple + Fade-Modell
     Wenn für ein Segment das Fade-Modell UND Exit Multiple gewählt
     werden, muss zusätzlich ein „Langfristiges Umsatzwachstum
     (Fade-Ziel)" angegeben werden:
-    App-Feld: „Langfristiges Umsatzwachstum (Fade-Ziel)"
+    App-Feld: „Langfristiges Umsatzwachstum (Fade-Ziel)" (Einheit: %)
     → Typisch: nominales BIP-Wachstum (2–3 %). PERT empfohlen.
 
 Leitlinie:
@@ -349,12 +507,17 @@ App-Feld: „Fade-Geschwindigkeit (λ)" (Slider, 0,05–3,0)
 
 Ein einziger λ-Wert pro Segment, der für ALLE Parameter dieses
 Segments gilt (Umsatzwachstum, EBITDA-Marge, D&A, Steuer, CAPEX, NWC).
+⚠️ EIN λ pro Segment – NICHT pro Parameter.
 
 Orientierung:
   • 0,2–0,3 = langsam (langfristige strukturelle Shifts)
   • 0,5     = mittel  (Standard-Empfehlung)
   • 0,8–1,5 = schnell (kurzfristige Normalisierung)
   • > 1,5   = sehr schnell (fast sofortige Normalisierung)
+
+Praktische Interpretation:
+  Bei λ = 0,5 und T = 5: Nach 2 Jahren ist ~63 % der Differenz abgebaut.
+  Bei λ = 1,0 und T = 5: Nach 1 Jahr ist ~63 % der Differenz abgebaut.
 
 FEST. Begründe die Wahl.
 
@@ -371,9 +534,16 @@ Wenn aktiviert, erscheinen Terminal-Verteilungsinputs für:
   • NWC (Terminal)              → langfristige NWC-Intensität
 
 Jeder Terminal-Wert ist eine eigene Verteilung (gleiche 6 Typen).
+Diese Terminal-Werte werden mit demselben λ aus 2.11 gefaded.
 
 Empfehlung: Mindestens EBITDA-Marge und CAPEX mit Terminal-Werten
 versehen. Diese haben den größten Einfluss auf den Fair Value.
+
+Numerisches Beispiel:
+  EBITDA-Marge initial: PERT(15, 20, 25)
+  EBITDA-Marge terminal: PERT(18, 22, 28)
+  λ = 0,5
+  → Start ~20 %, konvergiert über 5 Jahre graduell Richtung ~22 %
 
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -395,14 +565,16 @@ App-Feld: „Holdingkosten (Mio. p.a.)" (Verteilungsinput)
 • Nicht segmentzugeordnete Kosten aus der Segmentüberleitung
 • Inkl. Vorstandsvergütung, zentrale IT, Konzernfunktionen
 • Quelle: Segmentüberleitung im Geschäftsbericht
-• App berechnet PV als Perpetuity: PV = Holdingkosten / Diskontierungssatz
+• App berechnet PV als ewige Rente:  PV = Holdingkosten / Diskontierungssatz
+• Einheit: Mio. (absolut), NICHT Prozent
 
 ────────────────────────────────────────────────────────────────────────
-3.2  Diskontierungssatz (%)                             → für PV(Holding)
+3.2  Diskontierungssatz für Holdingkosten (%)           → für PV(Holding)
 ────────────────────────────────────────────────────────────────────────
 App-Feld: „Diskontierungssatz (%)" (Verteilungsinput)
 • Typisch: Konzern-WACC
 • Auch als Verteilung modellierbar
+• Einheit: %
 
 ────────────────────────────────────────────────────────────────────────
 3.3  Nettoverschuldung (Mio.)                           → Abzug
@@ -411,6 +583,7 @@ App-Feld: „Nettoverschuldung (Mio.)" (Verteilungsinput)
 • Net Debt = Finanzschulden − Cash & Äquivalente − Finanzanlagen
 • KEINE Pensionen oder Leasing hier (→ separate Posten)
 • Quelle: Letzte berichtete Bilanz
+• Einheit: Mio. (absolut)
 
 ────────────────────────────────────────────────────────────────────────
 3.4  Aktien ausstehend (Mio., voll verwässert)          → Divisor
@@ -418,6 +591,7 @@ App-Feld: „Nettoverschuldung (Mio.)" (Verteilungsinput)
 App-Feld: „Aktien ausstehend (Mio.)" (Verteilungsinput)
 • Basic Shares + Verwässerung (Treasury Stock Method)
 • Verteilung bei laufenden Rückkaufprogrammen
+• Einheit: Mio. Stück
 
 ────────────────────────────────────────────────────────────────────────
 3.5  Minderheitsanteile (Mio.)                          → Abzug
@@ -425,6 +599,7 @@ App-Feld: „Aktien ausstehend (Mio.)" (Verteilungsinput)
 App-Feld: „Minderheitsanteile (Mio.)"
 • Buchwert Non-controlling Interests
 • Falls nicht vorhanden → Fest: 0
+• Einheit: Mio.
 
 ────────────────────────────────────────────────────────────────────────
 3.6  Pensionsrückstellungen (Mio.)                      → Abzug
@@ -432,21 +607,25 @@ App-Feld: „Minderheitsanteile (Mio.)"
 App-Feld: „Pensionsrückstellungen (Mio.)"
 • Netto-Pensionsverpflichtung = DBO − Plan Assets
 • Falls nicht vorhanden → Fest: 0
+• Einheit: Mio.
 
 ────────────────────────────────────────────────────────────────────────
 3.7  Nicht-operative Assets (Mio.)                      → Zuschlag
 ────────────────────────────────────────────────────────────────────────
 App-Feld: „Nicht-operative Assets (Mio.)"
-• Equity-Method-Beteiligungen, überschüssige Immobilien,
-  langfristige Finanzanlagen außerhalb des operativen Kerns
+• Überschüssige Immobilien, langfristige Finanzanlagen außerhalb
+  des operativen Kerns, überschüssiges Cash
 • Falls nicht vorhanden → Fest: 0
+• Einheit: Mio.
 
 ────────────────────────────────────────────────────────────────────────
 3.8  Beteiligungen (Mio.)                               → Zuschlag
 ────────────────────────────────────────────────────────────────────────
 App-Feld: „Beteiligungen (Mio.)"
 • Equity-Buchwert strategischer Minderheitsbeteiligungen
+  (Equity-Method-Beteiligungen)
 • Falls nicht vorhanden → Fest: 0
+• Einheit: Mio.
 
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -466,7 +645,12 @@ Orientierungshilfe:
 | Diversifiziert (z. B. Industrie + Finanz)    | 0,0 – 0,3  |
 | Gegenläufig (z. B. Upstream + Downstream)    | −0,2 – 0,1 |
 
-Hinweis: Die App validiert automatisch positiv-semidefinite Korrelation.
+Eingabe in der App: N×N-Gitter mit number_input-Feldern.
+Diagonale = 1,0 (fest). Oberes Dreieck editierbar.
+Unteres Dreieck wird automatisch gespiegelt.
+
+⚠️ Die App validiert automatisch positive Semidefinitheit der Matrix.
+   Wähle Korrelationen, die gemeinsam konsistent sind.
 
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -476,10 +660,15 @@ SCHRITT 4b · INTRA-SEGMENT-COPULA (OPTIONAL)
 Die App unterstützt optional eine 7×7-Gauss-Copula INNERHALB jedes
 Segments, die Abhängigkeiten zwischen den 7 Werttreibern modelliert:
 
-  Revenue Growth, EBITDA-Marge, D&A, Steuersatz, CAPEX, NWC, WACC
+  [Umsatzwachstum, EBITDA-Marge, D&A, Steuersatz, CAPEX, NWC, WACC]
 
 Falls aktiviert, schätze für jedes Segment die paarweisen
 Korrelationskoeffizienten zwischen diesen Parametern.
+
+Eingabe in der App: 7×7-Gitter mit number_input-Feldern.
+Diagonale = 1,0 (fest). Oberes Dreieck editierbar.
+Unteres Dreieck wird automatisch gespiegelt.
+Es gibt vorbelegte Default-Werte (siehe Abschnitt G oben).
 
 Typische Muster:
 
@@ -487,15 +676,16 @@ Typische Muster:
 |-------------------------|----------|-------------|------------|
 | Wachstum ↔ Marge        | +        | 0,1 – 0,4  | Skaleneffekte |
 | Wachstum ↔ CAPEX        | +        | 0,2 – 0,5  | Investition für Wachstum |
-| Marge ↔ NWC             | −        | −0,3 – 0,0 | Höhere Marge → strafferes WC |
-| WACC ↔ Wachstum         | +        | 0,1 – 0,3  | Risiko-Rendite-Tradeoff |
-| D&A ↔ CAPEX             | +        | 0,3 – 0,6  | Investition → Abschreibung |
-| Steuer ↔ andere         | ≈ 0      | 0,0 – 0,1  | Steuer weitgehend extern |
+| Wachstum ↔ NWC          | +        | 0,2 – 0,4  | Wachstum bindet Working Capital |
+| Marge ↔ CAPEX            | +        | 0,1 – 0,3  | Investitionsintensität ermöglicht Margen |
+| D&A ↔ CAPEX              | +        | 0,3 – 0,7  | Investition → Abschreibung (stark!) |
+| WACC ↔ Marge             | −        | −0,3 – 0,0 | Risikobehaftete Segmente: niedrigere Marge |
+| Steuer ↔ andere          | ≈ 0      | 0,0 – 0,1  | Steuer weitgehend extern bestimmt |
 
-⚠️ NUR aktivieren, wenn fundierte Schätzungen möglich. Bei Unsicherheit
-   besser weglassen – die App funktioniert auch ohne Intra-Segment-Copula.
+⚠️ NUR aktivieren, wenn du fundierte Schätzungen liefern kannst.
+   Die App funktioniert auch ohne Intra-Segment-Copula.
 
-Ausgabeformat: 7×7-Matrix pro Segment (nur untere Dreieck nötig).
+Ausgabeformat: 7×7-Matrix pro Segment (oberes Dreieck ausreichend).
 
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -529,12 +719,12 @@ Liefere die Ergebnisse in EXAKT diesen Tabellen:
 |---|---|---|---|---|---|---|---|---|---|---|
 | Basisumsatz (Mio.) | – | FEST: [Wert] | – | – | – | – | – | – | – | [Quelle, GJ] |
 | Prognosejahre | – | FEST: [N] | – | – | – | – | – | – | – | [Warum N Jahre?] |
-| Umsatzwachstum (%) | [Konstant/Fade] | [Typ]: … | … | … | … | … | … | [g_terminal] | [λ] | [Hist. CAGR, Konsensus, TAM, Guidance] |
-| EBITDA-Marge (%) | – | [Typ]: … | … | … | … | … | … | [m_terminal] | – | [Hist., Peer-Median, Skaleneffekte] |
-| D&A (% Umsatz) | – | [Typ]: … | … | … | … | … | … | [d_terminal] | – | [Hist. Ratio, Kapitalintensität] |
-| Steuersatz (%) | – | [Typ]: … | … | … | … | … | … | [t_terminal] | – | [ETR-Analyse, Jurisdiktion] |
-| CAPEX (% Umsatz) | – | [Typ]: … | … | … | … | … | … | [c_terminal] | – | [Maintenance vs. Growth, Guidance] |
-| NWC (% ΔUmsatz) | – | [Typ]: … | … | … | … | … | … | [n_terminal] | – | [CCC, Branchenvergleich] |
+| Umsatzwachstum (%) | [Konstant/Fade] | [Typ]: … | … | … | … | … | … | [g_terminal %] | [λ] | [Hist. CAGR, Konsensus, TAM, Guidance] |
+| EBITDA-Marge (%) | – | [Typ]: … | … | … | … | … | … | [m_terminal %] | – | [Hist., Peer-Median, Skaleneffekte] |
+| D&A (% Umsatz) | – | [Typ]: … | … | … | … | … | … | [d_terminal %] | – | [Hist. Ratio, Kapitalintensität] |
+| Steuersatz (%) | – | [Typ]: … | … | … | … | … | … | [t_terminal %] | – | [ETR-Analyse, Jurisdiktion] |
+| CAPEX (% Umsatz) | – | [Typ]: … | … | … | … | … | … | [c_terminal %] | – | [Maintenance vs. Growth, Guidance] |
+| NWC (% ΔUmsatz) | – | [Typ]: … | … | … | … | … | … | [n_terminal %] | – | [CCC, Branchenvergleich] |
 | WACC (%) | – | [Typ]: … | … | … | … | … | … | – | – | [CAPM komplett zeigen!] |
 | TV-Methode | – | [Gordon Growth / Exit Multiple] | – | – | – | – | – | – | – | [Warum diese Methode?] |
 | TV-Wachstum (%) | – | [Typ]: … | … | … | … | … | … | – | – | [BIP-Benchmark, WACC-Spread] ★ |
@@ -544,23 +734,26 @@ Liefere die Ergebnisse in EXAKT diesen Tabellen:
 
 Hinweise:
   • „Terminal": Langfristiger Zielwert für Parameter-Fade. „–" wenn kein Fade.
-  • „λ": Nur in Zeile Umsatzwachstum; gilt für ALLE Fade-Parameter.
+  • „λ": Nur in Zeile Umsatzwachstum; gilt für ALLE Fade-Parameter dieses Segments.
   • Nicht benötigte Spalten mit „–" füllen.
+  • %-Spalten: Eingabe als % (z.B. 20.0 für 20 %), NICHT als Dezimalzahl.
+  • Lognormal: μ und σ sind der GEWÜNSCHTE Mittelwert/Std.-Abw., nicht
+    die unterliegenden Normal-Parameter.
 
 ─────────────── CORPORATE BRIDGE ───────────────
 
 ### CORPORATE BRIDGE
 
-| Posten | Wert / Verteilung | Wirkung | Begründung |
-|---|---|---|---|
-| Holdingkosten p.a. (Mio.) | [Wert oder Verteilung] | Abzug (PV) | [Quelle] |
-| Diskontierungssatz (%) | [Wert oder Verteilung] | für PV(Holding) | [= Konzern-WACC] |
-| Nettoverschuldung (Mio.) | [Wert oder Verteilung] | Abzug | [Berechnung zeigen] |
-| Aktien (Mio., verwässert) | [Wert oder Verteilung] | Divisor | [Quelle] |
-| Minderheitsanteile (Mio.) | [Wert oder 0] | Abzug | [Quelle] |
-| Pensionsrückstellungen (Mio.) | [Wert oder 0] | Abzug | [DBO − Plan Assets] |
-| Nicht-operative Assets (Mio.) | [Wert oder 0] | Zuschlag | [Welche?] |
-| Beteiligungen (Mio.) | [Wert oder 0] | Zuschlag | [Welche?] |
+| Posten | Wert / Verteilung | Einheit | Wirkung | Begründung |
+|---|---|---|---|---|
+| Holdingkosten p.a. | [Wert oder Verteilung] | Mio. | Abzug (PV) | [Quelle] |
+| Diskontierungssatz | [Wert oder Verteilung] | % | für PV(Holding) | [= Konzern-WACC] |
+| Nettoverschuldung | [Wert oder Verteilung] | Mio. | Abzug | [Berechnung zeigen] |
+| Aktien (verwässert) | [Wert oder Verteilung] | Mio. Stk. | Divisor | [Quelle] |
+| Minderheitsanteile | [Wert oder 0] | Mio. | Abzug | [Quelle] |
+| Pensionsrückstellungen | [Wert oder 0] | Mio. | Abzug | [DBO − Plan Assets] |
+| Nicht-operative Assets | [Wert oder 0] | Mio. | Zuschlag | [Welche?] |
+| Beteiligungen | [Wert oder 0] | Mio. | Zuschlag | [Welche?] |
 
 ─────────────── KORRELATIONSMATRIX ───────────────
 
@@ -578,7 +771,9 @@ Nur ausfüllen, wenn explizit empfohlen.
 
 | Param 1 | Param 2 | ρ | Begründung |
 |---|---|---|---|
-| Revenue Growth | EBITDA-Marge | … | … |
+| Wachstum | EBITDA-Marge | … | … |
+| Wachstum | CAPEX | … | … |
+| D&A | CAPEX | … | … |
 | … | … | … | … |
 
 ─────────────── SIMULATIONSPARAMETER ───────────────
@@ -620,12 +815,15 @@ Check 3 · WACC-Plausibilität
 ────────────────────────────────────────────────────────────────────────
 Liegt jeder Segment-WACC in einem plausiblen Bereich für Branche,
 Bonität und aktuelles Zinsumfeld?
+Typische Bandbreiten:
+  Blue-Chip: 7–10 % | Wachstum: 9–13 % | Emerging Markets: 11–16 %
 
 ────────────────────────────────────────────────────────────────────────
 Check 4 · TV-Growth ≪ WACC
 ────────────────────────────────────────────────────────────────────────
 Für JEDES Gordon-Growth-Segment: g < WACC − 3 pp?
 Falls nicht → g senken.
+Warum: TV = FCFF × (1+g) / (WACC − g). Bei g nahe WACC → TV → ∞.
 
 ────────────────────────────────────────────────────────────────────────
 Check 5 · TV/EV-Ratio (Vorab-Schätzung)
@@ -633,12 +831,36 @@ Check 5 · TV/EV-Ratio (Vorab-Schätzung)
 Schätze grob PV(TV) / EV je Segment:
   < 60 %  → ✅  |  60–75 % → ⚠️  |  > 75 % → ❌
 
+Bei > 75 %: Prognosezeitraum verlängern oder FCFF-Margen prüfen.
+Hoher TV-Anteil = Wert hängt fast nur vom Terminal Value ab →
+geringe Prognosesicherheit.
+
 ────────────────────────────────────────────────────────────────────────
 Check 6 · Implied ROIC
 ────────────────────────────────────────────────────────────────────────
-ROIC ≈ NOPAT-Marge × (1 + g) / Reinvestment Rate
+Prüfe den ROIC mit der EXAKTEN Modellformel:
+
+  NOPAT-Marge = (EBITDA% − D&A%) × (1 − Steuersatz)
+  Reinvest-Marge = CAPEX% − D&A% + NWC% × g / (1 + g)
+  ROIC = g × NOPAT-Marge / Reinvest-Marge
+
+⚠️ NICHT die Lehrbuchformel „ROIC = NOPAT / Invested Capital" nehmen!
+   Das Modell leitet ROIC aus der Steady-State-Identität g = ROIC × b ab,
+   wobei b = Reinvest-Marge / NOPAT-Marge (Reinvestitionsquote).
+
+Rechne das ROIC für deine geschätzten Parameter einmal durch:
+
+  Beispiel: EBITDA% = 20 %, D&A% = 3 %, Steuer = 25 %,
+            CAPEX% = 5 %, NWC% = 10 %, g = 5 %
+  → NOPAT-Marge = (0,20 − 0,03) × (1 − 0,25) = 0,1275
+  → Reinvest-Marge = 0,05 − 0,03 + 0,10 × 0,05/1,05 = 0,0248
+  → ROIC = 0,05 × 0,1275 / 0,0248 = 25,7 %
+
 Plausibel für die Branche?
   Software 25–50 % | Industrie 10–20 % | Handel 8–15 %
+  Telko 8–15 % | Energie 10–18 % | Gesundheit 15–30 %
+
+Ein ROIC > 100 % oder < 0 % signalisiert fast immer einen Parameterfehler!
 
 ────────────────────────────────────────────────────────────────────────
 Check 7 · Fade-Konsistenz
@@ -646,19 +868,38 @@ Check 7 · Fade-Konsistenz
 Konvergieren alle Terminal-Werte zu branchenüblichen Niveaus?
 Ist die Fade-Richtung ökonomisch sinnvoll?
 
+Prüfe insbesondere:
+  • CAPEX-Terminal ≈ D&A-Terminal? (Im Steady State: Maintenance ≈ D&A)
+  • EBITDA-Marge-Terminal ≤ Peer-Median + 5 pp?
+  • Alle Terminal-Werte realistisch für den Steady State?
+
 ────────────────────────────────────────────────────────────────────────
 Check 8 · Korrelationslogik
 ────────────────────────────────────────────────────────────────────────
-Gleicher Endmarkt → höhere Korrelation. Matrix konsistent?
-Intra-Segment-Copula: Vorzeichenlogik prüfen (Wachstum↔CAPEX > 0?).
+Cross-Segment: Gleicher Endmarkt → höhere Korrelation. Matrix konsistent?
+Intra-Segment: Vorzeichenlogik prüfen:
+  • Wachstum ↔ CAPEX > 0?  (Wachstum erfordert Investition)
+  • D&A ↔ CAPEX > 0?  (mehr Investition → mehr Abschreibung)
+  • WACC ↔ Marge < 0?  (Risikoreichere Segmente haben niedrigere Margen)
 
 ────────────────────────────────────────────────────────────────────────
 Check 9 · Impliziter Fair Value (Überschlagsrechnung)
 ────────────────────────────────────────────────────────────────────────
-Equity ≈ (Σ EV − PV(Holding) − NetDebt − Minority − Pension
-          + NonOp + Associates) / Aktien
+Berechne einen groben Punkt-DCF mit den Base-Case-Werten:
+
+  1. FCFF (Punkt):
+     Revenue_T = Base × (1 + g)^T
+     EBITDA = Rev_T × EBITDA%
+     NOPAT = (EBITDA − Rev_T × D&A%) × (1 − Steuer%)
+     FCFF ≈ NOPAT − Rev_T × (CAPEX% − D&A%) + ...
+
+  2. TV (Gordon oder Multiple)
+  3. EV ≈ Σ Segment-EV − PV(Holding) − NetDebt − Minority − Pension
+         + NonOp + Associates
+  4. Kurs = EV / Aktien
+
 Vergleiche mit aktuellem Aktienkurs: Premium/Discount in %.
-> 100 % Abweichung → Parameterfehler wahrscheinlich.
+> 100 % Abweichung → Parameterfehler wahrscheinlich → nochmal prüfen!
 
 ────────────────────────────────────────────────────────────────────────
 
