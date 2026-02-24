@@ -106,7 +106,7 @@ with st.sidebar:
     st.subheader("💾 Speichern / Laden")
 
     save_name = st.text_input(
-        "Modellname", value="SOTP_Modell", key="save_model_name",
+        "Modellname", value="SOTP_Modell",
         help="Dateiname für den JSON-Export.",
     )
     cfg_json = json.dumps(_collect_config(), indent=2, ensure_ascii=False)
