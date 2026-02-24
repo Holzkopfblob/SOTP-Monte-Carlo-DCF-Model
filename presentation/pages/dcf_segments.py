@@ -5,7 +5,6 @@ DCF Segments Tab – Per-segment FCFF assumptions
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import streamlit as st
 
 from domain.models import (
@@ -260,78 +259,60 @@ def render_segments(tab, n_segments: int) -> list[SegmentConfig]:
                 )
                 intra_corr_matrix: list[list[float]] | None = None
                 if enable_intra_corr:
-                    corr_mode = st.radio(
-                        "Eingabemodus",
-                        ["Vorlage mit Skalierung", "Benutzerdefinierte Matrix"],
-                        key=f"seg_{i}_corr_mode",
-                        horizontal=True,
-                        help=(
-                            "**Vorlage**: branchenübliche Korrelationen mit einem "
-                            "Schieberegler hoch-/runterskalieren. "
-                            "**Benutzerdefiniert**: volle 7×7-Matrix manuell editieren."
-                        ),
+                    _short = [
+                        "Wachst.", "EBITDA", "D&A",
+                        "Steuer", "CAPEX", "NWC", "WACC",
+                    ]
+                    n_params = len(INTRA_PARAM_LABELS)
+                    st.caption(
+                        f"Korrelationsmatrix ({n_params}×{n_params}) – "
+                        "Diagonale ist immer 1. Geben Sie die paarweisen "
+                        "Korrelationen ein (−1 bis 1)."
                     )
 
-                    if corr_mode == "Vorlage mit Skalierung":
-                        st.caption(
-                            "💡 Die Standardvorlage basiert auf typischen "
-                            "Unternehmensbeziehungen (Operating Leverage, "
-                            "CAPEX↔D&A, Wachstum↔NWC). "
-                            "Skalierung **1.0** = Vorlage unverändert, "
-                            "**0.5** = halbe Stärke, **1.5** = stärkere Abhängigkeit."
-                        )
-                        scale = st.slider(
-                            "Korrelations-Skalierung",
-                            min_value=0.0, max_value=2.0, value=1.0, step=0.1,
-                            key=f"seg_{i}_corr_scale",
-                            help="Multipliziert alle Off-Diagonal-Einträge der "
-                                 "Standardmatrix. 0 = unkorreliert, 2 = doppelte "
-                                 "Korrelation (auf ±1 gekappt).",
-                        )
-                        base = np.array(DEFAULT_INTRA_PARAM_CORR, dtype=float)
-                        off_diag = base - np.eye(7)
-                        scaled = np.eye(7) + np.clip(off_diag * scale, -1.0, 1.0)
-                        # Symmetry + positive-definite guard
-                        scaled = (scaled + scaled.T) / 2.0
-                        np.fill_diagonal(scaled, 1.0)
-                        scaled = np.clip(scaled, -1.0, 1.0)
+                    # Initialise from defaults
+                    corr_values: list[list[float]] = [
+                        list(row) for row in DEFAULT_INTRA_PARAM_CORR
+                    ]
 
-                        # Preview the key correlations
-                        key_pairs = [
-                            (0, 1, "Wachstum ↔ EBITDA"),
-                            (1, 4, "EBITDA ↔ CAPEX"),
-                            (2, 4, "D&A ↔ CAPEX"),
-                            (0, 5, "Wachstum ↔ NWC"),
-                            (1, 6, "EBITDA ↔ WACC"),
-                        ]
-                        pcols = st.columns(len(key_pairs))
-                        for pcol, (r, c, lbl) in zip(pcols, key_pairs):
-                            pcol.metric(lbl, f"{scaled[r, c]:.2f}")
+                    for row in range(n_params):
+                        cols = st.columns(n_params)
+                        for col_idx in range(n_params):
+                            default_val = DEFAULT_INTRA_PARAM_CORR[row][col_idx]
+                            if col_idx == row:
+                                cols[col_idx].number_input(
+                                    f"{_short[row]}↔{_short[col_idx]}",
+                                    value=1.0, disabled=True,
+                                    key=f"seg_{i}_ic_{row}_{col_idx}",
+                                )
+                            elif col_idx > row:
+                                val = cols[col_idx].number_input(
+                                    f"{_short[row]}↔{_short[col_idx]}",
+                                    value=default_val,
+                                    min_value=-1.0, max_value=1.0,
+                                    step=0.05, format="%.2f",
+                                    key=f"seg_{i}_ic_{row}_{col_idx}",
+                                )
+                                corr_values[row][col_idx] = float(val)
+                                corr_values[col_idx][row] = float(val)
+                            else:
+                                cols[col_idx].number_input(
+                                    f"{_short[row]}↔{_short[col_idx]}",
+                                    value=float(corr_values[row][col_idx]),
+                                    disabled=True,
+                                    key=f"seg_{i}_ic_{row}_{col_idx}",
+                                )
 
-                        intra_corr_matrix = scaled.tolist()
-
-                    else:  # Benutzerdefinierte Matrix
-                        st.caption(
-                            "💡 Editieren Sie die Korrelationsmatrix. "
-                            "Diagonale = 1, Werte in [−1, 1]. "
-                            "Symmetrie wird automatisch erzwungen."
+                    # Validate positive semi-definiteness
+                    corr_arr = np.array(corr_values)
+                    eigvals = np.linalg.eigvalsh(corr_arr)
+                    if np.any(eigvals < -1e-8):
+                        st.warning(
+                            "⚠️ Die Matrix ist nicht positiv semi-definit. "
+                            "Bitte passen Sie die Korrelationswerte an."
                         )
-                        corr_df = pd.DataFrame(
-                            DEFAULT_INTRA_PARAM_CORR,
-                            index=INTRA_PARAM_LABELS,
-                            columns=INTRA_PARAM_LABELS,
-                        )
-                        edited_corr = st.data_editor(
-                            corr_df,
-                            key=f"seg_{i}_intra_corr_matrix",
-                            use_container_width=True,
-                            num_rows="fixed",
-                        )
-                        corr_np = edited_corr.values.astype(float)
-                        corr_np = (corr_np + corr_np.T) / 2.0
-                        np.fill_diagonal(corr_np, 1.0)
-                        corr_np = np.clip(corr_np, -1.0, 1.0)
-                        intra_corr_matrix = corr_np.tolist()
+                    else:
+                        intra_corr_matrix = corr_values
                 segment_configs.append(SegmentConfig(
                     name=seg_name,
                     base_revenue=float(base_rev),
