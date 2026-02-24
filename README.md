@@ -4,13 +4,13 @@
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.28%2B-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![NumPy](https://img.shields.io/badge/NumPy-vektorisiert-013243?logo=numpy&logoColor=white)](https://numpy.org/)
-[![Tests](https://img.shields.io/badge/Tests-270%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-287%20passed-brightgreen)](tests/)
 
 > **Zwei unabhängige Streamlit-Apps** für professionelle Unternehmensbewertung und Portfoliostrukturierung — vollständig stochastisch, vektorisiert und interaktiv.
 
-**App 1 – SOTP DCF**: Sum-of-the-Parts Unternehmensbewertung mit Monte-Carlo-Simulation über beliebig viele Geschäftssegmente. Fade-Modell für alle FCFF-Parameter, Cross-Segment-Korrelation via Gauss-Copula, Intra-Segment-Copula, 3 Sampling-Strategien (inkl. Sobol & Antithetic Variates) und integrierte Bewertungsqualitäts-Metriken.
+**App 1 – SOTP DCF**: Sum-of-the-Parts Unternehmensbewertung mit Monte-Carlo-Simulation über beliebig viele Geschäftssegmente. Fade-Modell für alle FCFF-Parameter, Cross-Segment-Korrelation via Gauss-Copula, Intra-Segment-Copula, 2 Sampling-Strategien (Pseudo-Random & Sobol), integrierte Bewertungsqualitäts-Metriken und erweiterte Insights (Tail Risk, Economic Profit, Conditional Sensitivity, Margin-of-Safety).
 
-**App 2 – Portfolio-Optimierung**: Statistische Einzeltitel-Analyse, 9 Optimierungsmethoden (inkl. HRP, Black-Litterman, Min CVaR, Max Diversification, Multi-Asset Kelly), Ledoit-Wolf-Shrinkage, Efficient Frontier, clusterbasiertes Korrelationsmodell, 6 historische Krisenszenarien und Makro-Faktor-Sensitivitätsanalyse.
+**App 2 – Portfolio-Optimierung**: Statistische Einzeltitel-Analyse, 8 Optimierungsmethoden (inkl. HRP, Black-Litterman, Min CVaR, Max Diversification, Multi-Asset Kelly), Ledoit-Wolf-Shrinkage, Efficient Frontier, clusterbasiertes Korrelationsmodell, 6 historische Krisenszenarien und Makro-Faktor-Sensitivitätsanalyse.
 
 ---
 
@@ -36,7 +36,8 @@
 | Eigenschaft | Detail |
 |---|---|
 | **Vektorisierte MC-Engine** | 10.000–500.000 Iterationen via NumPy — keine Python-Loops über Simulationen |
-| **3 Sampling-Strategien** | Pseudo-Random (Standard), Antithetic Variates (Varianzreduktion) und Quasi-MC Sobol (niedrige Diskrepanz) |
+| **2 Sampling-Strategien** | Pseudo-Random (Standard) und Quasi-MC Sobol (niedrige Diskrepanz) |
+| **Phase 2 Insights** | Tail Risk (VaR/CVaR), Economic Profit, Conditional Sensitivity, Margin-of-Safety Dashboard, Percentile Convergence |
 | **Universal-Fade-Modell** | Alle FCFF-Parameter konvergieren exponentiell zu Terminal-Werten: $p_t = p_T + (p_0 - p_T) \cdot e^{-\lambda t}$ |
 | **Cross-Segment-Korrelation** | Gauss-Copula mit Cholesky-Dekomposition — stochastische Abhängigkeit zwischen Segmenten |
 | **Intra-Segment-Copula** | 7×7-Gauss-Copula innerhalb jedes Segments — Abhängigkeiten zwischen Wachstum, Margen, WACC etc. |
@@ -45,15 +46,15 @@
 | **Stochastische Corporate Bridge** | Holdingkosten, Nettoverschuldung, Minderheiten, Pensionen u.v.m. optional als Verteilung |
 | **6 Wahrscheinlichkeitsverteilungen** | Fest, Normal, Lognormal, Dreieck, Gleichverteilung, PERT — jeweils mit `ppf`-Methode für Copula-Sampling |
 | **2 Terminal-Value-Methoden** | Gordon Growth Model & Exit-Multiple |
-| **9 Portfolio-Optimierungen** | Max Sharpe, Min Vol, Risk Parity, Min CVaR, Max Diversification, Kelly, 1/N, **HRP**, **Black-Litterman** |
+| **9 Portfolio-Optimierungen** | Max Sharpe, Min Vol, Risk Parity, Min CVaR, Max Diversification, Kelly, 1/N, **HRP**, **Black-Litterman** — ohne Radar-Chart (entfernt) |
 | **Ledoit-Wolf Shrinkage** | Analytischer Kovarianz-Schätzer — robuster als Sample-Kovarianz bei wenigen Beobachtungen |
 | **6 historische Krisenszenarien** | COVID-19, GFC 2008, Dot-Com, Euro-Krise, Inflationsschock, milde Korrektur |
 | **Makro-Faktor-Sensitivität** | Sektor × {Zinsen, Inflation, BIP}-Sensitivitätsmatrix für 11 Branchen |
 | **Clean Architecture** | 4-Schichten-Architektur — 51 Python-Dateien, ~9.200 LOC (6.500 App + 2.700 Tests) |
-| **22+ interaktive Charts** | Histogramm+KDE, CDF, Tornado, Waterfall, Treemap, Radar, Convergence, Fade-Preview, ROIC, Quality-Gauge u.v.m. |
+| **25+ interaktive Charts** | Histogramm+KDE, CDF, Tornado, Waterfall, Convergence, Fade-Preview, ROIC, Quality-Gauge, Margin-of-Safety, Economic Profit, Conditional Tornado, Percentile Convergence u.v.m. |
 | **Excel-Export** | Summary, Assumptions, Raw-Data Sheets |
 | **Save/Load** | JSON-Konfiguration speichern und laden |
-| **270 Tests** | Vollständige Testsuite über alle Layer |
+| **287 Tests** | Vollständige Testsuite über alle Layer — 100 % Pass-Rate |
 
 ---
 
@@ -75,16 +76,28 @@
 | Methode | Beschreibung |
 |---|---|
 | **Pseudo-Random (Standard)** | Klassisches MC mit NumPy-RNG |
-| **Antithetic Variates** | Spiegelung: $u + (1-u)$ — halbiert die Varianz des Mittelwert-Schätzers |
 | **Quasi-MC (Sobol)** | Scrambled Sobol-Sequenz — niedrige Diskrepanz für schnellere Konvergenz |
+
+> **Phase 1 Cleanup:** Antithetic Variates wurde entfernt — brachte in der Praxis wenig Varianzreduktion bei höherer Komplexität.
+
+### Phase 2 Insights (Neue Features)
+
+- **📊 Enriched Statistics** – Alle Statistik-Outputs jetzt mit Schiefe, Kurtosis, CV (Variationskoeffizient), IQR (Interquartilsabstand)
+- **⚠️ Tail Risk** – Value-at-Risk (5%), Conditional VaR (Expected Shortfall), Tail Ratio für Downside-Quantifizierung
+- **📈 Percentile Convergence** – Laufende P5/P50/P95-Stabilität zur Beurteilung, ob Tail-Perzentile konvergiert sind
+- **🐻🐂 Conditional Sensitivity** – Tornado-Chart getrennt nach Bear (P<25%) vs. Bull (P>75%) Szenarien — identifiziert nicht-lineare Treiber
+- **💰 Economic Profit (EVA)** – Segmentweiser EP = NOPAT - WACC × Invested Capital mit P(ROIC<WACC) als Value-Destruction-Wahrscheinlichkeit
+- **🛡️ Margin-of-Safety Dashboard** – Interaktive Marktpreis-Eingabe → P(Upside), implizierte Rendite, Buy Price mit 30% MoS
+- **📉 Normality Test** – Jarque-Bera + Shapiro-Wilk Tests zur Verteilungsklassifikation (Normal, Lognormal, Skew-Normal)
 
 ### Core Insights (Bewertungsqualität)
 
-- **TV/EV-Dekomposition** – Segmentweise: wie viel des EV aus dem Terminal Value stammt
-- **SOTP Treemap** – Proportionale Visualisierung der Segment-EV-Beiträge als interaktive Treemap
-- **Implied ROIC** – Automatisch abgeleitete Kapitalrendite aus FCFF-Annahmen
-- **Reinvestment Rate** – Netto-Reinvestitionsquote als Plausibilitätsprüfung
-- **Valuation Quality Score** – Composite-Metrik (0–100) aus TV/EV, Konvergenz, Sensitivity, Dispersion
+- **TV/EV-Dekomposition** – Segmentweise Analyse: wie viel des EV stammt aus dem Terminal Value (Warnsignal bei >70%)
+- **Implied ROIC** – Automatisch abgeleitete Kapitalrendite aus FCFF-Annahmen als Plausibilitäts-Check
+- **Reinvestment Rate** – Netto-Reinvestitionsquote zur Validierung der Wachstumsannahmen
+- **Valuation Quality Score** – Composite-Metrik (0–100) aus TV/EV, Konvergenz, Sensitivity-Diversifikation, Dispersion
+
+> **Phase 1 Cleanup:** SOTP Treemap entfernt — Waterfall-Chart deckt Segment-Dekomposition bereits ab.
 
 ### Stochastische Simulation
 
@@ -95,8 +108,8 @@
 
 ### Visualisierung & Export
 
-- **22+ interaktive Charts** – EV/Equity-Histogramm+KDE, CDF, Tornado, SOTP-Waterfall, **SOTP-Treemap**, Konvergenz, Fade-Preview, TV/EV-Dekomposition, ROIC-Histogramm, ROIC-vs-WACC-Scatter, Quality-Gauge, Reinvestment-Rate u.v.m.
-- **Statistik-Dashboard** – Mean, Median, Std, P5/P25/P75/P95, Min/Max
+- **25+ interaktive Charts** – EV/Equity-Histogramm+KDE, CDF, Tornado, SOTP-Waterfall, Konvergenz, Fade-Preview, TV/EV-Dekomposition, ROIC-Histogramm, ROIC-vs-WACC-Scatter, Quality-Gauge, Reinvestment-Rate, **Margin-of-Safety**, **Implied Return CDF**, **Economic Profit**, **Conditional Tornado**, **Percentile Convergence** u.v.m.
+- **Statistik-Dashboard** – Mean, Median, Std, Schiefe, Kurtosis, CV, IQR, P5/P25/P75/P95, Min/Max
 - **Excel-Export** – 3 Sheets (Summary, Assumptions, Raw Data)
 - **JSON Save/Load** – Konfiguration exportieren/importieren
 
@@ -107,7 +120,7 @@
 | ⚙️ **Setup** | MC-Iterationen, Seed, **Sampling-Methode**, Segmentanzahl, Corporate Bridge, Cross-Segment-Korrelationsmatrix |
 | 🏢 **Segmente** | Pro Segment: 9 stochastische Werttreiber, Fade-Terminals, TV-Methode, **Intra-Segment-Copula** |
 | 🎲 **Simulation** | Konfigurationsübersicht, Start-Button |
-| 📈 **Ergebnisse** | Metriken, Charts, Konvergenz, TV/EV, Implied ROIC, Quality Score, **SOTP-Treemap**, Excel-Export |
+| 📈 **Ergebnisse** | Metriken, Charts, Konvergenz, **Tail Risk**, TV/EV, Implied ROIC, Quality Score, **Margin-of-Safety**, **Economic Profit**, **Conditional Sensitivity**, Excel-Export |
 
 ---
 
@@ -120,7 +133,7 @@
 - **11 Kennzahlen pro Titel**: E[Rendite], P(Gewinn), Margin of Safety, Kelly f*, VaR (5%), CVaR, Sortino Ratio, Omega Ratio u.a.
 - **Bewertungs-Ampel** – 🟢 Kaufen / 🟡 Halten / 🔴 Meiden
 
-### Portfolio-Optimierung (9 Methoden)
+### Portfolio-Optimierung (8 Methoden)
 
 | Methode | Beschreibung |
 |---|---|
@@ -132,7 +145,9 @@
 | **Max Diversifikation** | Maximiert Diversification Ratio $DR = \frac{w'\sigma}{\sigma_p}$ |
 | **Multi-Asset Kelly** | $\max w'\mu - \frac{1}{2}w'\Sigma w$ mit Half-Kelly |
 | **HRP** *(Neu)* | Hierarchical Risk Parity — clusterbasiert, keine Matrixinversion nötig |
-| **Black-Litterman** *(Neu)* | Marktgleichgewicht + subjektive Analysten-Views: $\mu_{BL} = [(\tau\Sigma)^{-1} + P'\Omega^{-1}P]^{-1}[(\tau\Sigma)^{-1}\pi + P'\Omega^{-1}q]$ |
+
+> **Black-Litterman** ist verfügbar, aber wird nicht in der Hauptvergleichstabelle angezeigt (nur wenn Views definiert sind).
+> **Phase 1 Cleanup:** Radar-Chart entfernt — Gewichtungsvergleichs-Chart deckt Methodenvergleich visuell ab.
 
 ### Kovarianz-Schätzung
 
@@ -145,8 +160,7 @@
 
 - **3 Korrelationsmodi** – Clusterbasiert (5 Sektorcluster), manuell, unkorreliert
 - **PSD-Durchsetzung** – Eigenvalue-Clipping auf nächste positiv-semidefinite Matrix
-- **Efficient Frontier** – 50-Punkt-Kurve + CML + 9 Portfolio-Punkte + Einzelassets
-- **Radar-Chart** – Normalisiertes Spider-Diagramm: Rendite, Volatilität, Sharpe, VaR, CVaR, Diversifikation im Methodenvergleich
+- **Efficient Frontier** – 50-Punkt-Kurve + CML + 8 Portfolio-Punkte (+ Black-Litterman falls Views) + Einzelassets
 - **Gewichtungs-Constraints** – Min/Max-Gewicht pro Asset
 - **Diversifikationsanalyse** – Herfindahl-Index, effektive Anzahl Assets
 
@@ -174,8 +188,8 @@
 |---|---|
 | 📝 **Bewertungen** | Asset-Eingabe, **Kovarianz-Methode**, Korrelationsmatrix, **Black-Litterman Views**, JSON Save/Load |
 | 🔍 **Einzeltitel** | Übersichtstabelle mit Signal & Omega Ratio, Detail-Analyse |
-| 📊 **Portfolio** | 9 Methoden im Vergleich, Gewichte, Kennzahlen, **Radar-Chart**, Renditeverteilung |
-| 📈 **Efficient Frontier** | Frontier-Kurve, CML, 9 Portfolio-Punkte, Korrelations-Heatmap |
+| 📊 **Portfolio** | 8 Methoden im Vergleich, Gewichte, Kennzahlen, Gewichtungsvergleichs-Chart, Renditeverteilung |
+| 📈 **Efficient Frontier** | Frontier-Kurve, CML, 8 Portfolio-Punkte (+ Black-Litterman falls Views), Korrelations-Heatmap |
 | ⚡ **Stress-Tests** | **6 historische Szenarien**, **Makro-Sensitivität**, manuelle Szenarien |
 
 ---
@@ -246,14 +260,14 @@ streamlit run portfolio_app.py --server.port 8502
 1. **Setup** – Simulationsanzahl, Seed, **Sampling-Methode** (Sobol für schnelle Konvergenz), Segmentanzahl, Corporate Bridge
 2. **Segmente konfigurieren** – Pro Segment: Verteilungen für alle 9 Werttreiber, optionale Fade-Terminal-Werte, Intra-Segment-Copula
 3. **Simulation starten** – Ein Klick startet die vektorisierte MC-Engine
-4. **Ergebnisse analysieren** – Histogramme, Tornado-Chart, SOTP-Waterfall, **Treemap**, Implied ROIC, Quality Score
+4. **Ergebnisse analysieren** – Histogramme, Tornado-Chart, SOTP-Waterfall, Implied ROIC, Quality Score, **Tail Risk**, **Margin-of-Safety**, **Economic Profit**, **Conditional Sensitivity**
 5. **Export** – Excel-Report oder JSON-Konfiguration
 
 ### Portfolio Workflow
 
 1. **Assets eingeben** – Fair-Value-Verteilung und Kurs pro Titel. **Kovarianz-Methode** wählen (Sample oder Ledoit-Wolf). Optional: **Black-Litterman Views** definieren
 2. **Einzeltitel prüfen** – Ampelsystem + 11 Kennzahlen + 4 Charts
-3. **Portfolio optimieren** – 9 Methoden im Vergleich, **Radar-Chart** für visuellen Überblick
+3. **Portfolio optimieren** – 8 Methoden im Vergleich (+ Black-Litterman falls Views), Gewichtungsvergleichs-Chart für visuellen Überblick
 4. **Stress-Tests** – **6 historische Szenarien** + **Makro-Faktor-Analyse** + manuelle Szenarien
 
 ---
