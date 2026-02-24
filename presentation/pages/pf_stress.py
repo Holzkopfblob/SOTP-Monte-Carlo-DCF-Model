@@ -283,4 +283,3 @@ Einordnung der Portfolioexposition gegenüber Makrofaktoren.
                 pd.DataFrame(port_impact_rows),
                 use_container_width=True, hide_index=True,
             )
-""")
