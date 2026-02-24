@@ -38,6 +38,34 @@ def tv_ev_ratio(pv_tv: np.ndarray, ev: np.ndarray) -> np.ndarray:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Shared margin helpers  (DRY – used by implied_roic & reinvestment_rate)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _nopat_margin(
+    ebitda_margin: np.ndarray,
+    da_pct_revenue: np.ndarray,
+    tax_rate: np.ndarray,
+) -> np.ndarray:
+    """NOPAT as fraction of revenue: (EBITDA% − D&A%) × (1 − t)."""
+    return (ebitda_margin - da_pct_revenue) * (1.0 - tax_rate)
+
+
+def _reinvest_margin(
+    capex_pct_revenue: np.ndarray,
+    da_pct_revenue: np.ndarray,
+    nwc_pct_delta_revenue: np.ndarray,
+    revenue_growth: np.ndarray,
+) -> np.ndarray:
+    """Net reinvestment as fraction of revenue (steady-state approx).
+
+    reinvest% = CAPEX% − D&A% + NWC% × g / (1 + g)
+    """
+    g_safe = np.clip(revenue_growth, -0.5, 0.99)
+    nwc_reinvest = nwc_pct_delta_revenue * g_safe / (1.0 + g_safe)
+    return capex_pct_revenue - da_pct_revenue + nwc_reinvest
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Implied ROIC
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -52,16 +80,25 @@ def implied_roic(
     """Steady-state implied ROIC from DCF model assumptions.
 
     In a steady state the company grows at *g* and reinvests a fraction
-    of NOPAT.  The implied ROIC is:
+    *b* of NOPAT.  The fundamental identity is:
+
+    .. math::
+
+        g = \\text{ROIC} \\times b
+
+    Solving for ROIC:
 
     .. math::
 
         \\text{NOPAT margin} = (\\text{EBITDA%} - \\text{D\\&A%}) \\times (1 - t)
 
-        \\text{reinvest}_\\text{margin} = \\text{CAPEX%} - \\text{D\\&A%}
+        \\text{reinvest margin} = \\text{CAPEX%} - \\text{D\\&A%}
             + \\text{NWC%} \\times \\frac{g}{1 + g}
 
-        \\text{ROIC} = \\frac{\\text{NOPAT margin}}{\\text{reinvest margin}}
+        b = \\frac{\\text{reinvest margin}}{\\text{NOPAT margin}}
+
+        \\text{ROIC} = \\frac{g}{b}
+            = g \\times \\frac{\\text{NOPAT margin}}{\\text{reinvest margin}}
 
     Parameters
     ----------
@@ -69,20 +106,19 @@ def implied_roic(
 
     Returns
     -------
-    roic : (n,)  – implied ROIC (clamped to [-2, +5] for sanity).
+    roic : (n,)  – implied ROIC (clamped to [-1, +2] for sanity).
     """
-    nopat_margin = (ebitda_margin - da_pct_revenue) * (1.0 - tax_rate)
-    # Net reinvestment as fraction of revenue
-    # NWC change per unit revenue ≈ nwc% × g/(1+g) (steady-state approx)
+    nopat_m = _nopat_margin(ebitda_margin, da_pct_revenue, tax_rate)
+    reinvest_m = _reinvest_margin(
+        capex_pct_revenue, da_pct_revenue,
+        nwc_pct_delta_revenue, revenue_growth,
+    )
     g_safe = np.clip(revenue_growth, -0.5, 0.99)
-    nwc_reinvest = nwc_pct_delta_revenue * g_safe / (1.0 + g_safe)
-    reinvest_margin = capex_pct_revenue - da_pct_revenue + nwc_reinvest
 
-    roic = nopat_margin / np.maximum(np.abs(reinvest_margin), 1e-6)
+    roic = g_safe * nopat_m / np.maximum(np.abs(reinvest_m), 1e-6)
     # Sign correction: if reinvest_margin is negative (net cash release),
-    # ROIC is mathematically negative but economically meaningless –
-    # clamp for display purposes.
-    return np.clip(roic, -2.0, 5.0)
+    # ROIC can diverge – clamp for display purposes.
+    return np.clip(roic, -1.0, 2.0)
 
 
 def reinvestment_rate(
@@ -99,12 +135,13 @@ def reinvestment_rate(
     -------
     rate : (n,)  – clamped to [-1, 2].
     """
-    nopat_margin = (ebitda_margin - da_pct_revenue) * (1.0 - tax_rate)
-    g_safe = np.clip(revenue_growth, -0.5, 0.99)
-    nwc_reinvest = nwc_pct_delta_revenue * g_safe / (1.0 + g_safe)
-    net_reinvest = capex_pct_revenue - da_pct_revenue + nwc_reinvest
+    nopat_m = _nopat_margin(ebitda_margin, da_pct_revenue, tax_rate)
+    reinvest_m = _reinvest_margin(
+        capex_pct_revenue, da_pct_revenue,
+        nwc_pct_delta_revenue, revenue_growth,
+    )
     return np.clip(
-        net_reinvest / np.maximum(np.abs(nopat_margin), 1e-6),
+        reinvest_m / np.maximum(np.abs(nopat_m), 1e-6),
         -1.0,
         2.0,
     )

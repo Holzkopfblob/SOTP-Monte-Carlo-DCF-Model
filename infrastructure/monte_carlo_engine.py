@@ -307,6 +307,68 @@ class MonteCarloEngine:
         terminal = create_distribution(terminal_cfg).sample(n, self.rng)
         return build_fade_curve(initial, terminal, forecast_years, fade_speed)  # (n, T)
 
+    # ── Shared segment output builder (DRY) ───────────────────────────
+
+    # Constant maps – defined once, reused by every code path.
+    _LABEL_MAP = {
+        "revenue_growth":        "Umsatzwachstum",
+        "ebitda_margin":         "EBITDA-Marge",
+        "da_pct_revenue":        "D&A (% Umsatz)",
+        "tax_rate":              "Steuersatz",
+        "capex_pct_revenue":     "CAPEX (% Umsatz)",
+        "nwc_pct_delta_revenue": "NWC (% ΔUmsatz)",
+        "wacc":                  "WACC",
+    }
+
+    _FADE_KEYS = [
+        "ebitda_margin", "da_pct_revenue", "tax_rate",
+        "capex_pct_revenue", "nwc_pct_delta_revenue",
+    ]
+
+    def _build_segment_output(
+        self,
+        raw: dict[str, np.ndarray],
+        seg: SegmentConfig,
+        n: int,
+    ) -> dict[str, np.ndarray]:
+        """Map raw parameter draws → labelled output dict.
+
+        Applies parameter fade, domain guards, and terminal-value sampling.
+        Shared by both ``_sample_segment`` and ``_sample_all_segments_correlated``
+        to avoid duplicating ~30 lines of post-processing logic.
+        """
+        fade_terminals = {
+            "ebitda_margin":         seg.ebitda_margin_terminal,
+            "da_pct_revenue":        seg.da_pct_revenue_terminal,
+            "tax_rate":              seg.tax_rate_terminal,
+            "capex_pct_revenue":     seg.capex_pct_revenue_terminal,
+            "nwc_pct_delta_revenue": seg.nwc_pct_delta_revenue_terminal,
+        }
+
+        s: dict[str, np.ndarray] = {}
+        s["Umsatzwachstum"] = raw["revenue_growth"]
+
+        for pkey in self._FADE_KEYS:
+            s[self._LABEL_MAP[pkey]] = self._apply_param_fade(
+                raw[pkey], fade_terminals[pkey],
+                n, seg.forecast_years, seg.fade_speed,
+            )
+
+        s["WACC"] = np.maximum(raw["wacc"], 0.005)
+
+        if seg.terminal_method == TerminalValueMethod.GORDON_GROWTH:
+            s["TV-Wachstum"] = create_distribution(
+                seg.terminal_growth_rate
+            ).sample(n, self.rng)
+            s["TV-Wachstum"] = np.minimum(s["TV-Wachstum"], s["WACC"] - 0.005)
+        else:
+            s["Exit-Multiple"] = create_distribution(
+                seg.exit_multiple
+            ).sample(n, self.rng)
+            s["Exit-Multiple"] = np.maximum(s["Exit-Multiple"], 0.1)
+
+        return s
+
     # ── Segment sampling ──────────────────────────────────────────────
 
     # Order of the 7 core value-driver parameters used by the
@@ -395,55 +457,7 @@ class MonteCarloEngine:
             for idx, pname in enumerate(self._INTRA_PARAM_ORDER):
                 raw[pname] = distributions[pname].ppf(u[idx])
 
-        # ── Map to output dict with German labels ─────────────────────
-        label_map = {
-            "revenue_growth":        "Umsatzwachstum",
-            "ebitda_margin":         "EBITDA-Marge",
-            "da_pct_revenue":        "D&A (% Umsatz)",
-            "tax_rate":              "Steuersatz",
-            "capex_pct_revenue":     "CAPEX (% Umsatz)",
-            "nwc_pct_delta_revenue": "NWC (% ΔUmsatz)",
-            "wacc":                  "WACC",
-        }
-        fade_terminals = {
-            "ebitda_margin":         seg.ebitda_margin_terminal,
-            "da_pct_revenue":        seg.da_pct_revenue_terminal,
-            "tax_rate":              seg.tax_rate_terminal,
-            "capex_pct_revenue":     seg.capex_pct_revenue_terminal,
-            "nwc_pct_delta_revenue": seg.nwc_pct_delta_revenue_terminal,
-        }
-
-        s: dict[str, np.ndarray] = {}
-        s["Umsatzwachstum"] = raw["revenue_growth"]
-
-        # Value drivers – (n,) or (n, T) when fade is active
-        for pkey in ["ebitda_margin", "da_pct_revenue", "tax_rate",
-                     "capex_pct_revenue", "nwc_pct_delta_revenue"]:
-            s[label_map[pkey]] = self._apply_param_fade(
-                raw[pkey], fade_terminals[pkey],
-                n, seg.forecast_years, seg.fade_speed,
-            )
-
-        s["WACC"] = raw["wacc"]
-
-        # Guard: WACC must be > 0
-        s["WACC"] = np.maximum(s["WACC"], 0.005)
-
-        if seg.terminal_method == TerminalValueMethod.GORDON_GROWTH:
-            s["TV-Wachstum"] = create_distribution(
-                seg.terminal_growth_rate
-            ).sample(n, self.rng)
-            # Guard: terminal growth < WACC
-            s["TV-Wachstum"] = np.minimum(
-                s["TV-Wachstum"], s["WACC"] - 0.005
-            )
-        else:
-            s["Exit-Multiple"] = create_distribution(
-                seg.exit_multiple
-            ).sample(n, self.rng)
-            s["Exit-Multiple"] = np.maximum(s["Exit-Multiple"], 0.1)
-
-        return s
+        return self._build_segment_output(raw, seg, n)
 
     # ── Gaussian copula for cross-segment correlation (Phase 3) ───────
 
@@ -513,49 +527,7 @@ class MonteCarloEngine:
                 for pname in self._INTRA_PARAM_ORDER:
                     raw[pname] = distributions[pname].ppf(u_base)
 
-            # Map to output dict with German labels + fade
-            fade_terminals = {
-                "ebitda_margin":         seg.ebitda_margin_terminal,
-                "da_pct_revenue":        seg.da_pct_revenue_terminal,
-                "tax_rate":              seg.tax_rate_terminal,
-                "capex_pct_revenue":     seg.capex_pct_revenue_terminal,
-                "nwc_pct_delta_revenue": seg.nwc_pct_delta_revenue_terminal,
-            }
-            label_map = {
-                "ebitda_margin":         "EBITDA-Marge",
-                "da_pct_revenue":        "D&A (% Umsatz)",
-                "tax_rate":              "Steuersatz",
-                "capex_pct_revenue":     "CAPEX (% Umsatz)",
-                "nwc_pct_delta_revenue": "NWC (% ΔUmsatz)",
-            }
-
-            s: dict[str, np.ndarray] = {}
-            s["Umsatzwachstum"] = raw["revenue_growth"]
-
-            for pkey in ["ebitda_margin", "da_pct_revenue", "tax_rate",
-                         "capex_pct_revenue", "nwc_pct_delta_revenue"]:
-                s[label_map[pkey]] = self._apply_param_fade(
-                    raw[pkey], fade_terminals[pkey],
-                    n, seg.forecast_years, seg.fade_speed,
-                )
-
-            s["WACC"] = raw["wacc"]
-            s["WACC"] = np.maximum(s["WACC"], 0.005)
-
-            if seg.terminal_method == TerminalValueMethod.GORDON_GROWTH:
-                s["TV-Wachstum"] = create_distribution(
-                    seg.terminal_growth_rate
-                ).ppf(u_base)
-                s["TV-Wachstum"] = np.minimum(
-                    s["TV-Wachstum"], s["WACC"] - 0.005
-                )
-            else:
-                s["Exit-Multiple"] = create_distribution(
-                    seg.exit_multiple
-                ).ppf(u_base)
-                s["Exit-Multiple"] = np.maximum(s["Exit-Multiple"], 0.1)
-
-            all_samples.append(s)
+            all_samples.append(self._build_segment_output(raw, seg, n))
 
         return all_samples
 

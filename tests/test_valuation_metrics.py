@@ -10,6 +10,8 @@ import numpy as np
 import pytest
 
 from domain.valuation_metrics import (
+    _nopat_margin,
+    _reinvest_margin,
     implied_roic,
     reinvestment_rate,
     tv_ev_ratio,
@@ -243,13 +245,46 @@ class TestPhase2Charts:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Shared margin helpers  (DRY extraction)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestMarginHelpers:
+
+    def test_nopat_margin(self):
+        n = 100
+        nopat = _nopat_margin(
+            ebitda_margin=np.full(n, 0.20),
+            da_pct_revenue=np.full(n, 0.03),
+            tax_rate=np.full(n, 0.25),
+        )
+        np.testing.assert_allclose(nopat, 0.1275)
+
+    def test_reinvest_margin(self):
+        n = 100
+        rm = _reinvest_margin(
+            capex_pct_revenue=np.full(n, 0.05),
+            da_pct_revenue=np.full(n, 0.03),
+            nwc_pct_delta_revenue=np.full(n, 0.10),
+            revenue_growth=np.full(n, 0.05),
+        )
+        # 0.05 - 0.03 + 0.10 * 0.05/1.05 ≈ 0.0248
+        np.testing.assert_allclose(rm, 0.02 + 0.10 * 0.05 / 1.05, atol=1e-6)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Implied ROIC
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestImpliedROIC:
 
     def test_basic_positive_roic(self):
-        """Typical profitable company should have positive ROIC."""
+        """Typical profitable company should have positive ROIC.
+
+        With the corrected formula ROIC = g × NOPAT_margin / reinvest_margin:
+        NOPAT margin = (0.20 - 0.03) × 0.75 = 0.1275
+        Reinvest margin = 0.05 - 0.03 + 0.10 × 0.05/1.05 ≈ 0.02476
+        ROIC = 0.05 × 0.1275 / 0.02476 ≈ 0.257  (25.7 %)
+        """
         n = 1000
         roic = implied_roic(
             ebitda_margin=np.full(n, 0.20),
@@ -260,13 +295,12 @@ class TestImpliedROIC:
             revenue_growth=np.full(n, 0.05),
         )
         assert roic.shape == (n,)
-        # NOPAT margin = (0.20 - 0.03) * 0.75 = 0.1275
-        # Reinvest margin = 0.05 - 0.03 + 0.10 * 0.05/1.05 ≈ 0.0248
-        # ROIC ≈ 0.1275 / 0.0248 ≈ 5.14 → clamped to 5.0
         assert np.all(roic > 0)
+        # Should be ≈ 25.7 %, well within realistic range
+        np.testing.assert_allclose(roic[0], 0.257, atol=0.01)
 
     def test_clamped_range(self):
-        """Output is clamped to [-2, 5]."""
+        """Output is clamped to [-1, 2]."""
         n = 100
         roic = implied_roic(
             ebitda_margin=np.full(n, 0.50),
@@ -276,8 +310,21 @@ class TestImpliedROIC:
             nwc_pct_delta_revenue=np.full(n, 0.01),
             revenue_growth=np.full(n, 0.03),
         )
-        assert np.all(roic >= -2.0)
-        assert np.all(roic <= 5.0)
+        assert np.all(roic >= -1.0)
+        assert np.all(roic <= 2.0)
+
+    def test_zero_growth_gives_zero_roic(self):
+        """When g = 0, ROIC = g × ... = 0 (no growth → no capital turnover)."""
+        n = 50
+        roic = implied_roic(
+            ebitda_margin=np.full(n, 0.20),
+            da_pct_revenue=np.full(n, 0.03),
+            tax_rate=np.full(n, 0.25),
+            capex_pct_revenue=np.full(n, 0.05),
+            nwc_pct_delta_revenue=np.full(n, 0.10),
+            revenue_growth=np.full(n, 0.0),
+        )
+        np.testing.assert_allclose(roic, 0.0, atol=1e-6)
 
     def test_vector_shapes(self):
         n = 500

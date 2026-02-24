@@ -260,29 +260,78 @@ def render_segments(tab, n_segments: int) -> list[SegmentConfig]:
                 )
                 intra_corr_matrix: list[list[float]] | None = None
                 if enable_intra_corr:
-                    st.caption(
-                        "💡 Die Standardwerte basieren auf typischen Unternehmensbeziehungen "
-                        "(Operating Leverage, CAPEX↔D&A, Wachstum↔NWC). "
-                        "Passen Sie die Matrix bei Bedarf an."
+                    corr_mode = st.radio(
+                        "Eingabemodus",
+                        ["Vorlage mit Skalierung", "Benutzerdefinierte Matrix"],
+                        key=f"seg_{i}_corr_mode",
+                        horizontal=True,
+                        help=(
+                            "**Vorlage**: branchenübliche Korrelationen mit einem "
+                            "Schieberegler hoch-/runterskalieren. "
+                            "**Benutzerdefiniert**: volle 7×7-Matrix manuell editieren."
+                        ),
                     )
-                    corr_df = pd.DataFrame(
-                        DEFAULT_INTRA_PARAM_CORR,
-                        index=INTRA_PARAM_LABELS,
-                        columns=INTRA_PARAM_LABELS,
-                    )
-                    edited_corr = st.data_editor(
-                        corr_df,
-                        key=f"seg_{i}_intra_corr_matrix",
-                        use_container_width=True,
-                        num_rows="fixed",
-                    )
-                    # Make symmetric + force diagonal = 1
-                    corr_np = edited_corr.values.astype(float)
-                    corr_np = (corr_np + corr_np.T) / 2.0
-                    np.fill_diagonal(corr_np, 1.0)
-                    # Clip to valid range
-                    corr_np = np.clip(corr_np, -1.0, 1.0)
-                    intra_corr_matrix = corr_np.tolist()
+
+                    if corr_mode == "Vorlage mit Skalierung":
+                        st.caption(
+                            "💡 Die Standardvorlage basiert auf typischen "
+                            "Unternehmensbeziehungen (Operating Leverage, "
+                            "CAPEX↔D&A, Wachstum↔NWC). "
+                            "Skalierung **1.0** = Vorlage unverändert, "
+                            "**0.5** = halbe Stärke, **1.5** = stärkere Abhängigkeit."
+                        )
+                        scale = st.slider(
+                            "Korrelations-Skalierung",
+                            min_value=0.0, max_value=2.0, value=1.0, step=0.1,
+                            key=f"seg_{i}_corr_scale",
+                            help="Multipliziert alle Off-Diagonal-Einträge der "
+                                 "Standardmatrix. 0 = unkorreliert, 2 = doppelte "
+                                 "Korrelation (auf ±1 gekappt).",
+                        )
+                        base = np.array(DEFAULT_INTRA_PARAM_CORR, dtype=float)
+                        off_diag = base - np.eye(7)
+                        scaled = np.eye(7) + np.clip(off_diag * scale, -1.0, 1.0)
+                        # Symmetry + positive-definite guard
+                        scaled = (scaled + scaled.T) / 2.0
+                        np.fill_diagonal(scaled, 1.0)
+                        scaled = np.clip(scaled, -1.0, 1.0)
+
+                        # Preview the key correlations
+                        key_pairs = [
+                            (0, 1, "Wachstum ↔ EBITDA"),
+                            (1, 4, "EBITDA ↔ CAPEX"),
+                            (2, 4, "D&A ↔ CAPEX"),
+                            (0, 5, "Wachstum ↔ NWC"),
+                            (1, 6, "EBITDA ↔ WACC"),
+                        ]
+                        pcols = st.columns(len(key_pairs))
+                        for pcol, (r, c, lbl) in zip(pcols, key_pairs):
+                            pcol.metric(lbl, f"{scaled[r, c]:.2f}")
+
+                        intra_corr_matrix = scaled.tolist()
+
+                    else:  # Benutzerdefinierte Matrix
+                        st.caption(
+                            "💡 Editieren Sie die Korrelationsmatrix. "
+                            "Diagonale = 1, Werte in [−1, 1]. "
+                            "Symmetrie wird automatisch erzwungen."
+                        )
+                        corr_df = pd.DataFrame(
+                            DEFAULT_INTRA_PARAM_CORR,
+                            index=INTRA_PARAM_LABELS,
+                            columns=INTRA_PARAM_LABELS,
+                        )
+                        edited_corr = st.data_editor(
+                            corr_df,
+                            key=f"seg_{i}_intra_corr_matrix",
+                            use_container_width=True,
+                            num_rows="fixed",
+                        )
+                        corr_np = edited_corr.values.astype(float)
+                        corr_np = (corr_np + corr_np.T) / 2.0
+                        np.fill_diagonal(corr_np, 1.0)
+                        corr_np = np.clip(corr_np, -1.0, 1.0)
+                        intra_corr_matrix = corr_np.tolist()
                 segment_configs.append(SegmentConfig(
                     name=seg_name,
                     base_revenue=float(base_rev),

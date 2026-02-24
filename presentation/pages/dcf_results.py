@@ -519,13 +519,14 @@ def _render_roic_section(results, config) -> None:
     with st.expander("ℹ️ Was zeigt die Implied ROIC?", expanded=False):
         st.markdown(r"""
 Der **Implied ROIC** wird nicht direkt modelliert, sondern ergibt sich
-*implizit* aus den Value-Driver-Annahmen:
+*implizit* aus den Value-Driver-Annahmen über die Steady-State-Identität
+$g = \text{ROIC} \times b$:
 
 $$\text{NOPAT-Marge} = (\text{EBITDA\%} - \text{D\&A\%}) \times (1 - t)$$
 
-$$\text{Reinvest.-Marge} = \text{CAPEX\%} - \text{D\&A\%} + \text{NWC\%} \times \frac{g}{1+g}$$
+$$b = \frac{\text{CAPEX\%} - \text{D\&A\%} + \text{NWC\%} \times \frac{g}{1+g}}{\text{NOPAT-Marge}}$$
 
-$$\text{Implied ROIC} = \frac{\text{NOPAT-Marge}}{\text{Reinvest.-Marge}}$$
+$$\text{Implied ROIC} = \frac{g}{b} = g \times \frac{\text{NOPAT-Marge}}{\text{Reinvest.-Marge}}$$
 
 | ROIC vs. WACC | Bedeutung |
 |---|---|
