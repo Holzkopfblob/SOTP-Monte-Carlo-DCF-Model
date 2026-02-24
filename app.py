@@ -68,12 +68,34 @@ def _collect_config() -> dict:
     return collect_config(dict(st.session_state))
 
 
+# Keys that belong to widgets – must never be touched by _apply_config.
+_WIDGET_KEYS: frozenset[str] = frozenset({
+    "config_upload", "pf_upload",
+})
+
+
+def _is_config_key(k: str) -> bool:
+    """Return True if *k* is a config-managed session-state key."""
+    return (
+        k.startswith(("setup_", "bridge_", "seg_"))
+        or (len(k) > 2 and k[1].isdigit() and k.startswith("s") and "_" in k)
+        or k in ("results", "config", "_config_just_loaded")
+    )
+
+
 def _apply_config(cfg: dict) -> None:
     updated = apply_config(cfg, dict(st.session_state))
+    # Only delete/set config-managed keys. Widget-bound keys (file uploaders
+    # etc.) cannot be modified after the widget is instantiated and must be
+    # left alone to avoid StreamlitAPIException.
     for k in list(st.session_state.keys()):
+        if k in _WIDGET_KEYS or not _is_config_key(k):
+            continue
         if k not in updated:
             del st.session_state[k]
     for k, v in updated.items():
+        if k in _WIDGET_KEYS or not _is_config_key(k):
+            continue
         st.session_state[k] = v
     st.session_state["_config_just_loaded"] = True
     st.rerun()
@@ -120,7 +142,7 @@ with st.sidebar:
 
     st.markdown("")
     uploaded_cfg = st.file_uploader(
-        "Konfiguration laden (.json)", type=["json"], key="config_upload",
+        "Konfiguration laden (.json)", type=["json"],
     )
     if uploaded_cfg is not None:
         if st.button("⬆️ Konfiguration anwenden", use_container_width=True, type="primary"):
