@@ -21,6 +21,7 @@ from domain.models import CorporateBridgeConfig
 SETUP_KEYS: list[str] = [
     "setup_n_sim", "setup_seed", "setup_n_seg",
     "setup_mid_year", "setup_ext_bridge",
+    "setup_sampling", "setup_corr_enable",
 ]
 
 # Derived from CorporateBridgeConfig field names – single source of truth.
@@ -38,6 +39,8 @@ BRIDGE_PREFIXES: list[str] = list(_BRIDGE_FIELD_TO_PREFIX.values())
 
 DIST_PARAMS: list[str] = [
     "rg", "em", "da", "tx", "cx", "nwc", "wacc", "tvg", "evm",
+    # Phase 3: terminal distribution params for parameter fade
+    "em_term", "da_term", "tx_term", "cx_term", "nwc_term",
 ]
 
 DIST_SUFFIXES: list[str] = [
@@ -51,6 +54,7 @@ DIST_SUFFIXES: list[str] = [
 
 _SEG_PATTERN = re.compile(r"^(seg_\d+_|s\d+_)")
 _BRIDGE_PATTERN = re.compile(r"^bridge_")
+_CORR_PATTERN = re.compile(r"^corr_\d+_\d+$")
 
 
 # ── Serialisation ─────────────────────────────────────────────────────
@@ -89,6 +93,8 @@ def collect_config(state: dict) -> dict:
                 setup[k] = v
             elif isinstance(v, (int, np.integer)):
                 setup[k] = int(v)
+            elif isinstance(v, str):
+                setup[k] = v
             else:
                 setup[k] = float(v)
     cfg["setup"] = setup
@@ -110,7 +116,9 @@ def collect_config(state: dict) -> dict:
     segments: list[dict] = []
     for i in range(n_seg):
         seg: dict = {}
-        for suffix in ["_name", "_basrev", "_fyrs", "_tv_method"]:
+        for suffix in ["_name", "_basrev", "_fyrs", "_tv_method",
+                       "_growth_mode", "_fade_speed", "_param_fade",
+                       "_intra_corr"]:
             key = f"seg_{i}{suffix}"
             if key in state:
                 seg[key] = _coerce_json(state[key])
@@ -120,8 +128,24 @@ def collect_config(state: dict) -> dict:
                 key = f"{prefix}{sfx}"
                 if key in state:
                     seg[key] = _coerce_json(state[key])
+        # Intra-segment correlation matrix (7×7)
+        for row in range(7):
+            for col_idx in range(7):
+                key = f"seg_{i}_ic_{row}_{col_idx}"
+                if key in state:
+                    seg[key] = _coerce_json(state[key])
         segments.append(seg)
     cfg["segments"] = segments
+
+    # Cross-segment correlation matrix
+    correlation: dict = {}
+    for row in range(n_seg):
+        for col_idx in range(n_seg):
+            key = f"corr_{row}_{col_idx}"
+            if key in state:
+                correlation[key] = _coerce_json(state[key])
+    cfg["correlation"] = correlation
+
     return cfg
 
 
@@ -153,6 +177,11 @@ def apply_config(cfg: dict, state: dict) -> dict:
         if _BRIDGE_PATTERN.match(k):
             del updated[k]
 
+    # Clear stale cross-segment correlation keys
+    for k in list(updated.keys()):
+        if _CORR_PATTERN.match(k):
+            del updated[k]
+
     # Apply setup keys
     for k, v in cfg.get("setup", {}).items():
         updated[k] = v
@@ -165,5 +194,9 @@ def apply_config(cfg: dict, state: dict) -> dict:
     for seg_data in cfg.get("segments", []):
         for k, v in seg_data.items():
             updated[k] = v
+
+    # Apply cross-segment correlation keys
+    for k, v in cfg.get("correlation", {}).items():
+        updated[k] = v
 
     return updated

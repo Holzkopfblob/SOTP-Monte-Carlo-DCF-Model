@@ -77,7 +77,7 @@ _WIDGET_KEYS: frozenset[str] = frozenset({
 def _is_config_key(k: str) -> bool:
     """Return True if *k* is a config-managed session-state key."""
     return (
-        k.startswith(("setup_", "bridge_", "seg_"))
+        k.startswith(("setup_", "bridge_", "seg_", "corr_"))
         or (len(k) > 2 and k[1].isdigit() and k.startswith("s") and "_" in k)
         or k in ("results", "config", "_config_just_loaded")
     )
