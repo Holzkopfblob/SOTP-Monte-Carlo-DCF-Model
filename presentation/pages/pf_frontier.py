@@ -14,17 +14,18 @@ from presentation.charts import (
     TEMPLATE,
     correlation_heatmap,
 )
-from presentation.pages.pf_common import active_results
+from presentation.layout.states import render_empty_state, render_warning_state
+from presentation.pages.pf_common import METHOD_COLORS, METHOD_SYMBOLS, active_results
 
 
 def render_frontier(tab) -> None:
     """Render Tab 4 (Efficient Frontier)."""
     with tab:
         if st.session_state.pf_results is None:
-            st.warning("⚠️ Bitte zuerst Bewertungen eingeben und Analyse starten.")
+            render_warning_state("⚠️ Bitte zuerst Bewertungen eingeben und Analyse starten.")
             return
         if len(st.session_state.pf_results["asset_metrics"]) < 2:
-            st.info("Die Efficient Frontier benötigt mindestens 2 Assets.")
+            render_empty_state("Die Efficient Frontier benötigt mindestens 2 Assets.")
             return
 
         pf = st.session_state.pf_results
@@ -70,29 +71,6 @@ bietet bei gleichem Risiko mehr Rendite.
             ))
 
         # Optimised portfolio points
-        symbols = {
-            "Gleichgewicht (1/N)": "circle",
-            "Max Sharpe": "star",
-            "Min Volatilität": "diamond",
-            "Risk Parity": "square",
-            "Min CVaR": "hexagon",
-            "Max Diversifikation": "cross",
-            "Kelly (Multi-Asset)": "pentagon",
-            "HRP": "triangle-up",
-            "Black-Litterman": "bowtie",
-        }
-        point_colors = {
-            "Gleichgewicht (1/N)": COLORS["neutral"],
-            "Max Sharpe": COLORS["primary"],
-            "Min Volatilität": "#17becf",
-            "Risk Parity": COLORS["secondary"],
-            "Min CVaR": COLORS["negative"],
-            "Max Diversifikation": COLORS["positive"],
-            "Kelly (Multi-Asset)": COLORS["accent"],
-            "HRP": "#e377c2",
-            "Black-Litterman": "#bcbd22",
-        }
-
         for method_name, pr in active.items():
             ret = pr.expected_return * 100
             vol = pr.volatility * 100
@@ -102,8 +80,8 @@ bietet bei gleichem Risiko mehr Rendite.
                 name=method_name,
                 marker=dict(
                     size=16,
-                    color=point_colors.get(method_name, COLORS["accent"]),
-                    symbol=symbols.get(method_name, "circle"),
+                    color=METHOD_COLORS.get(method_name, COLORS["accent"]),
+                    symbol=METHOD_SYMBOLS.get(method_name, "circle"),
                     line=dict(width=2, color="white"),
                 ),
                 text=[method_name],

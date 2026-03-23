@@ -4,7 +4,7 @@
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.28%2B-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![NumPy](https://img.shields.io/badge/NumPy-vektorisiert-013243?logo=numpy&logoColor=white)](https://numpy.org/)
-[![Tests](https://img.shields.io/badge/Tests-287%20passed-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-310%20passed-brightgreen)](tests/)
 
 > **Zwei unabhängige Streamlit-Apps** für professionelle Unternehmensbewertung und Portfoliostrukturierung — vollständig stochastisch, vektorisiert und interaktiv.
 
@@ -203,7 +203,7 @@ Clean Architecture mit strikter 4-Schichten-Trennung und Page-Modul-Splitting:
 │  Presentation Layer                                                  │
 │  app.py · portfolio_app.py — Thin Orchestrators                      │
 │  presentation/pages/ — 10 Page-Module (DCF: 4, Portfolio: 6)        │
-│  presentation/charts.py · ui_helpers.py · explanations.py            │
+│  presentation/charts/ · ui_helpers.py · explanations.py              │
 ├──────────────────────────────────────────────────────────────────────┤
 │  Application Layer                                                   │
 │  simulation_service.py · portfolio_service.py (Facade)               │
@@ -416,25 +416,25 @@ SOTP-Monte-Carlo-DCF-Model/
 │   └── portfolio_stress.py             ← Stress + Hist. Szenarien + Makro (~205 LOC)
 │
 ├── presentation/
-│   ├── charts.py                       ← 22+ Plotly-Charts inkl. Radar & Treemap (~830 LOC)
+│   ├── charts/                         ← Modulare Plotly-Chartpakete (distribution/risk/allocation/diagnostics/stress)
 │   ├── ui_helpers.py                   ← Streamlit-Widgets (~195 LOC)
 │   ├── explanations.py                 ← UI-Erklärungstexte (~101 LOC)
 │   └── pages/                          ← 10 Page-Module
 │       ├── dcf_setup.py                ← Setup + Sampling-Methode (~214 LOC)
 │       ├── dcf_segments.py             ← Segmente + Fade + Intra-Copula (~290 LOC)
 │       ├── dcf_simulation.py           ← Simulations-Tab (~127 LOC)
-│       ├── dcf_results.py              ← Ergebnisse + Treemap (~500 LOC)
+│       ├── dcf_results.py              ← Ergebnisse + Insight-Flow (~500 LOC)
 │       ├── pf_common.py                ← Shared Utilities (~40 LOC)
 │       ├── pf_input.py                 ← Eingabe + BL-Views + Cov-Methode (~382 LOC)
 │       ├── pf_single.py                ← Einzeltitel-Analyse (~187 LOC)
-│       ├── pf_portfolio.py             ← Portfolio + Radar-Chart (~186 LOC)
+│       ├── pf_portfolio.py             ← Portfolio + Robustness-Diagnostics (~186 LOC)
 │       ├── pf_frontier.py              ← Efficient Frontier (~129 LOC)
 │       └── pf_stress.py                ← Stress + Hist. Szenarien + Makro (~240 LOC)
 │
 ├── prompts/
 │   └── sotp_research_prompt.md         ← LLM-Research-Prompt
 │
-└── tests/                              ← 270 Tests (~2.685 LOC)
+└── tests/                              ← 310 Tests (~2.900 LOC)
     ├── conftest.py                     ← Shared Fixtures
     ├── test_models.py                  ← Domain-Modelle
     ├── test_distributions.py           ← Verteilungsklassen + ppf
@@ -458,7 +458,7 @@ SOTP-Monte-Carlo-DCF-Model/
 
 ## 🧪 Tests
 
-**270 Tests** über alle Architektur-Schichten:
+**310 Tests** über alle Architektur-Schichten:
 
 ```bash
 pytest -q

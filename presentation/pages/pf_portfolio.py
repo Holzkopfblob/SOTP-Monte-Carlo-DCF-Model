@@ -4,29 +4,44 @@ Portfolio Optimisation Tab – weights comparison & metrics
 """
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 import streamlit as st
 
+from presentation.layout.insights import render_summary_cards
+from presentation.layout.states import render_warning_state
 from presentation.charts import (
     COLORS,
     cdf_with_reference,
     histogram_kde,
+    portfolio_robustness_panel,
     portfolio_weights_comparison,
 )
 from presentation.pages.pf_common import active_results
+from presentation.pages.pf_sections.common_metrics import (
+    build_portfolio_metrics_rows,
+    build_portfolio_weights_table,
+)
 
 
 def render_portfolio(tab) -> None:
     """Render Tab 3 (Portfolio-Optimierung)."""
     with tab:
         if st.session_state.pf_results is None:
-            st.warning("⚠️ Bitte zuerst Bewertungen eingeben und Analyse starten.")
+            render_warning_state("⚠️ Bitte zuerst Bewertungen eingeben und Analyse starten.")
             return
 
         pf = st.session_state.pf_results
         st.header("📊 Portfolio-Optimierung")
         active = active_results(pf)
+
+        best_sharpe = max((pr.sharpe_ratio for pr in active.values()), default=float("nan"))
+        best_prob_loss = min((pr.prob_loss for pr in active.values()), default=float("nan"))
+        render_summary_cards([
+            ("Aktive Methoden", f"{len(active)}", None),
+            ("Assets", f"{len(pf['asset_metrics'])}", None),
+            ("Beste Sharpe", f"{best_sharpe:.2f}", None),
+            ("Niedrigste P(Verlust)", f"{best_prob_loss:.1%}", None),
+        ])
 
         with st.expander("ℹ️ Erklärung der 9 Optimierungsmethoden", expanded=False):
             st.markdown(r"""
@@ -70,14 +85,10 @@ Nur aktiv, wenn Views definiert sind. *(Neu)*
         # ── Weights comparison table ──────────────────────────────────
         st.subheader("⚖️ Gewichtungsvergleich")
 
-        weights_dict: dict[str, np.ndarray] = {}
-        weights_table_data: dict[str, list] = {"Asset": names}
-        for method_name, pr in active.items():
-            weights_table_data[method_name] = [f"{w:.1%}" for w in pr.weights]
-            weights_dict[method_name] = pr.weights
+        weights_df, weights_dict = build_portfolio_weights_table(names, active)
 
         st.dataframe(
-            pd.DataFrame(weights_table_data),
+            weights_df,
             use_container_width=True, hide_index=True,
         )
 
@@ -91,24 +102,22 @@ Nur aktiv, wenn Views definiert sind. *(Neu)*
         st.divider()
         st.subheader("📊 Portfolio-Kennzahlen je Methode")
 
-        metrics_rows = []
-        for pr in active.values():
-            metrics_rows.append({
-                "Methode": pr.name,
-                "E[Rendite]": f"{pr.expected_return:+.1%}",
-                "Volatilität": f"{pr.volatility:.1%}",
-                "Sharpe Ratio": f"{pr.sharpe_ratio:.2f}",
-                "VaR (5%)": f"{pr.var_5:+.1%}",
-                "CVaR (5%)": f"{pr.cvar_5:+.1%}",
-                "P(Verlust)": f"{pr.prob_loss:.1%}",
-                "Div.-Ratio": f"{pr.diversification_ratio:.2f}",
-                "Eff. # Assets": f"{pr.effective_n_assets:.1f}",
-            })
+        metrics_rows = build_portfolio_metrics_rows(active)
 
         st.dataframe(
             pd.DataFrame(metrics_rows),
             use_container_width=True, hide_index=True,
         )
+
+        robustness_payload = [
+            {"name": pr.name, "sharpe": pr.sharpe_ratio, "cvar": pr.cvar_5}
+            for pr in active.values()
+        ]
+        if robustness_payload:
+            st.plotly_chart(
+                portfolio_robustness_panel(robustness_payload),
+                use_container_width=True,
+            )
 
         # ── Radar chart ───────────────────────────────────────────
         st.divider()

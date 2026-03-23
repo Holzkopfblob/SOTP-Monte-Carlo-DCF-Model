@@ -14,13 +14,18 @@ from presentation.charts import (
     cdf_with_reference,
     histogram_kde,
 )
+from presentation.layout.states import render_warning_state
+from presentation.pages.pf_sections.common_metrics import (
+    build_single_summary_rows,
+    render_single_asset_metric_grids,
+)
 
 
 def render_single(tab) -> None:
     """Render Tab 2 (Einzeltitel-Analyse)."""
     with tab:
         if st.session_state.pf_results is None:
-            st.warning("⚠️ Bitte zuerst Bewertungen eingeben und Analyse starten.")
+            render_warning_state("⚠️ Bitte zuerst Bewertungen eingeben und Analyse starten.")
             return
 
         pf = st.session_state.pf_results
@@ -49,23 +54,7 @@ def render_single(tab) -> None:
         # ── Summary table ─────────────────────────────────────────────
         st.subheader("📋 Übersichtstabelle")
 
-        summary_rows = []
-        for am in pf["asset_metrics"]:
-            summary_rows.append({
-                "Asset": am.name,
-                "Sektor": am.sector,
-                "Kurs": f"{am.current_price:,.2f} €",
-                "Ø Fair Value": f"{am.mean_fv:,.2f} €",
-                "E[Rendite]": f"{am.expected_return:+.1%}",
-                "P(Gewinn)": f"{am.prob_profit:.1%}",
-                "MoS": f"{am.margin_of_safety:+.1%}",
-                "Kelly f*": f"{am.kelly_fraction:.1%}",
-                "VaR(5%)": f"{am.var_5:+.1%}",
-                "CVaR(5%)": f"{am.cvar_5:+.1%}",
-                "Sortino": f"{am.sortino_ratio:.2f}",
-                "Omega": f"{am.omega_ratio:.2f}",
-                "Signal": am.signal,
-            })
+        summary_rows = build_single_summary_rows(pf["asset_metrics"])
 
         st.dataframe(
             pd.DataFrame(summary_rows),
@@ -80,20 +69,7 @@ def render_single(tab) -> None:
 
         for at, am in zip(asset_tabs, pf["asset_metrics"]):
             with at:
-                m1, m2, m3, m4, m5, m6 = st.columns(6)
-                m1.metric("E[Rendite]", f"{am.expected_return:+.1%}")
-                m2.metric("P(Gewinn)", f"{am.prob_profit:.1%}")
-                m3.metric("MoS", f"{am.margin_of_safety:+.1%}")
-                m4.metric("Half Kelly", f"{am.half_kelly:.1%}")
-                m5.metric("Sortino", f"{am.sortino_ratio:.2f}")
-                m6.metric("Omega", f"{am.omega_ratio:.2f}")
-
-                m7, m8, m9, m10, m11, _ = st.columns(6)
-                m7.metric("FV (P5)", f"{am.fv_p5:,.2f} €")
-                m8.metric("FV (P50)", f"{am.median_fv:,.2f} €")
-                m9.metric("FV (P95)", f"{am.fv_p95:,.2f} €")
-                m10.metric("VaR (5%)", f"{am.var_5:+.1%}")
-                m11.metric("CVaR (5%)", f"{am.cvar_5:+.1%}")
+                render_single_asset_metric_grids(am)
 
                 st.divider()
 

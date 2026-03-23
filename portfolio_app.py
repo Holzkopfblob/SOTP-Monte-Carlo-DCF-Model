@@ -13,47 +13,41 @@ from __future__ import annotations
 
 import streamlit as st
 
+from presentation.layout.base import (
+    configure_page,
+    inject_global_styles,
+    render_app_header,
+    render_sidebar_footer,
+)
 from presentation.pages.pf_input import render_input
 from presentation.pages.pf_single import render_single
 from presentation.pages.pf_portfolio import render_portfolio
 from presentation.pages.pf_frontier import render_frontier
 from presentation.pages.pf_stress import render_stress
+from presentation.theme.tokens import METRIC_BORDER_COLOR_PORTFOLIO
 
 
 # ══════════════════════════════════════════════════════════════════════════
 # Page configuration
 # ══════════════════════════════════════════════════════════════════════════
 
-st.set_page_config(
+configure_page(
     page_title="Portfolio-Optimierung",
     page_icon="💼",
-    layout="wide",
-    initial_sidebar_state="expanded",
 )
-
-st.markdown("""
-<style>
-    div[data-testid="stMetric"] {
-        background-color: #f8f9fa;
-        padding: 12px 16px;
-        border-radius: 8px;
-        border-left: 4px solid #9467bd;
-    }
-    .stTabs [data-baseweb="tab-list"] { gap: 4px; }
-    .stTabs [data-baseweb="tab"] { padding: 8px 20px; font-weight: 500; }
-    details summary { font-weight: 600; }
-</style>
-""", unsafe_allow_html=True)
+inject_global_styles(metric_border_color=METRIC_BORDER_COLOR_PORTFOLIO)
 
 
 # ══════════════════════════════════════════════════════════════════════════
 # Title
 # ══════════════════════════════════════════════════════════════════════════
 
-st.title("💼 Portfolio-Strukturierung & Optimierung")
-st.caption(
-    "Statistische Analyse · Markowitz · Kelly · Risk Parity · "
-    "Min CVaR · Max Diversifikation · Monte-Carlo Fair-Value-Verteilungen"
+render_app_header(
+    title="💼 Portfolio-Strukturierung & Optimierung",
+    caption=(
+        "Statistische Analyse · Markowitz · Kelly · Risk Parity · "
+        "Min CVaR · Max Diversifikation · Monte-Carlo Fair-Value-Verteilungen"
+    ),
 )
 
 
@@ -89,8 +83,7 @@ with st.sidebar:
     st.caption("Portfolio-Setup als JSON speichern oder laden.")
     uploaded = st.file_uploader("JSON laden", type=["json"], key="pf_upload")
 
-    st.markdown("---")
-    st.caption("Built with Streamlit · NumPy · SciPy · Plotly")
+    render_sidebar_footer(tech_stack="Built with Streamlit · NumPy · SciPy · Plotly")
 
 
 # ══════════════════════════════════════════════════════════════════════════

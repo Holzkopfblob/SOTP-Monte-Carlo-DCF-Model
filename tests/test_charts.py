@@ -23,10 +23,12 @@ from presentation.charts import (
     implied_return_cdf,
     margin_of_safety_chart,
     percentile_convergence_chart,
+    portfolio_robustness_panel,
     portfolio_weights_comparison,
     revenue_fade_preview,
     stress_comparison_chart,
     tornado_chart,
+    valuation_confidence_panel,
     waterfall_chart,
 )
 
@@ -211,4 +213,24 @@ class TestPercentileConvergenceChart:
         p50 = np.linspace(100, 102, 10)
         p95 = np.linspace(115, 118, 10)
         fig = percentile_convergence_chart(idx, p5, p50, p95)
+        assert isinstance(fig, go.Figure)
+
+
+class TestValuationConfidencePanel:
+    def test_returns_figure(self):
+        fig = valuation_confidence_panel(
+            ci_relative_width_pct=1.8,
+            tail_ratio=0.72,
+            quality_total=78.5,
+        )
+        assert isinstance(fig, go.Figure)
+
+
+class TestPortfolioRobustnessPanel:
+    def test_returns_figure(self):
+        payload = [
+            {"name": "Max Sharpe", "sharpe": 1.2, "cvar": -0.18},
+            {"name": "Min Volatilität", "sharpe": 0.9, "cvar": -0.12},
+        ]
+        fig = portfolio_robustness_panel(payload)
         assert isinstance(fig, go.Figure)

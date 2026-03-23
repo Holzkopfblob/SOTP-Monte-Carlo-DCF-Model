@@ -23,41 +23,28 @@ import numpy as np
 import streamlit as st
 
 from infrastructure.config_io import collect_config, apply_config
+from presentation.layout.base import (
+    configure_page,
+    inject_global_styles,
+    render_app_header,
+    render_sidebar_footer,
+)
 from presentation.pages.dcf_setup import render_setup
 from presentation.pages.dcf_segments import render_segments
 from presentation.pages.dcf_simulation import render_simulation
 from presentation.pages.dcf_results import render_results
+from presentation.theme.tokens import METRIC_BORDER_COLOR_DCF
 
 
 # ══════════════════════════════════════════════════════════════════════════
 # Page configuration
 # ══════════════════════════════════════════════════════════════════════════
 
-st.set_page_config(
+configure_page(
     page_title="SOTP Monte-Carlo DCF",
     page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded",
 )
-
-st.markdown("""
-<style>
-    div[data-testid="stMetric"] {
-        background-color: #f8f9fa;
-        padding: 12px 16px;
-        border-radius: 8px;
-        border-left: 4px solid #1f77b4;
-    }
-    .stTabs [data-baseweb="tab-list"] { gap: 4px; }
-    .stTabs [data-baseweb="tab"] { padding: 8px 20px; font-weight: 500; }
-    details summary { font-weight: 600; }
-    div[data-testid="stExpander"] {
-        border: 1px solid #e0e0e0;
-        border-radius: 8px;
-        margin-bottom: 8px;
-    }
-</style>
-""", unsafe_allow_html=True)
+inject_global_styles(metric_border_color=METRIC_BORDER_COLOR_DCF)
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -105,10 +92,12 @@ def _apply_config(cfg: dict) -> None:
 # Title & sidebar
 # ══════════════════════════════════════════════════════════════════════════
 
-st.title("📊 Sum-of-the-Parts Monte-Carlo DCF Modell")
-st.caption(
-    "Stochastische Unternehmensbewertung · FCFF-Ansatz · "
-    "Vektorisierte Simulation"
+render_app_header(
+    title="📊 Sum-of-the-Parts Monte-Carlo DCF Modell",
+    caption=(
+        "Stochastische Unternehmensbewertung · FCFF-Ansatz · "
+        "Vektorisierte Simulation"
+    ),
 )
 
 with st.sidebar:
@@ -161,8 +150,7 @@ with st.sidebar:
     if st.session_state.pop("_config_just_loaded", False):
         st.success("✅ Konfiguration erfolgreich geladen!")
 
-    st.markdown("---")
-    st.caption("Built with Streamlit · NumPy · Plotly")
+    render_sidebar_footer(tech_stack="Built with Streamlit · NumPy · Plotly")
 
 
 # ══════════════════════════════════════════════════════════════════════════

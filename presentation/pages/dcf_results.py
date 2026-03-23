@@ -4,30 +4,27 @@ DCF Results Tab – Interactive charts, statistics & Excel export
 """
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
 import streamlit as st
-from scipy.stats import skew, kurtosis
-
-from domain.statistics import compute_statistics, compute_sensitivity, conditional_sensitivity
-from infrastructure.excel_export import ExcelExporter
+from presentation.pages.dcf_sections import (
+    render_conditional_sensitivity_section,
+    render_descriptive_stats_section,
+    render_distribution_section,
+    render_economic_profit_section,
+    render_excel_export_section,
+    render_key_metrics_section,
+    render_margin_of_safety_section,
+    render_portfolio_handoff_section,
+    render_quality_section,
+    render_roic_section,
+    render_sensitivity_section,
+    render_tail_risk_section,
+    render_tv_ev_section,
+)
 from presentation.ui_helpers import render_info_interpretation
 from presentation.charts import (
-    cdf_plot,
-    conditional_tornado_chart,
     convergence_chart,
-    economic_profit_chart,
     histogram_kde,
-    implied_return_cdf,
-    margin_of_safety_chart,
-    percentile_convergence_chart,
-    quality_score_breakdown_chart,
-    quality_score_gauge,
-    reinvestment_rate_chart,
-    roic_histogram,
-    roic_vs_wacc_scatter,
-    tornado_chart,
-    tv_ev_decomposition_chart,
+    valuation_confidence_panel,
     waterfall_chart,
 )
 
@@ -51,111 +48,11 @@ def render_results(tab) -> None:
         st.header("📈 Simulationsergebnisse")
         render_info_interpretation()
 
-        # ── Key metrics row ───────────────────────────────────────────
-        ev_stats = compute_statistics(results.total_ev)
-        eq_stats = compute_statistics(results.equity_values)
-        ps_stats = compute_statistics(results.price_per_share)
-
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Ø Enterprise Value", f"{ev_stats['Mittelwert']:,.1f} Mio.")
-        m2.metric("Ø Equity Value", f"{eq_stats['Mittelwert']:,.1f} Mio.")
-        m3.metric("Ø Preis / Aktie", f"{ps_stats['Mittelwert']:,.2f}")
-        m4.metric("Std.-Abw. Equity", f"{eq_stats['Std.-Abw.']:,.1f} Mio.")
+        # ── Executive summary ────────────────────────────────────────
+        render_key_metrics_section(results)
 
         st.divider()
 
-        # ── Descriptive statistics table ──────────────────────────────
-        st.subheader("📊 Deskriptive Statistiken")
-
-        stats_data = {
-            "Enterprise Value": ev_stats,
-            "Equity Value": eq_stats,
-            "Preis / Aktie": ps_stats,
-        }
-        for seg_name, seg_ev in results.segment_evs.items():
-            stats_data[f"EV – {seg_name}"] = compute_statistics(seg_ev)
-
-        stats_df = pd.DataFrame(stats_data).T
-        st.dataframe(
-            stats_df.style.format("{:,.2f}"),
-            use_container_width=True,
-        )
-
-        st.divider()
-
-        # ── Distribution charts ───────────────────────────────────────
-        st.subheader("📈 Verteilungsanalyse")
-
-        chart_c1, chart_c2 = st.columns(2)
-        with chart_c1:
-            st.plotly_chart(
-                histogram_kde(
-                    results.total_ev,
-                    "Enterprise Value – Verteilung",
-                    "Enterprise Value (Mio.)",
-                ),
-                use_container_width=True,
-            )
-        with chart_c2:
-            st.plotly_chart(
-                histogram_kde(
-                    results.equity_values,
-                    "Equity Value – Verteilung",
-                    "Equity Value (Mio.)",
-                ),
-                use_container_width=True,
-            )
-
-        chart_c3, chart_c4 = st.columns(2)
-        with chart_c3:
-            st.plotly_chart(
-                histogram_kde(
-                    results.price_per_share,
-                    "Verteilung – Preis je Aktie",
-                    "Preis je Aktie",
-                    color="#9467bd",
-                ),
-                use_container_width=True,
-            )
-        with chart_c4:
-            st.plotly_chart(
-                cdf_plot(
-                    results.price_per_share,
-                    "CDF – Preis je Aktie",
-                    "Preis je Aktie",
-                    color="#9467bd",
-                ),
-                use_container_width=True,
-            )
-
-        st.divider()
-
-        # ── Tornado chart ─────────────────────────────────────────────
-        st.subheader("🌪️ Sensitivitätsanalyse")
-        st.caption(
-            "Spearman-Rangkorrelation der stochastischen Inputvariablen "
-            "mit dem Equity Value – zeigt die **Feature Importance** der "
-            "Werttreiber."
-        )
-
-        sensitivities = compute_sensitivity(
-            results.equity_values, results.input_samples
-        )
-        if sensitivities:
-            st.plotly_chart(
-                tornado_chart(sensitivities),
-                use_container_width=True,
-            )
-        else:
-            st.info(
-                "Keine stochastischen Inputs vorhanden – alle Parameter "
-                "sind deterministisch (fest). Setzen Sie mindestens einen "
-                "Parameter auf eine Verteilung, um die Sensitivität zu sehen."
-            )
-
-        st.divider()
-
-        # ── Waterfall chart ───────────────────────────────────────────
         st.subheader("🏗️ SOTP-Wertbrücke")
         st.caption(
             "Erwartungswerte (Ø) der einzelnen Segmente, abzüglich "
@@ -178,20 +75,49 @@ def render_results(tab) -> None:
 
         st.divider()
 
-        # ── Phase 2: TV/EV Decomposition ──────────────────────────────
-        _render_tv_ev_section(results)
-
-        st.divider()
-        # ── Implied ROIC & Reinvestment Rate ─────────────────────────
-        _render_roic_section(results, config)
-
-        st.divider()
-        # ── Phase 2: Quality Score ────────────────────────────────────
-        _render_quality_section(results)
+        # ── Risiko ────────────────────────────────────────────────────
+        render_tail_risk_section(results)
 
         st.divider()
 
-        # ── Convergence diagnostics ───────────────────────────────────
+        render_margin_of_safety_section(results)
+
+        st.divider()
+
+        render_economic_profit_section(results)
+
+        st.divider()
+
+        # ── Treiber ───────────────────────────────────────────────────
+        render_sensitivity_section(results)
+
+        st.divider()
+
+        render_conditional_sensitivity_section(results)
+
+        st.divider()
+
+        render_tv_ev_section(results)
+
+        st.divider()
+
+        render_roic_section(results, config)
+
+        st.divider()
+
+        render_quality_section(results)
+
+        st.divider()
+
+        # ── Detail ────────────────────────────────────────────────────
+        render_descriptive_stats_section(results)
+
+        st.divider()
+
+        render_distribution_section(results)
+
+        st.divider()
+
         st.subheader("🔬 Konvergenz-Diagnose")
         st.caption(
             "Zeigt, ob die Anzahl der Simulationen ausreicht. "
@@ -241,526 +167,51 @@ def render_results(tab) -> None:
                     f"Erhöhen Sie die Anzahl der Iterationen deutlich (mindestens 2–3×)."
                 )
 
-        st.divider()
-
-        # ── Tail Risk & Percentile Convergence ───────────────────────
-        _render_tail_risk_section(results)
-
-        st.divider()
-
-        # ── Conditional Sensitivity (Bear vs Bull) ────────────────────
-        _render_conditional_sensitivity_section(results)
-
-        st.divider()
-
-        # ── Economic Profit section ───────────────────────────────────
-        _render_economic_profit_section(results)
+            quality_score = getattr(results, "quality_score", None)
+            quality_total = quality_score.get("total") if quality_score else None
+            tail_ratio = getattr(results, "equity_tail_ratio", None)
+            st.plotly_chart(
+                valuation_confidence_panel(
+                    ci_relative_width_pct=float(pct_width),
+                    tail_ratio=tail_ratio,
+                    quality_total=quality_total,
+                ),
+                use_container_width=True,
+            )
 
         st.divider()
 
-        # ── Margin-of-Safety Dashboard ────────────────────────────────
-        _render_margin_of_safety_section(results)
-
-        st.divider()
-
-        # ── Per-segment detail ────────────────────────────────────────
-        if len(results.segment_evs) > 1:
-            st.subheader("📦 Segment-Details")
-            seg_tabs = st.tabs(list(results.segment_evs.keys()))
-            for stab, (seg_name, seg_ev) in zip(
-                seg_tabs, results.segment_evs.items()
-            ):
-                with stab:
-                    st.plotly_chart(
-                        histogram_kde(
-                            seg_ev,
-                            f"EV-Verteilung – {seg_name}",
-                            "Enterprise Value (Mio.)",
-                        ),
-                        use_container_width=True,
-                    )
-            st.divider()
+        with st.expander("🧪 Erweiterte Detailcharts (lazy)", expanded=False):
+            enable_detail_charts = st.checkbox(
+                "Detailcharts laden",
+                value=False,
+                key="dcf_lazy_detail_charts",
+                help="Lädt schwere Detailvisualisierungen nur bei Bedarf.",
+            )
+            if enable_detail_charts:
+                if len(results.segment_evs) > 1:
+                    st.subheader("📦 Segment-Details")
+                    seg_tabs = st.tabs(list(results.segment_evs.keys()))
+                    for stab, (seg_name, seg_ev) in zip(
+                        seg_tabs, results.segment_evs.items()
+                    ):
+                        with stab:
+                            st.plotly_chart(
+                                histogram_kde(
+                                    seg_ev,
+                                    f"EV-Verteilung – {seg_name}",
+                                    "Enterprise Value (Mio.)",
+                                ),
+                                use_container_width=True,
+                            )
+            else:
+                st.info("Detailcharts sind deaktiviert. Aktivieren Sie 'Detailcharts laden' für die zusätzliche Visualisierung.")
 
         # ── Portfolio app parameters ──────────────────────────────────
-        _render_portfolio_params(results)
+        st.divider()
+        render_portfolio_handoff_section(results)
 
         st.divider()
 
         # ── Excel export ──────────────────────────────────────────────
-        st.subheader("📥 Excel-Export")
-        st.markdown(
-            "Der Report enthält drei Arbeitsblätter: "
-            "**Summary & Statistics**, **Segment Assumptions** "
-            "und **Raw Simulation Data**."
-        )
-
-        excel_bytes = ExcelExporter(config, results).generate()
-        st.download_button(
-            label="📥 Vollständigen Excel-Report herunterladen",
-            data=excel_bytes,
-            file_name="sotp_mc_dcf_report.xlsx",
-            mime=(
-                "application/vnd.openxmlformats-officedocument"
-                ".spreadsheetml.sheet"
-            ),
-            type="primary",
-            use_container_width=True,
-        )
-
-
-# ── Private helper ────────────────────────────────────────────────────────
-
-def _render_portfolio_params(results) -> None:
-    """Show distribution parameters for handoff to the portfolio app."""
-    st.subheader("🔗 Verteilungsparameter für Portfolio-App")
-    st.markdown(
-        "Übertragen Sie diese Werte in die **Portfolio-Optimierung** "
-        "(`portfolio_app.py`), um die simulierte Fair-Value-Verteilung "
-        "dort als Input zu nutzen."
-    )
-
-    with st.expander("ℹ️ Wie übertrage ich die Werte?", expanded=False):
-        st.markdown("""
-### So nutzen Sie die Parameter in der Portfolio-App
-
-1. Notieren Sie sich die **5 Kennzahlen** unten (μ, σ, Schiefe, P5, P95)
-2. Öffnen Sie die **Portfolio-App** (`streamlit run portfolio_app.py --server.port 8502`)
-3. Wählen Sie als Verteilungstyp **"Aus DCF-App (μ, σ, Schiefe)"**
-4. Geben Sie die Werte ein – die App rekonstruiert automatisch die passende Verteilung:
-   - **Schiefe ≈ 0** → Normalverteilung (symmetrisch)
-   - **Schiefe > 0** → Lognormalverteilung (rechtsschiefe MC-Ergebnisse)
-5. Die Portfolio-App generiert daraus eine Fair-Value-Verteilung, die der
-   MC-Simulation möglichst nahekommt.
-
-> **Tipp:** Für jedes Unternehmen, das Sie per SOTP-DCF bewertet haben,
-> können Sie die Parameter übertragen und so ein **Multi-Aktien-Portfolio**
-> optimieren.
-""")
-
-    prices = results.price_per_share
-    p_mean = float(np.mean(prices))
-    p_std = float(np.std(prices))
-    p_median = float(np.median(prices))
-    p_skew = float(skew(prices))
-    p_kurt = float(kurtosis(prices))
-    p_p5 = float(np.percentile(prices, 5))
-    p_p25 = float(np.percentile(prices, 25))
-    p_p75 = float(np.percentile(prices, 75))
-    p_p95 = float(np.percentile(prices, 95))
-
-    st.markdown("##### 📋 Parameter zum Übertragen")
-
-    pk1, pk2, pk3, pk4, pk5 = st.columns(5)
-    pk1.metric("μ (Mittelwert)", f"{p_mean:,.2f}")
-    pk2.metric("σ (Std.-Abw.)", f"{p_std:,.2f}")
-    pk3.metric("Schiefe (Skew)", f"{p_skew:,.3f}")
-    pk4.metric("P5", f"{p_p5:,.2f}")
-    pk5.metric("P95", f"{p_p95:,.2f}")
-
-    pk6, pk7, pk8, pk9, _ = st.columns(5)
-    pk6.metric("Median (P50)", f"{p_median:,.2f}")
-    pk7.metric("P25", f"{p_p25:,.2f}")
-    pk8.metric("P75", f"{p_p75:,.2f}")
-    pk9.metric("Kurtosis", f"{p_kurt:,.3f}")
-
-    if abs(p_skew) < 0.5:
-        rec_dist = "Normal"
-        st.success(
-            f"📊 **Empfehlung: Normalverteilung** (Schiefe = {p_skew:,.3f} ≈ 0) · "
-            f"Geben Sie in der Portfolio-App ein: **μ = {p_mean:,.2f}** · **σ = {p_std:,.2f}**"
-        )
-    else:
-        rec_dist = "Lognormal"
-        st.info(
-            f"📊 **Empfehlung: Lognormalverteilung** (Schiefe = {p_skew:,.3f} ≠ 0) · "
-            f"Geben Sie in der Portfolio-App ein: **μ = {p_mean:,.2f}** · **σ = {p_std:,.2f}** · "
-            f"**Schiefe = {p_skew:,.3f}**"
-        )
-
-    st.markdown("##### 📎 Kopiervorlage")
-    st.code(
-        f"Verteilungstyp: Aus DCF-App (μ, σ, Schiefe)\n"
-        f"μ (Mittelwert):  {p_mean:,.4f}\n"
-        f"σ (Std.-Abw.):   {p_std:,.4f}\n"
-        f"Schiefe (Skew):  {p_skew:,.4f}\n"
-        f"─────────────────────────────\n"
-        f"Empf. Verteilung: {rec_dist}\n"
-        f"Median:           {p_median:,.4f}\n"
-        f"P5 / P95:         {p_p5:,.4f} / {p_p95:,.4f}\n"
-        f"Kurtosis:         {p_kurt:,.4f}\n"
-        f"Simulationen:     {results.n_simulations:,}",
-        language="text",
-    )
-
-
-# ── Phase 2: TV/EV section ───────────────────────────────────────────────
-
-def _render_tv_ev_section(results) -> None:
-    """Show TV/EV decomposition per segment."""
-    if not results.segment_tv_ev_ratios:
-        return
-
-    st.subheader("🔍 TV / EV-Zerlegung")
-    st.caption(
-        "Anteil des Terminal Values am Enterprise Value je Segment. "
-        "Werte **> 70 %** deuten darauf hin, dass die Bewertung stark "
-        "von langfristigen Annahmen abhängt."
-    )
-
-    with st.expander("ℹ️ Warum ist TV/EV wichtig?", expanded=False):
-        st.markdown(r"""
-Der **Terminal Value (TV)** repräsentiert den Wert aller Cash Flows
-*nach* dem expliziten Prognosezeitraum.  Je höher sein Anteil am
-gesamten Enterprise Value, desto mehr hängt die Bewertung von der
-Wachstums- und WACC-Annahme im Restwert ab.
-
-$$\text{TV/EV} = \frac{PV(\text{TV})}{PV(\text{FCFF}) + PV(\text{TV})}$$
-
-| TV/EV | Einschätzung |
-|-------|-------------|
-| < 50 % | Robust – Großteil des Werts fällt in den Prognosezeitraum |
-| 50–70 % | Typisch für viele Branchen |
-| > 70 % | Fragil – empfindlich gegenüber Terminal-Growth & WACC |
-""")
-
-    seg_names: list[str] = []
-    tv_shares: list[float] = []
-    fcff_shares: list[float] = []
-
-    for seg_name, tv_ev_arr in results.segment_tv_ev_ratios.items():
-        mean_tv = float(np.mean(tv_ev_arr))
-        seg_names.append(seg_name)
-        tv_shares.append(mean_tv)
-        fcff_shares.append(1.0 - mean_tv)
-
-    st.plotly_chart(
-        tv_ev_decomposition_chart(seg_names, fcff_shares, tv_shares),
-        use_container_width=True,
-    )
-
-    # Metric tiles
-    cols = st.columns(len(seg_names))
-    for col, name, tv in zip(cols, seg_names, tv_shares):
-        label = "🟢" if tv < 0.50 else ("🟡" if tv < 0.70 else "🔴")
-        col.metric(f"TV/EV – {name}", f"{tv:.1%}", delta=label,
-                   delta_color="off")
-
-
-# ── Phase 2: Quality Score section ───────────────────────────────────────
-
-def _render_quality_section(results) -> None:
-    """Show composite valuation quality score."""
-    if not results.quality_score:
-        return
-
-    st.subheader("🏅 Bewertungsqualität")
-    st.caption(
-        "Composite-Score (0 – 100) aggregiert vier Dimensionen: "
-        "TV/EV-Risiko, Konvergenz, Sensitivitäts-Diversifikation, "
-        "Ergebnis-Streuung."
-    )
-
-    with st.expander("ℹ️ Wie wird der Score berechnet?", expanded=False):
-        st.markdown("""
-| Dimension (je max 25 Pkt.) | Gut | Schlecht |
-|---|---|---|
-| **TV/EV Risiko** | TV/EV ≤ 40 % | TV/EV ≥ 90 % |
-| **Konvergenz** | KI-Breite < 0.5 % | KI-Breite > 5 % |
-| **Sensitivitäts-Diversifikation** | Viele gleichwichtige Treiber | Ein Treiber dominiert |
-| **Ergebnis-Streuung** | CV < 0.1 | CV > 1.0 |
-
-**Interpretation:**
-- **70–100**: Hohe Bewertungsqualität – robuste Ergebnisse
-- **40–70**: Akzeptabel – prüfen Sie die schwächsten Dimensionen
-- **< 40**: Niedrig – Ergebnisse sind fragil, Annahmen überprüfen
-""")
-
-    q = results.quality_score
-    qc1, qc2 = st.columns([1, 1])
-    with qc1:
-        st.plotly_chart(
-            quality_score_gauge(q),
-            use_container_width=True,
-        )
-    with qc2:
-        st.plotly_chart(
-            quality_score_breakdown_chart(q),
-            use_container_width=True,
-        )
-
-
-# ── Implied ROIC & Reinvestment section ──────────────────────────────────
-
-def _render_roic_section(results, config) -> None:
-    """Show implied ROIC and reinvestment rate per segment."""
-    if not results.segment_implied_roic:
-        return
-
-    st.subheader("📊 Implied ROIC & Reinvestitionsrate")
-    st.caption(
-        "Implizierter Return on Invested Capital, abgeleitet aus den "
-        "Modellannahmen (Marge, CAPEX, NWC, Wachstum). "
-        "Vergleichen Sie mit dem historischen ROIC des Unternehmens "
-        "als Plausibilitäts-Check."
-    )
-
-    with st.expander("ℹ️ Was zeigt die Implied ROIC?", expanded=False):
-        st.markdown(r"""
-Der **Implied ROIC** wird nicht direkt modelliert, sondern ergibt sich
-*implizit* aus den Value-Driver-Annahmen über die Steady-State-Identität
-$g = \text{ROIC} \times b$:
-
-$$\text{NOPAT-Marge} = (\text{EBITDA\%} - \text{D\&A\%}) \times (1 - t)$$
-
-$$b = \frac{\text{CAPEX\%} - \text{D\&A\%} + \text{NWC\%} \times \frac{g}{1+g}}{\text{NOPAT-Marge}}$$
-
-$$\text{Implied ROIC} = \frac{g}{b} = g \times \frac{\text{NOPAT-Marge}}{\text{Reinvest.-Marge}}$$
-
-| ROIC vs. WACC | Bedeutung |
-|---|---|
-| **ROIC > WACC** | Wertschöpfung – das Segment erwirtschaftet mehr als die Kapitalkosten |
-| **ROIC ≈ WACC** | Weder Wert geschaffen noch vernichtet |
-| **ROIC < WACC** | Wertvernichtung – Kapitalkosten werden nicht gedeckt |
-
-> **Tipp:** Wenn der Implied ROIC deutlich über dem historischen ROIC liegt,
-> sind die Annahmen möglicherweise zu optimistisch.
-""")
-
-    # Compute per-segment WACC means for the reference line
-    seg_wacc: dict[str, np.ndarray] = {}
-    weighted_wacc = 0.0
-    total_ev_sum = 0.0
-    for seg in config.segments:
-        seg_key = f"{seg.name} | WACC"
-        if seg_key in results.input_samples:
-            seg_wacc[seg.name] = results.input_samples[seg_key]
-            mean_wacc = float(np.mean(results.input_samples[seg_key]))
-            mean_ev = float(np.mean(results.segment_evs.get(seg.name, np.array([0]))))
-            weighted_wacc += mean_wacc * mean_ev
-            total_ev_sum += mean_ev
-
-    avg_wacc = weighted_wacc / max(total_ev_sum, 1e-6)
-
-    # -- ROIC Histogram
-    rc1, rc2 = st.columns(2)
-    with rc1:
-        st.plotly_chart(
-            roic_histogram(results.segment_implied_roic, wacc_mean=avg_wacc),
-            use_container_width=True,
-        )
-
-    # -- Reinvestment rate box plot
-    with rc2:
-        st.plotly_chart(
-            reinvestment_rate_chart(results.segment_reinvest_rates),
-            use_container_width=True,
-        )
-
-    # -- ROIC vs WACC scatter (only if we have WACC samples)
-    if seg_wacc:
-        st.plotly_chart(
-            roic_vs_wacc_scatter(results.segment_implied_roic, seg_wacc),
-            use_container_width=True,
-        )
-
-    # Metric tiles
-    cols = st.columns(len(results.segment_implied_roic))
-    for col, (seg_name, roic_arr) in zip(cols, results.segment_implied_roic.items()):
-        mean_roic = float(np.mean(roic_arr))
-        wacc_ref = float(np.mean(seg_wacc.get(seg_name, np.array([avg_wacc]))))
-        spread = mean_roic - wacc_ref
-        label = "🟢" if spread > 0.02 else ("🟡" if spread > -0.02 else "🔴")
-        col.metric(
-            f"ROIC – {seg_name}",
-            f"{mean_roic:.1%}",
-            delta=f"{spread:+.1%} vs WACC {label}",
-            delta_color="normal",
-        )
-
-
-# ── Phase 2: Tail Risk & Percentile Convergence ─────────────────────────
-
-def _render_tail_risk_section(results) -> None:
-    """Show VaR, CVaR, tail ratio and percentile convergence chart."""
-    st.subheader("⚠️ Tail-Risiko & Perzentil-Konvergenz")
-    st.caption(
-        "Value-at-Risk (VaR) und Conditional VaR (CVaR) quantifizieren "
-        "das Downside-Risiko. Die Perzentil-Konvergenz zeigt, ob P5/P50/P95 "
-        "sich stabilisiert haben."
-    )
-
-    with st.expander("ℹ️ Was bedeuten VaR, CVaR und Tail Ratio?", expanded=False):
-        st.markdown(r"""
-| Kennzahl | Definition |
-|---|---|
-| **VaR (5 %)** | Equity Value, unter den nur **5 %** der Szenarien fallen |
-| **CVaR (5 %)** | Durchschnitt aller Szenarien *unterhalb* des VaR – erfasst die Schwere der schlimmsten Fälle |
-| **Tail Ratio** | VaR / CVaR – je näher an 1,0, desto kürzer der linke Tail |
-
-$$\text{CVaR}_\alpha = \mathbb{E}[X \mid X \leq \text{VaR}_\alpha]$$
-
-> Ein **Tail Ratio < 0,8** deutet auf einen langen, schweren linken
-> Tail hin — die schlimmsten 5 % der Szenarien sind deutlich schlechter
-> als der VaR allein suggeriert.
-""")
-
-    # Metric tiles
-    var_val = getattr(results, "equity_var_5", None)
-    cvar_val = getattr(results, "equity_cvar_5", None)
-    tail_ratio = getattr(results, "equity_tail_ratio", None)
-
-    if var_val is not None and cvar_val is not None:
-        tr1, tr2, tr3 = st.columns(3)
-        tr1.metric("VaR 5 % (Equity)", f"{var_val:,.1f} Mio.")
-        tr2.metric("CVaR 5 % (Equity)", f"{cvar_val:,.1f} Mio.")
-        if tail_ratio is not None and tail_ratio != 0:
-            label = "🟢" if tail_ratio > 0.85 else ("🟡" if tail_ratio > 0.70 else "🔴")
-            tr3.metric("Tail Ratio", f"{tail_ratio:.3f}", delta=label, delta_color="off")
-        else:
-            tr3.metric("Tail Ratio", "n/a")
-
-    # Percentile convergence chart
-    p5 = getattr(results, "convergence_p5", None)
-    p50 = getattr(results, "convergence_p50", None)
-    p95 = getattr(results, "convergence_p95", None)
-
-    if (
-        p5 is not None
-        and p50 is not None
-        and p95 is not None
-        and len(results.convergence_indices) > 0
-    ):
-        st.plotly_chart(
-            percentile_convergence_chart(
-                results.convergence_indices, p5, p50, p95,
-            ),
-            use_container_width=True,
-        )
-
-
-# ── Phase 2: Conditional Sensitivity ─────────────────────────────────────
-
-def _render_conditional_sensitivity_section(results) -> None:
-    """Bear vs. Bull conditional tornado chart."""
-    if not results.input_samples:
-        return
-
-    st.subheader("🐻🐂 Conditional Sensitivity – Bear vs. Bull")
-    st.caption(
-        "Welche Inputvariablen treiben den Wert in schlechten (P<25 %) "
-        "vs. guten (P>75 %) Szenarien? Unterschiedliche Treiber in Bear "
-        "und Bull deuten auf nicht-lineare Zusammenhänge hin."
-    )
-
-    cond = conditional_sensitivity(
-        results.equity_values, results.input_samples
-    )
-    bear = cond.get("bear", {})
-    bull = cond.get("bull", {})
-
-    if bear or bull:
-        st.plotly_chart(
-            conditional_tornado_chart(bear, bull, top_n=10),
-            use_container_width=True,
-        )
-    else:
-        st.info(
-            "Keine stochastischen Inputs vorhanden – Conditional Sensitivity "
-            "benötigt mindestens einen Verteilungs-Input."
-        )
-
-
-# ── Phase 2: Economic Profit ─────────────────────────────────────────────
-
-def _render_economic_profit_section(results) -> None:
-    """Economic Profit (EVA) per segment + probability of value destruction."""
-    seg_ep = getattr(results, "segment_economic_profit", None)
-    seg_pvd = getattr(results, "segment_prob_value_destruction", None)
-
-    if not seg_ep:
-        return
-
-    st.subheader("💰 Economic Profit (EVA) je Segment")
-    st.caption(
-        "Der Economic Profit zeigt, ob ein Segment mehr Rendite erwirtschaftet "
-        "als die Kapitalkosten betragen. EP < 0 bedeutet Wertvernichtung."
-    )
-
-    with st.expander("ℹ️ Was ist Economic Profit?", expanded=False):
-        st.markdown(r"""
-$$\text{EP} = \text{NOPAT} - \text{WACC} \times \text{Invested Capital}$$
-
-Alternativ geschätzt über den Value-Driver-Ansatz:
-
-$$\text{EP} \approx \text{Revenue} \times [(\text{EBITDA\%} - \text{D\&A\%}) \times (1 - t)
-- (\text{CAPEX\%} - \text{D\&A\%} + \Delta\text{NWC\%}) \times \frac{g}{1+g}]
-- \text{WACC} \times \frac{\text{FCF}}{(\text{WACC} - g)}$$
-
-> **Interpretation:** EP > 0 bedeutet wirtschaftliche Wertschöpfung
-> (ROIC > WACC). P(EP < 0) quantifiziert die Wahrscheinlichkeit,
-> dass ein Segment seine Kapitalkosten *nicht* deckt.
-""")
-
-    st.plotly_chart(
-        economic_profit_chart(seg_ep),
-        use_container_width=True,
-    )
-
-    # P(Value Destruction) metrics
-    if seg_pvd:
-        cols = st.columns(len(seg_pvd))
-        for col, (seg_name, pvd) in zip(cols, seg_pvd.items()):
-            label = "🟢" if pvd < 0.15 else ("🟡" if pvd < 0.35 else "🔴")
-            col.metric(
-                f"P(ROIC < WACC) – {seg_name}",
-                f"{pvd:.1%}",
-                delta=label,
-                delta_color="off",
-            )
-
-
-# ── Phase 2: Margin-of-Safety Dashboard ──────────────────────────────────
-
-def _render_margin_of_safety_section(results) -> None:
-    """Interactive MoS analysis with market price input."""
-    st.subheader("🛡️ Margin-of-Safety Analyse")
-    st.caption(
-        "Geben Sie den aktuellen Markt- oder Kaufkurs ein, um die implizierte "
-        "Rendite, die Wahrscheinlichkeit einer Unterbewertung und den "
-        "empfohlenen Kaufpreis mit Sicherheitsmarge zu berechnen."
-    )
-
-    prices = results.price_per_share
-    fair_mean = float(np.mean(prices))
-
-    market_price = st.number_input(
-        "Aktueller Marktpreis / Kurs",
-        min_value=0.01,
-        value=round(fair_mean * 0.9, 2),
-        step=0.5,
-        format="%.2f",
-        help="Der Preis, zu dem die Aktie aktuell gehandelt wird.",
-    )
-
-    if market_price > 0:
-        p_upside = float(np.mean(prices >= market_price))
-        implied_return = (fair_mean / market_price - 1.0) * 100
-        buy_price_30 = fair_mean * 0.70  # 30 % MoS
-
-        mo1, mo2, mo3, mo4 = st.columns(4)
-        mo1.metric("Ø Fair Value", f"{fair_mean:,.2f}")
-        mo2.metric("P(Upside)", f"{p_upside:.1%}")
-        mo3.metric("Impl. Rendite", f"{implied_return:+.1f} %")
-        mo4.metric("Kaufkurs (30 % MoS)", f"{buy_price_30:,.2f}")
-
-        mc1, mc2 = st.columns(2)
-        with mc1:
-            st.plotly_chart(
-                margin_of_safety_chart(prices, market_price),
-                use_container_width=True,
-            )
-        with mc2:
-            st.plotly_chart(
-                implied_return_cdf(prices, market_price),
-                use_container_width=True,
-            )
+        render_excel_export_section(config, results)
