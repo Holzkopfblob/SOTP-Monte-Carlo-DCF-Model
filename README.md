@@ -21,7 +21,6 @@
 - [Portfolio-Optimierung – Features](#-portfolio-optimierung--features)
 - [Architektur](#-architektur)
 - [Schnellstart](#-schnellstart)
-- [Workshop-Guide (Zahnarztpraxis)](#-workshop-guide-zahnarztpraxis)
 - [Anwendungsbeispiel](#-anwendungsbeispiel)
 - [Technologie-Stack](#-technologie-stack)
 - [Mathematische Grundlagen](#-mathematische-grundlagen)
@@ -251,14 +250,6 @@ streamlit run app.py
 # Portfolio-Optimierung (separater Port):
 streamlit run portfolio_app.py --server.port 8502
 ```
-
----
-
-## 🎓 Workshop-Guide (Zahnarztpraxis)
-
-Ein vollstaendiges, laiengerechtes Praesentationsskript fuer den End-to-End-Flow durch die DCF/SOTP-App (ohne Portfolio-Teil) steht hier:
-
-- [docs/workshop-guide-zahnarztpraxis.md](docs/workshop-guide-zahnarztpraxis.md)
 
 ---
 
