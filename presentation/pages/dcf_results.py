@@ -13,7 +13,6 @@ from presentation.pages.dcf_sections import (
     render_excel_export_section,
     render_key_metrics_section,
     render_margin_of_safety_section,
-    render_portfolio_handoff_section,
     render_quality_section,
     render_roic_section,
     render_sensitivity_section,
@@ -206,12 +205,6 @@ def render_results(tab) -> None:
                             )
             else:
                 st.info("Detailcharts sind deaktiviert. Aktivieren Sie 'Detailcharts laden' für die zusätzliche Visualisierung.")
-
-        # ── Portfolio app parameters ──────────────────────────────────
-        st.divider()
-        render_portfolio_handoff_section(results)
-
-        st.divider()
 
         # ── Excel export ──────────────────────────────────────────────
         render_excel_export_section(config, results)

@@ -243,7 +243,7 @@ Analysiere die Geschäftsstruktur von [UNTERNEHMEN]:
    c) Letzter berichteter Jahresumsatz (Mio. Berichtswährung)
    d) Strategische Positionierung:
       Wachstumsmotor | Cash Cow | Turnaround | Restrukturierung
-   e) Sektorklassifikation (für Portfolio-App-Brücke):
+  e) Sektorklassifikation:
       Technologie | Konsumgüter | Gesundheit | Finanzen | Energie |
       Industrie | Grundstoffe | Immobilien | Telekommunikation |
       Versorger | Sonstige

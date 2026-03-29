@@ -2,7 +2,6 @@
 
 from .distribution import render_distribution_section
 from .export import render_excel_export_section
-from .portfolio_handoff import render_portfolio_handoff_section
 from .quality import (
     render_quality_section,
     render_roic_section,
@@ -37,7 +36,6 @@ __all__ = [
     "render_tail_risk_section",
     "render_economic_profit_section",
     "render_margin_of_safety_section",
-    "render_portfolio_handoff_section",
     "render_excel_export_section",
     "render_setup_simulation_section",
     "render_setup_bridge_section",

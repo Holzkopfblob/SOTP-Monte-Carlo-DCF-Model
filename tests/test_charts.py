@@ -17,14 +17,11 @@ from presentation.charts import (
     cdf_with_reference,
     conditional_tornado_chart,
     convergence_chart,
-    correlation_heatmap,
     economic_profit_chart,
     histogram_kde,
     implied_return_cdf,
     margin_of_safety_chart,
     percentile_convergence_chart,
-    portfolio_robustness_panel,
-    portfolio_weights_comparison,
     revenue_fade_preview,
     stress_comparison_chart,
     tornado_chart,
@@ -116,21 +113,6 @@ class TestCDFWithReference:
         assert isinstance(fig, go.Figure)
 
 
-class TestPortfolioWeightsComparison:
-    def test_returns_figure(self):
-        fig = portfolio_weights_comparison(
-            ["A", "B"], {"EqW": np.array([0.5, 0.5]), "MS": np.array([0.7, 0.3])},
-        )
-        assert isinstance(fig, go.Figure)
-
-
-class TestCorrelationHeatmap:
-    def test_returns_figure(self):
-        corr = np.array([[1, 0.5], [0.5, 1]])
-        fig = correlation_heatmap(corr, ["A", "B"])
-        assert isinstance(fig, go.Figure)
-
-
 class TestStressComparisonChart:
     def test_returns_figure(self):
         normal = np.random.default_rng(1).normal(0.05, 0.1, 1000)
@@ -154,12 +136,6 @@ class TestDeadCodeRemoved:
         from presentation import charts
         assert not hasattr(charts, "price_histogram"), (
             "price_histogram was a thin wrapper – use histogram_kde directly"
-        )
-
-    def test_portfolio_radar_chart_removed(self):
-        from presentation import charts
-        assert not hasattr(charts, "portfolio_radar_chart"), (
-            "portfolio_radar_chart was removed in Phase 1 cleanup"
         )
 
     def test_sotp_treemap_removed(self):
@@ -223,14 +199,4 @@ class TestValuationConfidencePanel:
             tail_ratio=0.72,
             quality_total=78.5,
         )
-        assert isinstance(fig, go.Figure)
-
-
-class TestPortfolioRobustnessPanel:
-    def test_returns_figure(self):
-        payload = [
-            {"name": "Max Sharpe", "sharpe": 1.2, "cvar": -0.18},
-            {"name": "Min Volatilität", "sharpe": 0.9, "cvar": -0.12},
-        ]
-        fig = portfolio_robustness_panel(payload)
         assert isinstance(fig, go.Figure)

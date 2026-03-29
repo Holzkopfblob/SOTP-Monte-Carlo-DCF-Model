@@ -22,19 +22,6 @@ class TestDistOptions:
         assert len(DIST_OPTIONS) == len(set(DIST_OPTIONS))
 
 
-class TestNoPortfolioAppDuplication:
-    """After cleanup, portfolio_app.py should import DIST_OPTIONS from
-    ui_helpers instead of defining its own copy."""
-
-    def test_portfolio_app_imports_canonical_options(self):
-        """DIST_OPTIONS in portfolio_app should match ui_helpers exactly."""
-        import importlib
-        mod = importlib.import_module("presentation.ui_helpers")
-        canonical = mod.DIST_OPTIONS
-        # The portfolio_app should use these same options
-        assert len(canonical) == len(DistributionType)
-
-
 class _DummyExpander:
     def __enter__(self):
         return self

@@ -17,7 +17,6 @@ from domain.models import (
     SimulationConfig,
     TerminalValueMethod,
 )
-from application.portfolio_service import AssetInput
 
 
 # ── RNG ───────────────────────────────────────────────────────────────────
@@ -155,16 +154,3 @@ def full_sim_config(stochastic_segment, fade_segment) -> SimulationConfig:
     )
 
 
-# ── Portfolio fixtures ────────────────────────────────────────────────────
-
-@pytest.fixture
-def sample_assets() -> list[AssetInput]:
-    """Three deterministic-seeded assets for portfolio tests."""
-    rng1 = np.random.default_rng(10)
-    rng2 = np.random.default_rng(20)
-    rng3 = np.random.default_rng(30)
-    return [
-        AssetInput("Alpha", "Technologie", 100.0, rng1.normal(120, 20, 5_000), 0.0, 1.0),
-        AssetInput("Beta", "Energie", 50.0, rng2.normal(55, 10, 5_000), 0.0, 1.0),
-        AssetInput("Gamma", "Gesundheit", 80.0, rng3.normal(90, 15, 5_000), 0.0, 1.0),
-    ]

@@ -81,5 +81,4 @@ def test_render_results_detail_flow_snapshot() -> None:
     calls = _called_render_functions(fn)
 
     assert calls.index("render_descriptive_stats_section") < calls.index("render_distribution_section")
-    assert calls.index("render_distribution_section") < calls.index("render_portfolio_handoff_section")
-    assert calls.index("render_portfolio_handoff_section") < calls.index("render_excel_export_section")
+    assert calls.index("render_distribution_section") < calls.index("render_excel_export_section")

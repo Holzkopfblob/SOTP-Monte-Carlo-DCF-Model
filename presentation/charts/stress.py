@@ -13,7 +13,7 @@ def stress_comparison_chart(
     stressed_returns: np.ndarray,
     method_name: str,
 ) -> go.Figure:
-    """Overlaid histograms comparing normal vs. stressed portfolio returns."""
+    """Overlaid histograms comparing normal vs. stressed returns."""
     fig = go.Figure()
     fig.add_trace(go.Histogram(
         x=normal_returns * 100,
@@ -40,7 +40,7 @@ def stress_comparison_chart(
     apply_figure_defaults(
         fig,
         title=f"Renditeverteilung - {method_name}: Normal vs. Stress",
-        xaxis_title="Portfolio-Rendite (%)",
+        xaxis_title="Rendite (%)",
         yaxis_title="Dichte",
         height=480,
     )

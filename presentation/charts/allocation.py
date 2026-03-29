@@ -1,11 +1,11 @@
-"""Allocation and portfolio structure charts."""
+"""Allocation charts."""
 
 from __future__ import annotations
 
 import numpy as np
 import plotly.graph_objects as go
 
-from .common import COLORS, PALETTE_EXTENDED, apply_figure_defaults
+from .common import COLORS, apply_figure_defaults
 
 
 def waterfall_chart(
@@ -82,51 +82,3 @@ def waterfall_chart(
     return fig
 
 
-def portfolio_weights_comparison(
-    names: list[str],
-    method_weights: dict[str, np.ndarray],
-) -> go.Figure:
-    """Grouped bar chart comparing all optimisation methods."""
-    fig = go.Figure()
-    for i, (method_name, w) in enumerate(method_weights.items()):
-        w_pct = np.array(w) * 100
-        fig.add_trace(go.Bar(
-            name=method_name,
-            x=names,
-            y=w_pct,
-            marker_color=PALETTE_EXTENDED[i % len(PALETTE_EXTENDED)],
-            text=[f"{v:.1f}%" for v in w_pct],
-            textposition="auto",
-        ))
-
-    apply_figure_defaults(
-        fig,
-        title="Portfolio-Gewichtungen im Vergleich",
-        yaxis_title="Gewicht (%)",
-        height=500,
-    )
-    fig.update_layout(barmode="group", yaxis=dict(range=[0, 105]))
-    return fig
-
-
-def correlation_heatmap(corr_matrix: np.ndarray, names: list[str]) -> go.Figure:
-    """Correlation matrix as a coloured heatmap."""
-    fig = go.Figure(data=go.Heatmap(
-        z=corr_matrix,
-        x=names,
-        y=names,
-        colorscale="RdYlGn",
-        zmid=0,
-        zmin=-1,
-        zmax=1,
-        text=np.round(corr_matrix, 2),
-        texttemplate="%{text:.2f}",
-        textfont=dict(size=12),
-    ))
-
-    apply_figure_defaults(
-        fig,
-        title="Korrelationsmatrix",
-        height=max(350, len(names) * 50 + 100),
-    )
-    return fig

@@ -1,11 +1,10 @@
 """Chart facade exports for presentation layer."""
 
-from .allocation import correlation_heatmap, portfolio_weights_comparison, waterfall_chart
+from .allocation import waterfall_chart
 from .common import COLORS, PALETTE_EXTENDED, TEMPLATE
 from .diagnostics import (
     convergence_chart,
     parameter_fade_preview,
-    portfolio_robustness_panel,
     quality_score_breakdown_chart,
     quality_score_gauge,
     reinvestment_rate_chart,
@@ -35,8 +34,6 @@ __all__ = [
     "cdf_with_reference",
     "tornado_chart",
     "waterfall_chart",
-    "portfolio_weights_comparison",
-    "correlation_heatmap",
     "stress_comparison_chart",
     "convergence_chart",
     "revenue_fade_preview",
@@ -53,5 +50,4 @@ __all__ = [
     "conditional_tornado_chart",
     "percentile_convergence_chart",
     "valuation_confidence_panel",
-    "portfolio_robustness_panel",
 ]

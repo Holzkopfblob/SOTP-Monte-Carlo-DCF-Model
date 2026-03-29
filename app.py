@@ -57,7 +57,7 @@ def _collect_config() -> dict:
 
 # Keys that belong to widgets – must never be touched by _apply_config.
 _WIDGET_KEYS: frozenset[str] = frozenset({
-    "config_upload", "pf_upload",
+    "config_upload",
 })
 
 

@@ -347,30 +347,3 @@ def valuation_confidence_panel(
     )
     fig.update_layout(yaxis=dict(range=[0, 105]), showlegend=False)
     return fig
-
-
-def portfolio_robustness_panel(method_metrics: list[dict[str, float]]) -> go.Figure:
-    """Aggregated robustness panel for portfolio methods."""
-    names = [m["name"] for m in method_metrics]
-    sharpe = [m["sharpe"] for m in method_metrics]
-    cvar = [m["cvar"] for m in method_metrics]
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=cvar,
-        y=sharpe,
-        mode="markers+text",
-        text=names,
-        textposition="top center",
-        marker=dict(size=11, color=COLORS["accent"]),
-        name="Methoden",
-    ))
-
-    apply_figure_defaults(
-        fig,
-        title="Portfolio Robustness Panel",
-        xaxis_title="CVaR (5%)",
-        yaxis_title="Sharpe Ratio",
-        height=420,
-    )
-    return fig
