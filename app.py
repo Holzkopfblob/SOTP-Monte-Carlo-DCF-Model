@@ -236,7 +236,7 @@ if current_step == "setup":
 elif current_step == "segments":
     setup = st.session_state.wizard_setup
     if setup is None:
-        st.warning("Bitte zuerst den Setup-Schritt ausfüllen.")
+        st.warning("Setup fehlt. Füllen Sie zuerst den Schritt **⚙️ Setup** aus und klicken Sie anschließend auf **Weiter: Segmente**.")
         if st.button("Zurück zu Setup", type="primary"):
             _go_to("setup")
     else:
@@ -257,11 +257,11 @@ elif current_step == "simulation":
     segment_configs = st.session_state.wizard_segments
 
     if setup is None:
-        st.warning("Bitte zuerst den Setup-Schritt ausfüllen.")
+        st.warning("Setup fehlt. Gehen Sie zu **⚙️ Setup**, vervollständigen Sie die Eingaben und wechseln Sie dann zurück.")
         if st.button("Zurück zu Setup", type="primary"):
             _go_to("setup")
     elif not segment_configs:
-        st.warning("Bitte zuerst die Segmente konfigurieren.")
+        st.warning("Segmentkonfiguration fehlt. Füllen Sie zuerst den Schritt **🏢 Segmente** vollständig aus.")
         if st.button("Zurück zu Segmente", type="primary"):
             _go_to("segments")
     else:

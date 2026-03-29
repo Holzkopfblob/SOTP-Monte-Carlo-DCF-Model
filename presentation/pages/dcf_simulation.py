@@ -53,6 +53,7 @@ def render_simulation(
 
     with container:
         st.header("Monte-Carlo-Simulation starten")
+        st.caption("Prüfen Sie die Zusammenfassung und starten Sie dann die Berechnung. Anschließend wird der Schritt **📈 Ergebnisse** freigeschaltet.")
 
         st.info(
             f"**Konfiguration:** {n_segments} Segment(e) · "
@@ -83,7 +84,7 @@ def render_simulation(
 
         if run_button:
             if not segment_configs:
-                st.error("Bitte konfigurieren Sie mindestens ein Segment.")
+                st.error("Es sind keine Segmente konfiguriert. Gehen Sie zu **🏢 Segmente** und ergänzen Sie mindestens ein Segment.")
             else:
                 # Split unified DistributionConfig → scalar + stochastic
                 cc_val, cc_stoch = _split_bridge_param(setup["bridge_corp_costs"], 50.0)
@@ -140,7 +141,4 @@ def render_simulation(
 
         if st.session_state.results is not None:
             st.markdown("---")
-            st.markdown(
-                "➡️ Gehen Sie im Wizard weiter zu **📈 Ergebnisse** "
-                "für die vollständige Auswertung."
-            )
+            st.success("Simulation verfügbar. Wechseln Sie jetzt mit **Weiter: Ergebnisse** zum nächsten Schritt.")

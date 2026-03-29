@@ -36,8 +36,7 @@ def render_results(container) -> None:
     with container:
         if st.session_state.results is None:
             st.warning(
-                "⚠️ Bitte führen Sie zunächst eine Simulation durch "
-                "(Schritt **🎲 Simulation**)."
+                "⚠️ Noch keine Ergebnisse vorhanden. Wechseln Sie zu **🎲 Simulation**, starten Sie den Lauf und kehren Sie dann hierher zurück."
             )
             return
 
@@ -188,7 +187,7 @@ def render_results(container) -> None:
                                     use_container_width=True,
                                 )
                 else:
-                    st.info("Detailcharts sind deaktiviert. Aktivieren Sie 'Detailcharts laden' für die zusätzliche Visualisierung.")
+                    st.info("Detailcharts sind aktuell deaktiviert. Aktivieren Sie **Detailcharts laden**, wenn Sie Segmentverteilungen im Detail prüfen möchten.")
 
             st.divider()
             render_excel_export_section(config, results)

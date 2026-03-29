@@ -309,8 +309,7 @@ def render_segments(container, n_segments: int) -> list[SegmentConfig]:
                     eigvals = np.linalg.eigvalsh(corr_arr)
                     if np.any(eigvals < -1e-8):
                         st.warning(
-                            "⚠️ Die Matrix ist nicht positiv semi-definit. "
-                            "Bitte passen Sie die Korrelationswerte an."
+                            "⚠️ Die Matrix ist nicht positiv semi-definit. Verringern Sie extreme Korrelationen (nahe ±1), bis die Matrix gültig ist."
                         )
                     else:
                         intra_corr_matrix = corr_values

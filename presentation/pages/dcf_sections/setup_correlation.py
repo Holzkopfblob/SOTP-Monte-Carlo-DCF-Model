@@ -64,13 +64,12 @@ def render_setup_correlation_section(n_segments: int) -> list[list[float]] | Non
         eigvals = np.linalg.eigvalsh(corr_arr)
         if np.any(eigvals < -1e-8):
             st.warning(
-                "⚠️ Die Matrix ist nicht positiv semi-definit. "
-                "Bitte passen Sie die Korrelationswerte an."
+                "⚠️ Die Matrix ist nicht positiv semi-definit. Reduzieren Sie starke Korrelationen (insb. nahe ±1), bis die Warnung verschwindet."
             )
         else:
             segment_correlation = corr_values
 
     elif enable_corr and int(n_segments) < 2:
-        st.info("Korrelation erfordert mindestens 2 Segmente.")
+        st.info("Für Segment-Korrelation sind mindestens 2 Segmente erforderlich. Erhöhen Sie im Setup die Segmentanzahl.")
 
     return segment_correlation
