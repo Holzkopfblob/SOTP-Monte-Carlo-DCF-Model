@@ -55,6 +55,19 @@ DIST_SUFFIXES: list[str] = [
 _SEG_PATTERN = re.compile(r"^(seg_\d+_|s\d+_)")
 _BRIDGE_PATTERN = re.compile(r"^bridge_")
 _CORR_PATTERN = re.compile(r"^corr_\d+_\d+$")
+_PASSTHROUGH_STATE_KEY = "cfg_passthrough"
+_KNOWN_TOP_LEVEL_KEYS = {
+    "schema_version",
+    "saved_at",
+    "simulation",
+    "ui_state",
+    # legacy v1 keys
+    "version",
+    "setup",
+    "bridge",
+    "segments",
+    "correlation",
+}
 
 
 # ── Serialisation ─────────────────────────────────────────────────────
@@ -160,6 +173,15 @@ def collect_config(state: dict) -> dict:
 
     cfg["ui_state"] = ui_state
 
+    # Preserve unknown top-level config fields loaded from external files
+    # (e.g. metadata, notes, taxonomy). These are not interpreted by the UI
+    # but should survive an import -> export round-trip.
+    passthrough = state.get(_PASSTHROUGH_STATE_KEY)
+    if isinstance(passthrough, dict):
+        for key, value in passthrough.items():
+            if key not in _KNOWN_TOP_LEVEL_KEYS:
+                cfg[key] = value
+
     return cfg
 
 
@@ -226,5 +248,15 @@ def apply_config(cfg: dict, state: dict) -> dict:
     # Apply cross-segment correlation keys
     for k, v in payload.get("correlation", {}).items():
         updated[k] = v
+
+    # Keep unknown top-level payload blocks so they survive a round-trip.
+    passthrough: dict = {}
+    for k, v in cfg.items():
+        if k not in _KNOWN_TOP_LEVEL_KEYS:
+            passthrough[k] = v
+    if passthrough:
+        updated[_PASSTHROUGH_STATE_KEY] = passthrough
+    elif _PASSTHROUGH_STATE_KEY in updated:
+        del updated[_PASSTHROUGH_STATE_KEY]
 
     return updated

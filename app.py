@@ -17,6 +17,7 @@ dedicated module under ``presentation/pages/``:
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 
 import numpy as np
@@ -60,15 +61,37 @@ _WIDGET_KEYS: frozenset[str] = frozenset({
     "config_upload",
 })
 
+_SEGMENT_DIST_KEY_PATTERN = re.compile(r"^s\d+_")
+
 
 def _is_config_key(k: str) -> bool:
     """Return True if *k* is a config-managed session-state key."""
     return (
         k.startswith(("setup_", "bridge_", "seg_", "corr_"))
+        or k.startswith("cfg_")
         or k.startswith("wizard_")
         or (len(k) > 2 and k[1].isdigit() and k.startswith("s") and "_" in k)
         or k in ("results", "config", "_config_just_loaded")
     )
+
+
+def _is_config_widget_state_key(k: str) -> bool:
+    """Return True for actual widget-bound config keys.
+
+    These keys can be removed by Streamlit when their widgets are not rendered
+    in the current wizard step (e.g. segment fields while viewing setup).
+    """
+    return (
+        k.startswith(("setup_", "bridge_", "seg_", "corr_"))
+        or _SEGMENT_DIST_KEY_PATTERN.match(k) is not None
+    )
+
+
+def _preserve_config_widget_state() -> None:
+    """Detach config widget keys from Streamlit's widget lifecycle cleanup."""
+    for key in list(st.session_state.keys()):
+        if _is_config_widget_state_key(key):
+            st.session_state[key] = st.session_state[key]
 
 
 def _apply_config(cfg: dict) -> None:
@@ -90,6 +113,10 @@ def _apply_config(cfg: dict) -> None:
     st.session_state["wizard_segments"] = None
     st.session_state["_config_just_loaded"] = True
     st.rerun()
+
+
+# Keep imported/setup segment widget state alive across wizard step switches.
+_preserve_config_widget_state()
 
 
 # ══════════════════════════════════════════════════════════════════════════

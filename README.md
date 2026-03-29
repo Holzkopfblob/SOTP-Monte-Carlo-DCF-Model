@@ -44,6 +44,21 @@ Kurz: Der Prompt sorgt dafür, dass du aus „Meinung“ belastbare, nachvollzie
 	- Konservative vs. Base vs. Upside-Annahmen als separate Durchläufe
 	- Ergebnisse über Quantile statt nur über Mittelwerte vergleichen
 
+## Beispiel-Konfiguration
+
+Im Repository ist eine fertige Beispieldatei enthalten:
+
+- [airbus_sotp_config.json](airbus_sotp_config.json)
+
+Sie enthält ein vollständiges 3-Segment-Setup für Airbus (Setup, Corporate Bridge, Segmentannahmen, Cross-Segment-Korrelationen und Intra-Segment-Copula) und eignet sich als Startpunkt für eigene Modelle.
+
+**Import in der App:**
+
+1. In der Sidebar unter **💾 Speichern / Laden** auf **Konfiguration laden (.json)** klicken.
+2. Die Datei [airbus_sotp_config.json](airbus_sotp_config.json) auswählen.
+3. **⬆️ Konfiguration anwenden** ausführen.
+4. Danach durch **⚙️ Setup → 🏢 Segmente → 🎲 Simulation** navigieren.
+
 ## Was im Prompt besonders wichtig ist
 
 - **Einheiten:** Prozent als Prozentwerte (z. B. `5.0` für 5 %), Beträge in Mio.

@@ -238,6 +238,15 @@ class TestApplyConfig:
         assert updated["seg_0_name"] == "Legacy Segment"
         assert updated["corr_0_0"] == pytest.approx(1.0)
 
+    def test_unknown_top_level_blocks_are_preserved(self):
+        cfg = collect_config(_build_state(1))
+        cfg["metadata"] = {"report_currency": "EUR", "company": "Airbus SE"}
+        cfg["notes"] = {"source": "research"}
+        updated = apply_config(cfg, {})
+        assert "cfg_passthrough" in updated
+        assert updated["cfg_passthrough"]["metadata"]["report_currency"] == "EUR"
+        assert updated["cfg_passthrough"]["notes"]["source"] == "research"
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Round-trip
@@ -304,3 +313,16 @@ class TestRoundTrip:
         assert restored["seg_0_ic_0_0"] == pytest.approx(1.0)
         assert restored["seg_0_ic_0_1"] == pytest.approx(0.3)
         assert restored["seg_0_ic_3_5"] == pytest.approx(0.3)
+
+    def test_roundtrip_preserves_unknown_top_level_fields(self):
+        state = _build_state(1)
+        loaded_cfg = collect_config(state)
+        loaded_cfg["metadata"] = {"report_currency": "EUR", "sector_tags": ["Industrie"]}
+        loaded_cfg["research"] = {"version": "2026-03-29"}
+
+        applied = apply_config(loaded_cfg, {})
+        re_export = collect_config(applied)
+
+        assert re_export["metadata"]["report_currency"] == "EUR"
+        assert re_export["metadata"]["sector_tags"] == ["Industrie"]
+        assert re_export["research"]["version"] == "2026-03-29"
