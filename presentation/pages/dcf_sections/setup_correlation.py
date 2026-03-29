@@ -9,10 +9,11 @@ import streamlit as st
 def render_setup_correlation_section(n_segments: int) -> list[list[float]] | None:
     """Render cross-segment correlation controls and return matrix if valid."""
     st.subheader("🔗 Segment-Korrelation (Cross-Segment)")
+    st.caption("Optional: koppelt Segment-Entwicklungen über eine Gauss-Copula.")
 
     segment_correlation: list[list[float]] | None = None
     enable_corr = st.checkbox(
-        "Segment-Korrelation aktivieren (Gauss-Copula)",
+        "Segment-Korrelation aktivieren",
         value=False, key="setup_corr_enable",
         help="Fügt stochastische Abhängigkeit zwischen den Segmenten "
              "hinzu. Ein hoher Korrelationswert bedeutet, dass gute / "
@@ -23,7 +24,7 @@ def render_setup_correlation_section(n_segments: int) -> list[list[float]] | Non
     if enable_corr and int(n_segments) >= 2:
         n_seg_int = int(n_segments)
         st.caption(
-            f"Korrelationsmatrix ({n_seg_int}x{n_seg_int}) - Diagonal "
+            f"Korrelationsmatrix ({n_seg_int}x{n_seg_int}) - Diagonale "
             "ist immer 1. Geben Sie die paarweisen Korrelationen "
             "zwischen den Segmenten ein (-1 bis 1)."
         )

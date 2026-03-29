@@ -32,6 +32,7 @@ def render_segments(container, n_segments: int) -> list[SegmentConfig]:
 
     with container:
         st.header("Segment-Konfiguration")
+        st.caption("Pflegen Sie pro Segment Stammdaten, Treiber, Terminalannahmen und optionale Korrelationen.")
         render_info_fcff()
         render_info_wacc()
         render_info_distributions()
@@ -47,12 +48,12 @@ def render_segments(container, n_segments: int) -> list[SegmentConfig]:
                     key=f"seg_{i}_name",
                 )
                 base_rev = sc1.number_input(
-                    "Basisumsatz (Mio. / Jahr 0)",
+                    "Basisumsatz (Mio., Jahr 0)",
                     value=1_000.0, min_value=0.01,
                     key=f"seg_{i}_basrev", format="%.1f",
                 )
                 forecast_yrs = sc2.number_input(
-                    "Detail-Prognosezeitraum (Jahre)",
+                    "Detailzeitraum (Jahre)",
                     value=5, min_value=1, max_value=30,
                     key=f"seg_{i}_fyrs",
                 )
@@ -63,7 +64,7 @@ def render_segments(container, n_segments: int) -> list[SegmentConfig]:
                 # ── Revenue growth mode ───────────────────────────────
 
                 growth_mode_str = st.selectbox(
-                    "Umsatzwachstums-Modell",
+                    "Wachstumsmodell",
                     options=[m.value for m in RevenueGrowthMode],
                     key=f"seg_{i}_growth_mode",
                     help="Konstant: gleiche Rate jedes Jahr. "
@@ -171,7 +172,7 @@ def render_segments(container, n_segments: int) -> list[SegmentConfig]:
 
                 # ── Terminal value ────────────────────────────────────
                 st.markdown("---")
-                st.markdown("##### 🏁 Terminal Value")
+                st.markdown("##### 🏁 Terminalannahmen")
 
                 tv_method_str = st.selectbox(
                     "Methode",
@@ -246,7 +247,7 @@ def render_segments(container, n_segments: int) -> list[SegmentConfig]:
                 # ── Build config object ───────────────────────────────
                 # ── Intra-segment parameter correlation ─────────────
                 st.markdown("---")
-                st.markdown("##### 🔗 Intra-Segment Parameterkorrelation")
+                st.markdown("##### 🔗 Intra-Segment-Korrelation")
                 enable_intra_corr = st.checkbox(
                     "Parameterkorrelation innerhalb des Segments aktivieren",
                     value=False, key=f"seg_{i}_intra_corr",

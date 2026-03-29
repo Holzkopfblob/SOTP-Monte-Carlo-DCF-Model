@@ -9,30 +9,35 @@ from domain.models import SamplingMethod
 
 def render_setup_simulation_section() -> dict:
     """Render global simulation controls and return normalized values."""
+    st.subheader("⚙️ Simulations-Setup")
+    st.caption("Definieren Sie Umfang, Reproduzierbarkeit und Sampling der Monte-Carlo-Simulation.")
+
+    st.markdown("##### Umfang")
     col_a, col_b = st.columns(2)
     with col_a:
         n_simulations = st.number_input(
-            "Anzahl Monte-Carlo-Iterationen",
+            "Iterationen",
             min_value=1_000, max_value=500_000, value=10_000, step=1_000,
             help="Mehr Iterationen -> genauere Ergebnisse, längere Laufzeit.",
             key="setup_n_sim",
         )
         random_seed = st.number_input(
-            "Random Seed (Reproduzierbarkeit)",
+            "Seed (Reproduzierbarkeit)",
             value=42, min_value=0, key="setup_seed",
         )
     with col_b:
         n_segments = st.number_input(
-            "Anzahl Geschäftssegmente",
+            "Segmente",
             min_value=1, max_value=20, value=2,
             help="Für jedes Segment wird ein separater DCF berechnet.",
             key="setup_n_seg",
         )
 
+    st.markdown("##### Methodik")
     col_c, col_d = st.columns(2)
     with col_c:
         sampling_label = st.selectbox(
-            "Sampling-Methode (Varianzreduktion)",
+            "Sampling",
             [s.value for s in SamplingMethod],
             index=0,
             key="setup_sampling",
@@ -45,7 +50,7 @@ def render_setup_simulation_section() -> dict:
     _ = col_d
     st.markdown("")
     mid_year_conv = st.checkbox(
-        "⏱️ Mid-Year Discounting Convention",
+        "⏱️ Mid-Year Convention aktiv",
         value=True, key="setup_mid_year",
         help="Diskontiert FCFFs zur Jahresmitte (t−0,5) statt zum Jahresende. "
              "Standardpraxis bei DCF-Bewertungen, da Cashflows unterjährig anfallen.",

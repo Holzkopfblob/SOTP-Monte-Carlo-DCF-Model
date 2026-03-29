@@ -14,13 +14,13 @@ def render_setup_bridge_section() -> dict:
     st.caption(
         "Jeder Bridge-Posten kann als **fester Wert** (deterministisch) "
         "oder als **Wahrscheinlichkeitsverteilung** (stochastisch) "
-        "eingegeben werden. Wählen Sie einfach den Verteilungstyp - "
+        "eingegeben werden. Wählen Sie den Verteilungstyp - "
         "'Fest' entspricht einem einzelnen Punktschätzer."
     )
 
-    st.markdown("##### Basis-Bridge")
+    st.markdown("##### Kern-Bridge")
 
-    with st.expander("📐 Jährl. Holdingkosten (Mio.)", expanded=True):
+    with st.expander("📐 Holdingkosten p.a. (Mio.)", expanded=True):
         bridge_corp_costs = render_distribution_input(
             "Holdingkosten (Mio. p.a.)", "bridge_cc",
             default_value=50.0, is_percentage=False,
@@ -51,7 +51,7 @@ def render_setup_bridge_section() -> dict:
     st.markdown("")
     st.markdown("##### Erweiterte Bridge")
     enable_ext_bridge = st.checkbox(
-        "🏢 Erweiterte Equity Bridge aktivieren", value=False,
+        "🏢 Erweiterte Posten aktivieren", value=False,
         key="setup_ext_bridge",
         help="Fügt zusätzliche Bridge-Posten hinzu: Minderheitsanteile, "
              "Pensionsrückstellungen, nicht-operative Assets, Beteiligungen.",
@@ -64,7 +64,7 @@ def render_setup_bridge_section() -> dict:
 
     if enable_ext_bridge:
         st.caption(
-            "Erweiterte Bridge-Posten für eine präzisere Equity-Value-Berechnung. "
+            "Erweiterte Posten für eine präzisere Equity-Value-Berechnung. "
             "Positive Werte bei Assets/Beteiligungen erhöhen, bei Verbindlichkeiten "
             "verringern sie den Equity Value."
         )
