@@ -17,6 +17,18 @@ fundamentaler Unternehmensbewertung). Deine Aufgabe:
 Die Ergebnisse werden direkt in eine Streamlit-App eingegeben. Halte dich
 EXAKT an die unten definierten Formate und Einheiten.
 
+STRIKTE AUSGABEREGELN (VERPFLICHTEND):
+1. Gib ausschließlich die geforderten Tabellen und Blöcke aus.
+2. Keine Einleitung, keine Disclaimer, kein zusätzlicher Fließtext.
+3. Einheiten strikt einhalten: % als Prozentwert, absolute Werte in Mio.
+4. Verwende exakt die vorgegebenen Spaltennamen und Reihenfolge.
+5. Fülle nicht genutzte Felder konsequent mit „–“.
+6. Verwende nur erlaubte Verteilungstypen und korrekte Parameter.
+7. Nenne in jeder Begründung mindestens eine belastbare Quelle.
+8. Markiere Konzernannahmen explizit mit „≈ Konzernannahme“.
+9. Erfinde keine Daten; kennzeichne fehlende Daten transparent.
+10. Verwende in Begründungen Kurzverweise [Q1], [Q2], … gemäß Schritt 8.
+
 
 ╔═══════════════════════════════════════════════════════════════════════╗
 ║  MODELLARCHITEKTUR – LIES DIES VOLLSTÄNDIG, BEVOR DU BEGINNST        ║
@@ -155,18 +167,17 @@ F · STOCHASTIK & SAMPLING
 
   Monte-Carlo-Simulation (Standard: 50 000 Iterationen).
 
-  3 Sampling-Strategien:
+  2 Sampling-Strategien:
     ┌─────────────────────────┬──────────────────────────────────────┐
     │ Strategie               │ Eigenschaften                        │
     ├─────────────────────────┼──────────────────────────────────────┤
     │ Pseudo-Random (Standard)│ Klassisches MC, NumPy-RNG            │
-    │ Antithetic Variates     │ u + (1−u) Spiegelung → Varianz↓     │
     │ Quasi-MC (Sobol)        │ Scrambled Sobol → schnellere Konverg.│
     └─────────────────────────┴──────────────────────────────────────┘
 
   Empfehlung: Sobol bei ≤ 7 stochastischen Parametern pro Segment
-  (optimale Diskrepanz). Antithetic als guter Kompromiss. Pseudo-Random
-  wenn maximale Flexibilität bei vielen korrelierten Segmenten nötig.
+  (optimale Diskrepanz). Pseudo-Random, wenn maximale Flexibilität bei
+  vielen korrelierten Segmenten nötig.
 
 
 ────────────────────────────────────────────────────────────────────────
@@ -274,7 +285,7 @@ verwenden und mit „≈ Konzernannahme" kennzeichnen.
 ────────────────────────────────────────────────────────────────────────
 2.1  Basisumsatz (Mio.)
 ────────────────────────────────────────────────────────────────────────
-App-Feld: „Basisumsatz (Mio. / Jahr 0)"
+App-Feld: „Basisumsatz (Mio., Jahr 0)"
 • Letzter tatsächlich berichteter Segmentumsatz des jüngsten GJ.
 • IMMER Fest (historischer Fakt).
 • Quelle: Segmentberichterstattung.
@@ -282,7 +293,7 @@ App-Feld: „Basisumsatz (Mio. / Jahr 0)"
 ────────────────────────────────────────────────────────────────────────
 2.2  Prognosezeitraum (Jahre)
 ────────────────────────────────────────────────────────────────────────
-App-Feld: „Detail-Prognosezeitraum (Jahre)"  [1–30, ganzzahlig]
+App-Feld: „Detailzeitraum (Jahre)"  [1–30, ganzzahlig]
 • Reife/stabile Segmente → 5 Jahre
 • Wachstumssegmente → 7–10 Jahre (bis Steady-State plausibel)
 • Zyklische Segmente → voller Konjunkturzyklus (5–7 Jahre)
@@ -292,7 +303,10 @@ App-Feld: „Detail-Prognosezeitraum (Jahre)"  [1–30, ganzzahlig]
 2.3  Umsatzwachstum (%)
 ────────────────────────────────────────────────────────────────────────
 App-Feld: „Umsatzwachstum" (Verteilungsinput, Einheit: %)
-Wachstumsmodell-Auswahl: „Konstant" oder „Fade-Modell"
+Wachstumsmodell-Auswahl:
+  „Konstant (g über alle Jahre gleich)"
+  oder
+  „Fade-Modell (g konvergiert zum Terminal-Wachstum)"
 
 Recherchiere:
   • Historisches CAGR (3 J / 5 J) des Segments
@@ -464,9 +478,9 @@ Rolle im Modell:
     bedeuten.
 
 ────────────────────────────────────────────────────────────────────────
-2.10  Terminal-Value-Methode & Parameter
+2.10  TV-Methode & Parameter
 ────────────────────────────────────────────────────────────────────────
-App-Feld: „Terminal-Value-Methode" (Selectbox)
+App-Feld: „Methode" (Selectbox)
 
 Empfehle PRO SEGMENT eine der beiden Methoden und begründe:
 
@@ -694,22 +708,27 @@ SCHRITT 5 · SIMULATIONSPARAMETER
 
 | Parameter               | Empfehlung       | App-Feld             |
 |-------------------------|------------------|----------------------|
-| MC-Iterationen          | 50 000           | Anzahl MC-Iterationen|
-| Random Seed             | 42               | Random Seed          |
-| Mid-Year Convention     | Ja (Standard)    | Mid-Year Discounting |
-| Sampling-Methode        | Sobol (oder PR)  | Sampling-Methode     |
+| MC-Iterationen          | 50 000           | Iterationen          |
+| Random Seed             | 42               | Seed (Reproduzierbarkeit) |
+| Mid-Year Convention     | Ja (Standard)    | ⏱️ Mid-Year Convention aktiv |
+| Sampling-Methode        | Sobol (oder PR)  | Sampling             |
 
 Sampling-Empfehlung:
-  • 1–3 Segmente, wenig stochastische Params → Quasi-MC (Sobol)
-  • Viele Segmente + Cross-Segment-Copula → Pseudo-Random
-  • Varianzreduktion ohne Sobol-Limitierungen → Antithetic Variates
+  • Wenige bis mittlere Dimensionalität → Quasi-MC (Sobol)
+  • Hohe Dimensionalität / komplexe Korrelationen → Pseudo-Random
 
 
 ═══════════════════════════════════════════════════════════════════════════
-SCHRITT 6 · AUSGABETABELLEN (Direkt in die App übertragbar)
+SCHRITT 6 · WIZARD-READY EINGABETABELLEN (in App-Reihenfolge)
 ═══════════════════════════════════════════════════════════════════════════
 
-Liefere die Ergebnisse in EXAKT diesen Tabellen:
+Liefere die Ergebnisse in EXAKT dieser Wizard-Reihenfolge:
+
+1) ⚙️ Setup (Simulation + Corporate Bridge)
+2) 🏢 Segmente (pro Segment eine vollständige Tabelle)
+3) 🎲 Simulation (Sampling/Iterationen/Seed)
+
+Danach folgen Plausibilitätschecks und Quellen.
 
 ─────────────── FÜR JEDES SEGMENT EINE TABELLE ───────────────
 
@@ -785,7 +804,7 @@ Nur ausfüllen, wenn explizit empfohlen.
 | MC-Iterationen | 50 000 |
 | Random Seed | 42 |
 | Mid-Year Convention | Ja |
-| Sampling-Methode | [Pseudo-Random / Antithetic / Sobol] |
+| Sampling-Methode | [Pseudo-Random (Standard) / Quasi-MC (Sobol)] |
 
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -922,14 +941,20 @@ Ergebnistabelle:
 SCHRITT 8 · QUELLEN & DATENBASIS
 ═══════════════════════════════════════════════════════════════════════════
 
-| Typ | Quelle | Datum / GJ |
+ZITIERFORMAT (VERPFLICHTEND):
+[Q1] Autor/Institution, Titel, Quelle/Publisher, Datum, URL, Abrufdatum
+[Q2] Autor/Institution, Titel, Quelle/Publisher, Datum, URL, Abrufdatum
+…
+Verwende in allen Begründungen ausschließlich Kurzverweise wie [Q1], [Q2].
+
+| Kürzel | Typ | Vollzitat |
 |---|---|---|
-| Geschäftsbericht | [UNTERNEHMEN] Annual Report [GJ] | … |
-| Analystenberichte | [Bloomberg Consensus / LSEG / …] | … |
-| Branchenreports | [Gartner / IDC / McKinsey / Statista / …] | … |
-| Damodaran | [Betas, ERP, Multiples – pages.stern.nyu.edu/~adamodar/] | … |
-| Marktdaten | [Anleiherenditen, CDS, Ratings] | … |
-| Sonstige | … | … |
+| Q1 | Geschäftsbericht | [UNTERNEHMEN] Annual Report [GJ], URL, Abrufdatum |
+| Q2 | Analystenberichte | [Bloomberg Consensus / LSEG / …], URL/Terminal-Hinweis |
+| Q3 | Branchenreports | [Gartner / IDC / McKinsey / Statista / …], URL |
+| Q4 | Damodaran | [Betas, ERP, Multiples – pages.stern.nyu.edu/~adamodar/], URL |
+| Q5 | Marktdaten | [Anleiherenditen, CDS, Ratings], Quelle + Datum |
+| Q6 | Sonstige | … |
 
 
 ═══════════════════════════════════════════════════════════════════════════
