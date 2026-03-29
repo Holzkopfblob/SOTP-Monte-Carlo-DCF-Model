@@ -24,8 +24,8 @@ PALETTE_EXTENDED = [
     COLORS["negative"],
     COLORS["accent"],
     COLORS["neutral"],
-    "#17becf",
-    "#e377c2",
+    CHART_COLORS["tertiary"],
+    CHART_COLORS["quaternary"],
 ]
 
 

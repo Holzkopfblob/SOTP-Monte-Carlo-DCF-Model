@@ -37,11 +37,11 @@ def _split_bridge_param(
 
 
 def render_simulation(
-    tab,
+    container,
     setup: dict,
     segment_configs: list[SegmentConfig],
 ) -> None:
-    """Render Tab 3 (Simulation).
+    """Render Simulation step.
 
     Reads setup parameters and segment configs, builds a
     :class:`SimulationConfig`, runs the MC engine and stores results
@@ -51,7 +51,7 @@ def render_simulation(
     n_segments = setup["n_segments"]
     random_seed = setup["random_seed"]
 
-    with tab:
+    with container:
         st.header("Monte-Carlo-Simulation starten")
 
         st.info(
@@ -141,6 +141,6 @@ def render_simulation(
         if st.session_state.results is not None:
             st.markdown("---")
             st.markdown(
-                "➡️ Wechseln Sie zum Tab **📈 Ergebnisse** "
+                "➡️ Gehen Sie im Wizard weiter zu **📈 Ergebnisse** "
                 "für die vollständige Auswertung."
             )

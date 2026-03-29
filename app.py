@@ -6,8 +6,8 @@ Main entry point.  Run with::
 
     streamlit run app.py
 
-The application uses four tabs, each implemented in a dedicated module
-under ``presentation/pages/``:
+The application uses a four-step wizard, each step implemented in a
+dedicated module under ``presentation/pages/``:
 
     1. Setup          – dcf_setup.py
     2. Segmente       – dcf_segments.py
@@ -65,6 +65,7 @@ def _is_config_key(k: str) -> bool:
     """Return True if *k* is a config-managed session-state key."""
     return (
         k.startswith(("setup_", "bridge_", "seg_", "corr_"))
+        or k.startswith("wizard_")
         or (len(k) > 2 and k[1].isdigit() and k.startswith("s") and "_" in k)
         or k in ("results", "config", "_config_just_loaded")
     )
@@ -84,6 +85,9 @@ def _apply_config(cfg: dict) -> None:
         if k in _WIDGET_KEYS or not _is_config_key(k):
             continue
         st.session_state[k] = v
+    st.session_state["wizard_step"] = "setup"
+    st.session_state["wizard_setup"] = None
+    st.session_state["wizard_segments"] = None
     st.session_state["_config_just_loaded"] = True
     st.rerun()
 
@@ -138,8 +142,8 @@ with st.sidebar:
             try:
                 raw = uploaded_cfg.getvalue().decode("utf-8")
                 loaded = json.loads(raw)
-                if "setup" not in loaded:
-                    st.error("Ungültiges Dateiformat – 'setup' fehlt.")
+                if "ui_state" not in loaded and "setup" not in loaded:
+                    st.error("Ungültiges Dateiformat – erwartete 'ui_state' oder Legacy-'setup'.")
                 else:
                     _apply_config(loaded)
             except json.JSONDecodeError:
@@ -161,20 +165,129 @@ if "results" not in st.session_state:
     st.session_state.results = None
 if "config" not in st.session_state:
     st.session_state.config = None
+if "wizard_step" not in st.session_state:
+    st.session_state.wizard_step = "setup"
+if "wizard_setup" not in st.session_state:
+    st.session_state.wizard_setup = None
+if "wizard_segments" not in st.session_state:
+    st.session_state.wizard_segments = None
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Tabs – delegates to presentation.pages.dcf_*
+# Wizard flow – delegates to presentation.pages.dcf_*
 # ══════════════════════════════════════════════════════════════════════════
 
-tab_setup, tab_segments, tab_sim, tab_results = st.tabs([
-    "⚙️ Setup",
-    "🏢 Segmente",
-    "🎲 Simulation",
-    "📈 Ergebnisse",
-])
+WIZARD_STEPS: list[tuple[str, str]] = [
+    ("setup", "⚙️ Setup"),
+    ("segments", "🏢 Segmente"),
+    ("simulation", "🎲 Simulation"),
+    ("results", "📈 Ergebnisse"),
+]
 
-setup = render_setup(tab_setup)
-segment_configs = render_segments(tab_segments, setup["n_segments"])
-render_simulation(tab_sim, setup, segment_configs)
-render_results(tab_results)
+
+def _step_index(step: str) -> int:
+    for idx, (step_id, _) in enumerate(WIZARD_STEPS):
+        if step_id == step:
+            return idx
+    return 0
+
+
+def _go_to(step: str) -> None:
+    st.session_state.wizard_step = step
+    st.rerun()
+
+
+current_step = st.session_state.wizard_step
+current_idx = _step_index(current_step)
+
+st.markdown("### Schritt-für-Schritt Workflow")
+progress_cols = st.columns(len(WIZARD_STEPS))
+for idx, ((step_id, label), col) in enumerate(zip(WIZARD_STEPS, progress_cols)):
+    if idx < current_idx:
+        state_label = "✅"
+    elif idx == current_idx:
+        state_label = "➡️"
+    else:
+        state_label = "◻️"
+    col.caption(f"{state_label} {label}")
+
+st.progress((current_idx + 1) / len(WIZARD_STEPS))
+st.markdown("")
+
+container = st.container()
+
+if current_step == "setup":
+    setup = render_setup(container)
+
+    nav_left, nav_right = st.columns([1, 1])
+    with nav_left:
+        st.button("Zurück", disabled=True, use_container_width=True)
+    with nav_right:
+        if st.button("Weiter: Segmente", type="primary", use_container_width=True):
+            previous_setup = st.session_state.wizard_setup or {}
+            previous_n_segments = previous_setup.get("n_segments")
+            st.session_state.wizard_setup = setup
+            if previous_n_segments != setup.get("n_segments"):
+                st.session_state.wizard_segments = None
+                st.session_state.results = None
+                st.session_state.config = None
+            _go_to("segments")
+
+elif current_step == "segments":
+    setup = st.session_state.wizard_setup
+    if setup is None:
+        st.warning("Bitte zuerst den Setup-Schritt ausfüllen.")
+        if st.button("Zurück zu Setup", type="primary"):
+            _go_to("setup")
+    else:
+        segment_configs = render_segments(container, int(setup["n_segments"]))
+        nav_left, nav_right = st.columns([1, 1])
+        with nav_left:
+            if st.button("Zurück: Setup", use_container_width=True):
+                _go_to("setup")
+        with nav_right:
+            if st.button("Weiter: Simulation", type="primary", use_container_width=True):
+                st.session_state.wizard_segments = segment_configs
+                st.session_state.results = None
+                st.session_state.config = None
+                _go_to("simulation")
+
+elif current_step == "simulation":
+    setup = st.session_state.wizard_setup
+    segment_configs = st.session_state.wizard_segments
+
+    if setup is None:
+        st.warning("Bitte zuerst den Setup-Schritt ausfüllen.")
+        if st.button("Zurück zu Setup", type="primary"):
+            _go_to("setup")
+    elif not segment_configs:
+        st.warning("Bitte zuerst die Segmente konfigurieren.")
+        if st.button("Zurück zu Segmente", type="primary"):
+            _go_to("segments")
+    else:
+        render_simulation(container, setup, segment_configs)
+        nav_left, nav_right = st.columns([1, 1])
+        with nav_left:
+            if st.button("Zurück: Segmente", use_container_width=True):
+                _go_to("segments")
+        with nav_right:
+            can_go_results = st.session_state.results is not None
+            if st.button(
+                "Weiter: Ergebnisse",
+                type="primary",
+                use_container_width=True,
+                disabled=not can_go_results,
+            ):
+                _go_to("results")
+
+elif current_step == "results":
+    render_results(container)
+    nav_left, nav_right = st.columns([1, 1])
+    with nav_left:
+        if st.button("Zurück: Simulation", use_container_width=True):
+            _go_to("simulation")
+    with nav_right:
+        st.button("Weiter", disabled=True, use_container_width=True)
+else:
+    st.session_state.wizard_step = "setup"
+    st.rerun()

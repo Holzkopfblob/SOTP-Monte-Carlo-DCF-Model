@@ -78,12 +78,13 @@ def _build_state(n_segments: int = 1, *, with_fade: bool = False,
 class TestCollectConfig:
     def test_returns_versioned_dict(self):
         cfg = collect_config(_build_state())
-        assert cfg["version"] == 1
+        assert cfg["schema_version"] == 2
         assert "saved_at" in cfg
+        assert "ui_state" in cfg
 
     def test_setup_section(self):
         cfg = collect_config(_build_state())
-        setup = cfg["setup"]
+        setup = cfg["ui_state"]["setup"]
         assert setup["setup_n_sim"] == 10_000
         assert setup["setup_seed"] == 42
         assert setup["setup_mid_year"] is True
@@ -91,42 +92,42 @@ class TestCollectConfig:
 
     def test_bridge_section(self):
         cfg = collect_config(_build_state())
-        bridge = cfg["bridge"]
+        bridge = cfg["ui_state"]["bridge"]
         assert bridge["bridge_cc_dtype"] == "Fest (Deterministisch)"
         assert bridge["bridge_cc_fixed"] == 50.0
 
     def test_segment_count_matches(self):
         for n in (1, 3):
             cfg = collect_config(_build_state(n_segments=n))
-            assert len(cfg["segments"]) == n
+            assert len(cfg["ui_state"]["segments"]) == n
 
     def test_segment_contains_expected_keys(self):
         cfg = collect_config(_build_state(1))
-        seg = cfg["segments"][0]
+        seg = cfg["ui_state"]["segments"][0]
         assert seg["seg_0_name"] == "Segment 0"
         assert seg["seg_0_basrev"] == 1_000.0
         assert seg["s0_rg_dtype"] == "Normal"
 
     def test_growth_mode_saved(self):
         cfg = collect_config(_build_state(1, with_fade=True))
-        seg = cfg["segments"][0]
+        seg = cfg["ui_state"]["segments"][0]
         assert seg["seg_0_growth_mode"] == "Fade-Modell (g konvergiert zum Terminal-Wachstum)"
         assert seg["seg_0_fade_speed"] == pytest.approx(0.7)
         assert seg["seg_0_param_fade"] is True
 
     def test_constant_growth_mode_saved(self):
         cfg = collect_config(_build_state(1))
-        seg = cfg["segments"][0]
+        seg = cfg["ui_state"]["segments"][0]
         assert seg["seg_0_growth_mode"] == "Konstant (g \u00fcber alle Jahre gleich)"
 
     def test_sampling_method_saved(self):
         cfg = collect_config(_build_state(1))
-        assert cfg["setup"]["setup_sampling"] == "Pseudo-Random (Standard)"
+        assert cfg["ui_state"]["setup"]["setup_sampling"] == "Pseudo-Random (Standard)"
 
     def test_cross_segment_correlation_saved(self):
         cfg = collect_config(_build_state(2, with_corr=True))
-        assert cfg["setup"]["setup_corr_enable"] is True
-        corr = cfg["correlation"]
+        assert cfg["ui_state"]["setup"]["setup_corr_enable"] is True
+        corr = cfg["ui_state"]["correlation"]
         assert corr["corr_0_0"] == 1.0
         assert corr["corr_0_1"] == 0.5
         assert corr["corr_1_0"] == 0.5
@@ -134,7 +135,7 @@ class TestCollectConfig:
 
     def test_intra_segment_correlation_saved(self):
         cfg = collect_config(_build_state(1, with_intra_corr=True))
-        seg = cfg["segments"][0]
+        seg = cfg["ui_state"]["segments"][0]
         assert seg["seg_0_intra_corr"] is True
         assert seg["seg_0_ic_0_0"] == 1.0
         assert seg["seg_0_ic_0_1"] == 0.3
@@ -145,9 +146,17 @@ class TestCollectConfig:
         state["s0_em_term_dtype"] = "Fest (Deterministisch)"
         state["s0_em_term_fixed"] = np.float64(0.18)
         cfg = collect_config(state)
-        seg = cfg["segments"][0]
+        seg = cfg["ui_state"]["segments"][0]
         assert seg["s0_em_term_dtype"] == "Fest (Deterministisch)"
         assert seg["s0_em_term_fixed"] == pytest.approx(0.18)
+
+    def test_simulation_metadata_section(self):
+        cfg = collect_config(_build_state(2, with_corr=True))
+        sim = cfg["simulation"]
+        assert sim["n_simulations"] == 10_000
+        assert sim["random_seed"] == 42
+        assert sim["n_segments"] == 2
+        assert sim["segment_correlation_enabled"] is True
 
     def test_numpy_coerced_to_native(self):
         """All numpy scalars must become plain int / float for JSON."""
@@ -214,6 +223,20 @@ class TestApplyConfig:
         before_keys = set(original.keys())
         apply_config(cfg, original)
         assert set(original.keys()) == before_keys
+
+    def test_legacy_v1_payload_still_supported(self):
+        legacy_cfg = {
+            "version": 1,
+            "setup": {"setup_n_sim": 1_234, "setup_seed": 7},
+            "bridge": {"bridge_cc_dtype": "Fest (Deterministisch)", "bridge_cc_fixed": 50.0},
+            "segments": [{"seg_0_name": "Legacy Segment"}],
+            "correlation": {"corr_0_0": 1.0},
+        }
+        updated = apply_config(legacy_cfg, {})
+        assert updated["setup_n_sim"] == 1_234
+        assert updated["setup_seed"] == 7
+        assert updated["seg_0_name"] == "Legacy Segment"
+        assert updated["corr_0_0"] == pytest.approx(1.0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

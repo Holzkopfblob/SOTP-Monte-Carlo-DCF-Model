@@ -20,13 +20,13 @@ from presentation.ui_helpers import (
 )
 
 
-def render_setup(tab) -> dict:
-    """Render Tab 1 (Setup) and return all configuration values as a dict.
+def render_setup(container) -> dict:
+    """Render Setup step and return all configuration values as a dict.
 
     The returned dict contains every scalar/distribution needed by downstream
     tabs (segments, simulation).
     """
-    with tab:
+    with container:
         st.header("Modell-Konfiguration")
         render_info_sotp()
         render_info_monte_carlo()

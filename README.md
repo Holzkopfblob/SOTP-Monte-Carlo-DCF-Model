@@ -7,6 +7,12 @@
 
 Interaktive Streamlit-Anwendung für stochastische Sum-of-the-Parts-Unternehmensbewertung mit Monte-Carlo-Simulation.
 
+## ✅ Voraussetzungen
+
+- Python 3.10+
+- `pip` (oder venv/conda)
+- Empfohlen: virtuelle Umgebung
+
 ## ✨ Features
 
 - Vektorisierte MC-Engine (NumPy) mit Pseudo-Random und Sobol-Sampling
@@ -25,6 +31,37 @@ cd SOTP-Monte-Carlo-DCF-Model
 pip install -r requirements.txt
 streamlit run app.py
 ```
+
+### Windows (PowerShell, empfohlen)
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+### Linux / macOS
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+## 🧭 Nutzung (Wizard-Flow)
+
+1. **Setup:** Simulation, Segmentanzahl, Bridge und Segment-Korrelation festlegen.
+2. **Segmente:** Treiber, TV-Methodik, Fade-Optionen und intra-segment Korrelation pflegen.
+3. **Simulation:** Lauf starten und Ergebnisse in Session laden.
+4. **Ergebnisse:** Überblick, Risiko, Treiber, Qualität, Detail-Analysen und Export.
+
+## 💾 Konfiguration speichern/laden
+
+- Export/Import erfolgt über die Sidebar als JSON.
+- Aktuelles Format nutzt `schema_version: 2` mit `ui_state`.
+- Legacy-Dateien mit altem `setup`-Root werden weiterhin eingelesen.
 
 ## 🏗 Architektur
 
@@ -54,6 +91,12 @@ SOTP-Monte-Carlo-DCF-Model/
 ```bash
 pytest -q
 ```
+
+## 🛠 Troubleshooting
+
+- **`streamlit`/`pytest` nicht gefunden:** virtuelle Umgebung aktivieren.
+- **Leere Ergebnisseite:** zuerst im Schritt **Simulation** ausführen.
+- **Langsame Detailcharts:** in Ergebnisse unter „Erweiterte Detailcharts (lazy)" nur bei Bedarf aktivieren.
 
 ## 📄 Lizenz
 

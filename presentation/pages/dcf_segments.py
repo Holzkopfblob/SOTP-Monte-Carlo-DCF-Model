@@ -26,11 +26,11 @@ from presentation.ui_helpers import (
 from presentation.charts import revenue_fade_preview, parameter_fade_preview
 
 
-def render_segments(tab, n_segments: int) -> list[SegmentConfig]:
-    """Render Tab 2 (Segmente) and return the list of segment configs."""
+def render_segments(container, n_segments: int) -> list[SegmentConfig]:
+    """Render Segments step and return the list of segment configs."""
     segment_configs: list[SegmentConfig] = []
 
-    with tab:
+    with container:
         st.header("Segment-Konfiguration")
         render_info_fcff()
         render_info_wacc()

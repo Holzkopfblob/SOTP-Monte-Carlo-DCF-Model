@@ -1,4 +1,4 @@
-"""GUI contract tests for DCF setup/results orchestrators."""
+"""GUI contract tests for the wizard-based DCF flow."""
 
 from __future__ import annotations
 
@@ -7,29 +7,16 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DCF_SETUP = ROOT / "presentation" / "pages" / "dcf_setup.py"
+APP_FILE = ROOT / "app.py"
 DCF_RESULTS = ROOT / "presentation" / "pages" / "dcf_results.py"
 
-EXPECTED_SETUP_KEYS = {
-    "n_simulations",
-    "random_seed",
-    "n_segments",
-    "mid_year_conv",
-    "sampling_method",
-    "bridge_corp_costs",
-    "bridge_corp_discount",
-    "bridge_net_debt",
-    "bridge_shares",
-    "bridge_minority",
-    "bridge_pension",
-    "bridge_non_op",
-    "bridge_associates",
-    "segment_correlation",
-}
+
+def _module_node(file_path: Path) -> ast.Module:
+    return ast.parse(file_path.read_text(encoding="utf-8"))
 
 
 def _function_node(file_path: Path, function_name: str) -> ast.FunctionDef:
-    module = ast.parse(file_path.read_text(encoding="utf-8"))
+    module = _module_node(file_path)
     for node in module.body:
         if isinstance(node, ast.FunctionDef) and node.name == function_name:
             return node
@@ -56,14 +43,68 @@ def _return_dict_keys(func: ast.FunctionDef) -> set[str]:
     raise AssertionError("No dict return found")
 
 
-def test_render_setup_returns_stable_contract_keys() -> None:
-    """render_setup must keep the stable key contract used by simulation/config IO."""
-    fn = _function_node(DCF_SETUP, "render_setup")
-    assert _return_dict_keys(fn) == EXPECTED_SETUP_KEYS
+def _assignment_value(module: ast.Module, var_name: str):
+    for node in module.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == var_name:
+                    return node.value
+        if isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and node.target.id == var_name:
+                return node.value
+    raise AssertionError(f"Assignment for {var_name!r} not found")
 
 
-def test_render_results_enforces_insight_order_snapshot() -> None:
-    """render_results follows the agreed insight order: Executive -> Risiko -> Treiber -> Detail."""
+def _is_streamlit_call(node: ast.Call, method_name: str) -> bool:
+    func = node.func
+    return (
+        isinstance(func, ast.Attribute)
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "st"
+        and func.attr == method_name
+    )
+
+
+def test_app_defines_wizard_steps_contract() -> None:
+    """Wizard steps remain deterministic: setup -> segments -> simulation -> results."""
+    module = _module_node(APP_FILE)
+    wizard_steps = _assignment_value(module, "WIZARD_STEPS")
+    assert isinstance(wizard_steps, ast.List)
+
+    parsed_ids: list[str] = []
+    for item in wizard_steps.elts:
+        assert isinstance(item, ast.Tuple)
+        assert len(item.elts) == 2
+        step_id = item.elts[0]
+        assert isinstance(step_id, ast.Constant)
+        assert isinstance(step_id.value, str)
+        parsed_ids.append(step_id.value)
+
+    assert parsed_ids == ["setup", "segments", "simulation", "results"]
+
+
+def test_app_no_longer_uses_tabs_navigation() -> None:
+    """UI navigation contract: app shell uses wizard state, not st.tabs."""
+    module = _module_node(APP_FILE)
+    tabs_calls = [
+        node
+        for node in ast.walk(module)
+        if isinstance(node, ast.Call) and _is_streamlit_call(node, "tabs")
+    ]
+    assert tabs_calls == []
+
+
+def test_app_initializes_wizard_state_keys() -> None:
+    """Wizard state keys are initialized in app shell session state."""
+    module = _module_node(APP_FILE)
+    source = APP_FILE.read_text(encoding="utf-8")
+    assert "if \"wizard_step\" not in st.session_state" in source
+    assert "if \"wizard_setup\" not in st.session_state" in source
+    assert "if \"wizard_segments\" not in st.session_state" in source
+
+
+def test_render_results_keeps_storyline_order() -> None:
+    """Results storyline remains: executive summary -> risk -> drivers -> detail."""
     fn = _function_node(DCF_RESULTS, "render_results")
     calls = _called_render_functions(fn)
 
@@ -76,7 +117,7 @@ def test_render_results_enforces_insight_order_snapshot() -> None:
 
 
 def test_render_results_detail_flow_snapshot() -> None:
-    """Detail flow remains deterministic for diagnostics, segment detail and exports."""
+    """Detail flow remains deterministic for diagnostics and export placement."""
     fn = _function_node(DCF_RESULTS, "render_results")
     calls = _called_render_functions(fn)
 

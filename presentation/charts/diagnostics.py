@@ -8,6 +8,15 @@ import plotly.graph_objects as go
 from .common import COLORS, PALETTE_EXTENDED, apply_figure_defaults
 
 
+def _hex_to_rgba(hex_color: str, alpha: float) -> str:
+    """Convert #RRGGBB to rgba(r, g, b, a) string for Plotly."""
+    h = hex_color.lstrip("#")
+    r = int(h[0:2], 16)
+    g = int(h[2:4], 16)
+    b = int(h[4:6], 16)
+    return f"rgba({r}, {g}, {b}, {alpha})"
+
+
 def convergence_chart(
     indices: np.ndarray,
     means: np.ndarray,
@@ -166,9 +175,9 @@ def quality_score_gauge(score: dict[str, float]) -> go.Figure:
             axis=dict(range=[0, 100]),
             bar=dict(color=COLORS["primary"]),
             steps=[
-                dict(range=[0, 40], color="#fee0d2"),
-                dict(range=[40, 70], color="#fff3cd"),
-                dict(range=[70, 100], color="#d4edda"),
+                dict(range=[0, 40], color=_hex_to_rgba(COLORS["negative"], 0.13)),
+                dict(range=[40, 70], color=_hex_to_rgba(COLORS["secondary"], 0.13)),
+                dict(range=[70, 100], color=_hex_to_rgba(COLORS["positive"], 0.13)),
             ],
             threshold=dict(line=dict(color=COLORS["negative"], width=3), thickness=0.8, value=total),
         ),

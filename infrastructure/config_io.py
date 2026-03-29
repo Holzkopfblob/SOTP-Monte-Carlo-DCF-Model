@@ -82,7 +82,10 @@ def collect_config(state: dict) -> dict:
     dict
         Versioned configuration ready for ``json.dumps``.
     """
-    cfg: dict = {"version": 1, "saved_at": datetime.now().isoformat()}
+    cfg: dict = {
+        "schema_version": 2,
+        "saved_at": datetime.now().isoformat(),
+    }
 
     # Setup parameters
     setup: dict = {}
@@ -97,7 +100,16 @@ def collect_config(state: dict) -> dict:
                 setup[k] = v
             else:
                 setup[k] = float(v)
-    cfg["setup"] = setup
+    ui_state: dict = {"setup": setup}
+
+    cfg["simulation"] = {
+        "n_simulations": int(setup.get("setup_n_sim", 10_000)),
+        "random_seed": int(setup.get("setup_seed", 42)),
+        "n_segments": int(setup.get("setup_n_seg", 1)),
+        "mid_year_convention": bool(setup.get("setup_mid_year", True)),
+        "sampling_method": setup.get("setup_sampling"),
+        "segment_correlation_enabled": bool(setup.get("setup_corr_enable", False)),
+    }
 
     # Bridge parameters (distribution inputs)
     bridge: dict = {}
@@ -109,7 +121,7 @@ def collect_config(state: dict) -> dict:
     # Also capture the ext-bridge checkbox
     if "setup_ext_bridge" in state:
         bridge["setup_ext_bridge"] = bool(state["setup_ext_bridge"])
-    cfg["bridge"] = bridge
+    ui_state["bridge"] = bridge
 
     # Per-segment parameters
     n_seg = int(state.get("setup_n_seg", 1))
@@ -135,7 +147,7 @@ def collect_config(state: dict) -> dict:
                 if key in state:
                     seg[key] = _coerce_json(state[key])
         segments.append(seg)
-    cfg["segments"] = segments
+    ui_state["segments"] = segments
 
     # Cross-segment correlation matrix
     correlation: dict = {}
@@ -144,9 +156,23 @@ def collect_config(state: dict) -> dict:
             key = f"corr_{row}_{col_idx}"
             if key in state:
                 correlation[key] = _coerce_json(state[key])
-    cfg["correlation"] = correlation
+    ui_state["correlation"] = correlation
+
+    cfg["ui_state"] = ui_state
 
     return cfg
+
+
+def _extract_ui_state(cfg: dict) -> dict:
+    """Return normalized ui_state from v2 schema or legacy v1 payload."""
+    if isinstance(cfg.get("ui_state"), dict):
+        return cfg["ui_state"]
+    return {
+        "setup": cfg.get("setup", {}),
+        "bridge": cfg.get("bridge", {}),
+        "segments": cfg.get("segments", []),
+        "correlation": cfg.get("correlation", {}),
+    }
 
 
 def apply_config(cfg: dict, state: dict) -> dict:
@@ -182,21 +208,23 @@ def apply_config(cfg: dict, state: dict) -> dict:
         if _CORR_PATTERN.match(k):
             del updated[k]
 
+    payload = _extract_ui_state(cfg)
+
     # Apply setup keys
-    for k, v in cfg.get("setup", {}).items():
+    for k, v in payload.get("setup", {}).items():
         updated[k] = v
 
     # Apply bridge keys
-    for k, v in cfg.get("bridge", {}).items():
+    for k, v in payload.get("bridge", {}).items():
         updated[k] = v
 
     # Apply segment keys
-    for seg_data in cfg.get("segments", []):
+    for seg_data in payload.get("segments", []):
         for k, v in seg_data.items():
             updated[k] = v
 
     # Apply cross-segment correlation keys
-    for k, v in cfg.get("correlation", {}).items():
+    for k, v in payload.get("correlation", {}).items():
         updated[k] = v
 
     return updated

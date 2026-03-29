@@ -27,4 +27,9 @@ CHART_COLORS = {
     "negative": "#d62728",
     "neutral": "#7f7f7f",
     "accent": "#9467bd",
+    "tertiary": "#17becf",
+    "quaternary": "#e377c2",
+    "danger_bg": "#fee0d2",
+    "warning_bg": "#fff3cd",
+    "success_bg": "#d4edda",
 }

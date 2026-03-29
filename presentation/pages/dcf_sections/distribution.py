@@ -5,6 +5,7 @@ from __future__ import annotations
 import streamlit as st
 
 from presentation.charts import cdf_plot, histogram_kde
+from presentation.theme.tokens import CHART_COLORS
 
 
 def render_distribution_section(results) -> None:
@@ -38,7 +39,7 @@ def render_distribution_section(results) -> None:
                 results.price_per_share,
                 "Verteilung – Preis je Aktie",
                 "Preis je Aktie",
-                color="#9467bd",
+                color=CHART_COLORS["accent"],
             ),
             use_container_width=True,
         )
@@ -48,7 +49,7 @@ def render_distribution_section(results) -> None:
                 results.price_per_share,
                 "CDF – Preis je Aktie",
                 "Preis je Aktie",
-                color="#9467bd",
+                color=CHART_COLORS["accent"],
             ),
             use_container_width=True,
         )
