@@ -81,3 +81,22 @@ Sie enthält ein vollständiges 3-Segment-Setup für Airbus (Setup, Corporate Br
 ## Hinweis
 
 Diese README beschreibt bewusst den Nutzer-Workflow der gehosteten App. Technische Setup-/Entwicklerhinweise sind hier nicht im Fokus.
+
+---
+
+## ⚠️ Disclaimer / Haftungsausschluss
+
+**Keine Anlageberatung**
+Diese Anwendung und alle damit erzeugten Ergebnisse stellen ausdrücklich **keine Anlageberatung, Vermögensberatung, Finanzanalyse oder Empfehlung zum Kauf oder Verkauf von Wertpapieren oder sonstigen Finanzinstrumenten** dar. Die bereitgestellten Modelle, Berechnungen und Ausgaben dienen ausschließlich allgemeinen Informations- und Bildungszwecken. Sie ersetzen nicht die individuelle Beratung durch eine zugelassene Finanzfachkraft oder einen regulierten Finanzdienstleister.
+
+**Keine Gewährleistung**
+Dieses Tool wird **ohne jegliche Gewährleistung** bereitgestellt – weder ausdrücklich noch stillschweigend. Insbesondere wird keine Gewährleistung für Richtigkeit, Vollständigkeit, Aktualität, Eignung für einen bestimmten Zweck oder Fehlerfreiheit der Berechnungen und Ausgaben übernommen. Die Nutzung erfolgt auf eigene Gefahr.
+
+**Haftungsausschluss**
+Der Ersteller dieses Tools übernimmt **keinerlei Haftung** für finanzielle Verluste, entgangene Gewinne oder sonstige Schäden, die unmittelbar oder mittelbar aus der Nutzung dieses Tools oder der daraus gewonnenen Ergebnisse entstehen. Dies gilt insbesondere für Anlage- oder Investitionsentscheidungen, die auf Basis der generierten Ausgaben getroffen werden.
+
+**KI-gestützte Entwicklung**
+Dieses Tool wurde unter Einsatz von **GitHub Copilot** (einem KI-gestützten Programmierwerkzeug von GitHub/Microsoft) entwickelt. Die generierten Code-Bestandteile wurden soweit möglich geprüft, jedoch wird keine Garantie für die Korrektheit oder Sicherheit KI-generierter Anteile übernommen.
+
+**Geltungsbereich**
+Dieser Haftungsausschluss gilt für alle Nutzer dieser Anwendung unabhängig von ihrem Standort. Soweit zwingende gesetzliche Vorschriften eine Haftungsbeschränkung im Einzelfall ausschließen, bleibt die gesetzlich vorgeschriebene Haftung unberührt.
