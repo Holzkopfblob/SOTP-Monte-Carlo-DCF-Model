@@ -474,3 +474,200 @@ def diff_configs(old: dict, new: dict) -> list[dict]:
             "quelle": quelle,
         })
     return rows
+
+
+# ── State → SimulationConfig (single conversion point) ────────────────
+#
+# The Streamlit pages render widgets whose values live in the session
+# state under the keys above.  These functions turn such a flat state
+# (``st.session_state`` or ``apply_config(cfg, {})``) into domain objects,
+# so the app and headless runs share one conversion: % → decimal,
+# Lognormal display mean/std → underlying μ/σ, and the segment rules.
+# Defaults mirror the widget defaults for keys that are absent.
+
+def dist_config_from_state(
+    state: dict, prefix: str, default: float = 0.0, is_percentage: bool = False,
+):
+    """DistributionConfig for one ``<prefix>_*`` input (display units in state)."""
+    from domain.models import DistributionConfig
+
+    div = 100.0 if is_percentage else 1.0
+    d = default
+
+    def g(sfx: str, dflt: float) -> float:
+        return float(state.get(f"{prefix}{sfx}", dflt))
+
+    dist_type = DistributionType(state.get(f"{prefix}_dtype", DistributionType.FIXED.value))
+    c = DistributionConfig(dist_type=dist_type)
+
+    if dist_type == DistributionType.FIXED:
+        c.fixed_value = g("_fixed", d) / div
+    elif dist_type == DistributionType.NORMAL:
+        c.mean = g("_n_mu", d) / div
+        c.std = g("_n_sig", max(abs(d) * 0.2, 0.01)) / div
+    elif dist_type == DistributionType.LOGNORMAL:
+        mean = g("_ln_mu", max(d, 0.01)) / div
+        std = g("_ln_sig", max(abs(d) * 0.2, 0.01)) / div
+        if mean > 1e-12 and std > 1e-12:
+            sigma_sq = float(np.log(1.0 + (std / mean) ** 2))
+            c.ln_sigma = float(np.sqrt(sigma_sq))
+            c.ln_mu = float(np.log(mean) - sigma_sq / 2.0)
+        else:
+            c.ln_mu = float(np.log(max(mean, 1e-12)))
+            c.ln_sigma = 0.1
+    elif dist_type == DistributionType.TRIANGULAR:
+        c.low = g("_tri_lo", d * 0.8) / div
+        c.mode = g("_tri_mo", d) / div
+        c.high = g("_tri_hi", d * 1.2) / div
+    elif dist_type == DistributionType.UNIFORM:
+        c.low = g("_uni_lo", d * 0.8) / div
+        c.high = g("_uni_hi", d * 1.2) / div
+    elif dist_type == DistributionType.PERT:
+        c.low = g("_pert_lo", d * 0.7) / div
+        c.mode = g("_pert_mo", d) / div
+        c.high = g("_pert_hi", d * 1.3) / div
+    return c
+
+
+def _psd_or_none(matrix: list[list[float]]) -> list[list[float]] | None:
+    """Return the matrix if positive semi-definite, else None (as the UI does)."""
+    return None if np.any(np.linalg.eigvalsh(np.array(matrix)) < -1e-8) else matrix
+
+
+def segment_config_from_state(state: dict, i: int):
+    """SegmentConfig for segment *i* – same rules as the segments page."""
+    from domain.models import (
+        DEFAULT_INTRA_PARAM_CORR, DistributionConfig, RevenueGrowthMode,
+        SegmentConfig, TerminalValueMethod,
+    )
+
+    def dist(param: str, default: float, pct: bool = True):
+        return dist_config_from_state(state, f"s{i}_{param}", default, pct)
+
+    growth_mode = RevenueGrowthMode(
+        state.get(f"seg_{i}_growth_mode", RevenueGrowthMode.CONSTANT.value))
+    is_fade = growth_mode == RevenueGrowthMode.FADE
+    fade_speed = float(state.get(f"seg_{i}_fade_speed", 0.5)) if is_fade else 0.5
+
+    # Terminal targets only exist when fade AND parameter fade are on.
+    terms = dict.fromkeys(["em", "da", "tx", "cx", "nwc"])
+    if is_fade and bool(state.get(f"seg_{i}_param_fade", False)):
+        for p, dflt in [("em", 18.0), ("da", 3.0), ("tx", 25.0), ("cx", 4.0), ("nwc", 8.0)]:
+            terms[p] = dist(f"{p}_term", dflt)
+
+    tv_method = TerminalValueMethod(
+        state.get(f"seg_{i}_tv_method", TerminalValueMethod.GORDON_GROWTH.value))
+    if tv_method == TerminalValueMethod.GORDON_GROWTH:
+        tv_growth = dist("tvg", 2.0)
+        tv_multiple = DistributionConfig(fixed_value=10.0)
+    else:
+        tv_multiple = dist("evm", 10.0, pct=False)
+        tv_growth = dist("tvg", 2.0) if is_fade else DistributionConfig(fixed_value=0.02)
+
+    intra = None
+    if bool(state.get(f"seg_{i}_intra_corr", False)):
+        m = [list(r) for r in DEFAULT_INTRA_PARAM_CORR]
+        for r in range(7):
+            for c in range(r + 1, 7):
+                v = float(state.get(f"seg_{i}_ic_{r}_{c}", m[r][c]))
+                m[r][c] = m[c][r] = v
+        intra = _psd_or_none(m)
+
+    return SegmentConfig(
+        name=state.get(f"seg_{i}_name", f"Segment {i + 1}"),
+        base_revenue=float(state.get(f"seg_{i}_basrev", 1_000.0)),
+        forecast_years=int(state.get(f"seg_{i}_fyrs", 5)),
+        revenue_growth=dist("rg", 5.0),
+        ebitda_margin=dist("em", 20.0),
+        da_pct_revenue=dist("da", 3.0),
+        tax_rate=dist("tx", 25.0),
+        capex_pct_revenue=dist("cx", 5.0),
+        nwc_pct_delta_revenue=dist("nwc", 10.0),
+        wacc=dist("wacc", 9.0),
+        terminal_method=tv_method,
+        terminal_growth_rate=tv_growth,
+        exit_multiple=tv_multiple,
+        revenue_growth_mode=growth_mode,
+        fade_speed=fade_speed,
+        ebitda_margin_terminal=terms["em"],
+        da_pct_revenue_terminal=terms["da"],
+        tax_rate_terminal=terms["tx"],
+        capex_pct_revenue_terminal=terms["cx"],
+        nwc_pct_delta_revenue_terminal=terms["nwc"],
+        intra_param_correlation=intra,
+    )
+
+
+def bridge_dists_from_state(state: dict) -> dict:
+    """Bridge DistributionConfigs keyed by prefix; extended items None when off."""
+    core = {"bridge_cc": (50.0, False), "bridge_cd": (9.0, True),
+            "bridge_nd": (500.0, False), "bridge_sh": (100.0, False)}
+    out = {p: dist_config_from_state(state, p, d, pct) for p, (d, pct) in core.items()}
+    ext = bool(state.get("setup_ext_bridge", False))
+    for p in ("bridge_mi", "bridge_pn", "bridge_no", "bridge_as"):
+        out[p] = dist_config_from_state(state, p, 0.0) if ext else None
+    return out
+
+
+def split_bridge_param(dist, fallback: float = 0.0):
+    """(scalar, stochastic override): "Fest" gives the scalar only, else both."""
+    if dist is None:
+        return fallback, None
+    if dist.dist_type == DistributionType.FIXED:
+        return dist.fixed_value, None
+    return dist.representative_value(), dist
+
+
+_BRIDGE_STOCHASTIC_FIELD = {
+    "annual_corporate_costs": "stochastic_corporate_costs",
+    "corporate_cost_discount_rate": "stochastic_corporate_cost_discount_rate",
+    "net_debt": "stochastic_net_debt",
+    "shares_outstanding": "stochastic_shares",
+    "minority_interests": "stochastic_minority_interests",
+    "pension_liabilities": "stochastic_pension_liabilities",
+    "non_operating_assets": "stochastic_non_operating_assets",
+    "associate_investments": "stochastic_associate_investments",
+}
+_BRIDGE_FALLBACK = {"bridge_cc": 50.0, "bridge_cd": 0.09, "bridge_nd": 500.0, "bridge_sh": 100.0}
+
+
+def corporate_bridge_from_dists(dists: dict) -> CorporateBridgeConfig:
+    """CorporateBridgeConfig from prefix → DistributionConfig | None."""
+    kw = {}
+    for field, prefix in _BRIDGE_FIELD_TO_PREFIX.items():
+        val, stoch = split_bridge_param(dists.get(prefix), _BRIDGE_FALLBACK.get(prefix, 0.0))
+        kw[field], kw[_BRIDGE_STOCHASTIC_FIELD[field]] = val, stoch
+    return CorporateBridgeConfig(**kw)
+
+
+def segment_correlation_from_state(state: dict, n_seg: int) -> list[list[float]] | None:
+    """Cross-segment matrix – only when enabled, at least 2 segments and PSD."""
+    if not bool(state.get("setup_corr_enable", False)) or n_seg < 2:
+        return None
+    m = [[1.0] * n_seg for _ in range(n_seg)]
+    for r in range(n_seg):
+        for c in range(r + 1, n_seg):
+            m[r][c] = m[c][r] = float(state.get(f"corr_{r}_{c}", 0.3))
+    return _psd_or_none(m)
+
+
+def simulation_config_from_state(state: dict):
+    """Complete SimulationConfig from a flat (session-)state mapping."""
+    from domain.models import SamplingMethod, SimulationConfig
+
+    n_seg = int(state.get("setup_n_seg", 2))
+    return SimulationConfig(
+        n_simulations=int(state.get("setup_n_sim", 10_000)),
+        random_seed=int(state.get("setup_seed", 42)),
+        segments=[segment_config_from_state(state, i) for i in range(n_seg)],
+        corporate_bridge=corporate_bridge_from_dists(bridge_dists_from_state(state)),
+        mid_year_convention=bool(state.get("setup_mid_year", True)),
+        sampling_method=SamplingMethod(
+            state.get("setup_sampling", SamplingMethod.PSEUDO_RANDOM.value)),
+        segment_correlation=segment_correlation_from_state(state, n_seg),
+    )
+
+
+def build_simulation_config(cfg: dict):
+    """SimulationConfig from a saved config dict (v2 or legacy v1)."""
+    return simulation_config_from_state(apply_config(cfg, {}))

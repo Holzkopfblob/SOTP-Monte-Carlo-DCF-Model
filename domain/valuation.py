@@ -141,6 +141,32 @@ def compute_terminal_value(
         return ebitda_last * exit_multiple
 
 
+# Keys of the faded value drivers, as used by ``terminal_params``.
+STEADY_STATE_KEYS = (
+    "ebitda_margin", "da_pct_revenue", "tax_rate",
+    "capex_pct_revenue", "nwc_pct_delta_revenue",
+)
+
+
+def steady_state_fcff(
+    revenue_last: np.ndarray,      # (n,) revenue in year T
+    terminal_growth: np.ndarray,   # (n,)
+    params: dict[str, np.ndarray],  # STEADY_STATE_KEYS → (n,)
+) -> np.ndarray:
+    """FCFF of year T+1 at steady-state parameters.
+
+    Uses the same FCFF chain as ``compute_fcff_vectors`` with revenue
+    growing at the terminal rate, so the terminal value reflects the
+    long-run targets instead of whatever the fade path reached in year T.
+    """
+    rev_next = revenue_last * (1.0 + terminal_growth)
+    ebit = rev_next * (params["ebitda_margin"] - params["da_pct_revenue"])
+    nopat = ebit - np.maximum(ebit, 0.0) * params["tax_rate"]
+    capex = rev_next * params["capex_pct_revenue"]
+    delta_nwc = (rev_next - revenue_last) * params["nwc_pct_delta_revenue"]
+    return nopat + rev_next * params["da_pct_revenue"] - capex - delta_nwc
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Segment enterprise value
 # ═══════════════════════════════════════════════════════════════════════════
@@ -163,12 +189,19 @@ def compute_segment_ev(
     fade_speed: float = 0.5,
     mid_year_convention: bool = True,
     decompose: bool = False,
+    terminal_params: dict[str, np.ndarray] | None = None,
 ) -> "np.ndarray | SegmentEVDetail":
     """
     Full DCF valuation for a single segment.
 
     Parameters
     ----------
+    terminal_params : dict, optional
+        Sampled long-run targets of the parameter fade (subset of
+        ``STEADY_STATE_KEYS`` → (n,)).  When given and the method is
+        Gordon Growth, TV = FCFF_{T+1} / (WACC − g) with FCFF_{T+1} at
+        these targets (missing keys use the year-T value).  Without it
+        the TV is FCFF_T · (1 + g) / (WACC − g) as before.
     mid_year_convention : bool
         If True, FCFFs are discounted at t−0.5 (cash flows assumed at
         mid-year).  The terminal value is always discounted at end of
@@ -183,7 +216,7 @@ def compute_segment_ev(
     """
     from domain.models import SegmentEVDetail  # avoid circular at module level
 
-    fcff, ebitda, _ = compute_fcff_vectors(
+    fcff, ebitda, revenue = compute_fcff_vectors(
         base_revenue, forecast_years,
         revenue_growth, ebitda_margin, da_pct_revenue,
         tax_rate, capex_pct_revenue, nwc_pct_delta_revenue,
@@ -202,14 +235,26 @@ def compute_segment_ev(
 
     pv_fcff = np.sum(fcff * discount, axis=1)           # (n,)
 
-    tv = compute_terminal_value(
-        terminal_method,
-        fcff[:, -1],
-        ebitda[:, -1],
-        wacc,
-        terminal_growth,
-        exit_multiple,
-    )
+    if terminal_params and terminal_method == TerminalValueMethod.GORDON_GROWTH:
+        def _last(arr: np.ndarray) -> np.ndarray:
+            return arr[:, -1] if arr.ndim == 2 else arr
+
+        year_t = dict(zip(STEADY_STATE_KEYS, (
+            ebitda_margin, da_pct_revenue, tax_rate,
+            capex_pct_revenue, nwc_pct_delta_revenue,
+        )))
+        params = {k: terminal_params.get(k, _last(v)) for k, v in year_t.items()}
+        fcff_next = steady_state_fcff(revenue[:, -1], terminal_growth, params)
+        tv = fcff_next / np.maximum(wacc - terminal_growth, 1e-4)
+    else:
+        tv = compute_terminal_value(
+            terminal_method,
+            fcff[:, -1],
+            ebitda[:, -1],
+            wacc,
+            terminal_growth,
+            exit_multiple,
+        )
     # Terminal value is always discounted at end of year T
     pv_tv = tv / np.power(1.0 + wacc, float(forecast_years))   # (n,)
 

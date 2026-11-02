@@ -29,6 +29,12 @@ STRIKTE AUSGABEREGELN (VERPFLICHTEND):
 8. Markiere Konzernannahmen explizit mit „≈ Konzernannahme“.
 9. Erfinde keine Daten; kennzeichne fehlende Daten transparent.
 10. Verwende in Begründungen Kurzverweise [Q1], [Q2], … gemäß Schritt 8.
+11. Stichtag statt Geschäftsjahr: Basisumsätze sind LTM bis zum letzten
+    berichteten Quartal, Bridge-Posten vom selben Bilanzstichtag.
+12. Aktienvergütung (SBC) ist Aufwand: Margen enthalten SBC. Die Non-GAAP-
+    Sicht ohne SBC lieferst du als Szenario (Schritt 7b), nicht als Basis.
+13. Kennzeichne jede Quelle mit ihrem Prüfstatus: [primär geprüft],
+    [primär, teilweise] oder [sekundär] (Schritt 8).
 
 
 ╔═══════════════════════════════════════════════════════════════════════╗
@@ -66,6 +72,13 @@ Für jede Simulation und jedes Jahr t ∈ {1, …, T}:
 
 Terminal Value (nach Jahr T):
   Gordon Growth:  TV = FCFF_T × (1 + g_TV) / (WACC − g_TV)
+  Gordon Growth mit Parameter-Fade:
+                  TV = FCFF_{T+1} / (WACC − g_TV)
+                  FCFF_{T+1} mit Revenue_T × (1 + g_TV) und den TERMINAL-
+                  Werten (Marge, D&A, Steuer, CAPEX, NWC), nicht mit den
+                  Werten, die der Fade in Jahr T erreicht hat.
+                  → Terminal-Werte sind der Steady State, der den
+                    Endwert trägt. Wähle sie entsprechend sorgfältig.
   Exit Multiple:  TV = EBITDA_T × Multiple
 
 Diskontierung:
@@ -260,6 +273,15 @@ Analysiere die Geschäftsstruktur von [UNTERNEHMEN]:
       Industrie | Grundstoffe | Immobilien | Telekommunikation |
       Versorger | Sonstige
 3. Sortiere absteigend nach Umsatz.
+4. SONDERFALL nur ein berichtetes Segment: Teile nach den berichteten
+   Erlösarten der GuV (z. B. Produkte / Subscriptions / Wartung). Verteile
+   die Kosten über die Bruttomargen je Erlösart, kennzeichne die Margen mit
+   „≈ Konzernannahme" und prüfe sie in Check 2 gegen die Konzernmarge.
+5. SONDERFALL Teile ohne sinnvollen DCF (Verlustbringer mit Marktbewertung,
+   z. B. Venture-Einheiten; Finanzbeteiligungen): KEIN Segment, sondern
+   Bridge-Posten (Schritt 3.7/3.8). Bewertung zur letzten Finanzierungsrunde
+   bzw. zum Marktwert × Anteil, abzüglich latenter Steuer auf Buchgewinne.
+   Konsolidiertes Cash dieser Einheit nicht doppelt zählen.
 
 Ausgabe als Tabelle:
 
@@ -287,9 +309,14 @@ verwenden und mit „≈ Konzernannahme" kennzeichnen.
 2.1  Basisumsatz (Mio.)
 ────────────────────────────────────────────────────────────────────────
 App-Feld: „Basisumsatz (Mio., Jahr 0)"
-• Letzter tatsächlich berichteter Segmentumsatz des jüngsten GJ.
+• LTM-Segmentumsatz bis zum letzten berichteten Quartal, damit Jahr 1
+  im Modell den nächsten 12 Monaten ab Stichtag entspricht:
+    LTM = GJ + YTD(aktuell) − YTD(Vorjahr)  (oder Summe der 4 Quartale)
+  Herleitung in der Begründung zeigen. Liegt das GJ-Ende < 3 Monate
+  zurück, ist das GJ selbst die LTM-Basis.
+• Zeitraum in "metadata.basis_periode" angeben (z. B. "LTM Q4/25–Q3/26").
 • IMMER Fest (historischer Fakt).
-• Quelle: Segmentberichterstattung.
+• Quelle: Segmentberichterstattung / Quartalsberichte.
 
 ────────────────────────────────────────────────────────────────────────
 2.2  Prognosezeitraum (Jahre)
@@ -418,6 +445,14 @@ Fade-Terminal (dringend empfohlen):
   → Terminal-CAPEX = Erhaltungsinvestitionen (Maintenance CAPEX).
   → Faustregel: Maintenance CAPEX ≈ D&A langfristig.
   → Growth CAPEX entfällt im Steady State.
+  → INVESTITIONSPHASE (CAPEX heute deutlich über historischem Niveau,
+    z. B. KI-Rechenzentren): Start-Wert aus Guidance für die nächsten
+    12 Monate kalibrieren. Beachte: Jahr-1-Wert = Terminal + (Start −
+    Terminal) · e^(−λ), Start also entsprechend höher ansetzen.
+    Terminal gegen die CAPEX-Quote VOR der Investitionsphase begründen.
+    Die App nutzt EIN λ für Wachstum, Margen und CAPEX – nenne in der
+    Begründung, wie lange CAPEX dadurch über Terminal bleibt.
+  → D&A-Terminal konsistent wählen: ≈ 0,8–1,0 × CAPEX-Terminal (Check 10).
 
 ────────────────────────────────────────────────────────────────────────
 2.8  NWC-Veränderung als % der Umsatzveränderung
@@ -488,7 +523,8 @@ Empfehle PRO SEGMENT eine der beiden Methoden und begründe:
 OPTION A – Gordon Growth Model
   App-Feld: „TV-Wachstumsrate" (Verteilungsinput, Einheit: %)
   • g = langfristiges nachhaltiges Wachstum
-  • Formel: TV = FCFF_T × (1 + g) / (WACC − g)
+  • Formel: TV = FCFF_T × (1 + g) / (WACC − g); mit Parameter-Fade
+    FCFF_{T+1} zu Terminal-Werten (siehe A)
   • Benchmark: nominales BIP-Wachstum (2–3 %)
   • MUSS deutlich < WACC sein (Faustregel: g < WACC − 3 pp)
   • Schrumpfende Segmente: 0 % oder negativ
@@ -727,7 +763,8 @@ Liefere ALLE Werte aus Schritt 1–5 in EINEM ```json-Block. Die App
 übernimmt ihn über „📋 Research-Ergebnis einfügen" – nichts wird abgetippt.
 
 Reihenfolge der Antwort:
-  Schritt 7 (Checks) → Schritt 8 (Quellen) → Executive Summary → JSON-Block
+  Schritt 7 (Checks) → Schritt 7b (Szenarien) → Schritt 8 (Quellen)
+  → Executive Summary → JSON-Block
 So sind Korrekturen aus den Plausibilitätschecks im JSON bereits enthalten.
 
 JSON-REGELN:
@@ -782,13 +819,21 @@ QUELLEN (Pflicht – macht die Recherche in der App nachvollziehbar):
   Kurzverweis, z. B. "s0_rg": "CAGR 2020–25 5,8 % [Q1]; Konsens 2026–28
   6–7 % [Q2]". Pflicht für alle Präfixe aus Schritt 2 und 3 sowie
   seg_{i}_basrev und seg_{i}_fyrs. Die App zeigt sie direkt am Eingabefeld.
-  "quellenverzeichnis": Vollzitate aus Schritt 8, Schlüssel "Q1", "Q2", …
+  "quellenverzeichnis": Vollzitate aus Schritt 8, Schlüssel "Q1", "Q2", …,
+  jeweils mit Prüfstatus am Ende: [primär geprüft] | [primär, teilweise]
+  | [sekundär].
+
+  Zweckentfremdete Bridge-Felder (z. B. Steuerrückstellung im Feld
+  Pensionen, Vorzugsaktien als Minderheiten) in "quellen" mit „Hier: …"
+  beginnen, damit die Belegung am Eingabefeld sichtbar ist.
 
 METADATEN:
   "stichtag" = Datum der Recherche (JJJJ-MM-TT); "saved_at" = dasselbe
   Datum als "JJJJ-MM-TTT00:00:00". "kurs_bei_recherche" = Aktienkurs am
   Stichtag in Berichtswährung (oder weglassen) – die App zeigt ihn im
-  Versionsvergleich neben der Bewertung.
+  Versionsvergleich neben der Bewertung. "basis_periode" = Zeitraum der
+  Basisumsätze (z. B. "LTM Q4/25–Q3/26"). "bilanzstichtag" = Datum der
+  Bilanz, aus der die Bridge-Posten stammen.
 
 VORLAGE (ein Segment vollständig; weitere Segmente analog mit i = 1, 2, …):
 
@@ -800,7 +845,9 @@ VORLAGE (ein Segment vollständig; weitere Segmente analog mit i = 1, 2, …):
     "company": "[UNTERNEHMEN]",
     "report_currency": "EUR",
     "stichtag": "2026-01-15",
-    "kurs_bei_recherche": 100.0
+    "kurs_bei_recherche": 100.0,
+    "basis_periode": "LTM Q4/24–Q3/25",
+    "bilanzstichtag": "2025-09-30"
   },
   "ui_state": {
     "setup": {
@@ -850,14 +897,14 @@ VORLAGE (ein Segment vollständig; weitere Segmente analog mit i = 1, 2, …):
     "correlation": {}
   },
   "quellen": {
-    "seg_0_basrev": "Segmentumsatz GJ 2025 [Q1]",
+    "seg_0_basrev": "LTM: GJ 2024 + 9M25 − 9M24 [Q1]",
     "seg_0_fyrs": "Zyklus bis Normalisierung ca. 10 Jahre [Q2]",
     "s0_rg": "CAGR 2020–25 5,8 % [Q1]; Konsens 2026–28 6–7 % [Q2]",
     "bridge_nd": "Nettofinanzverschuldung 31.12.2025 [Q1]"
   },
   "quellenverzeichnis": {
-    "Q1": "[UNTERNEHMEN], Geschäftsbericht 2025, URL, abgerufen 2026-01-15",
-    "Q2": "LSEG Konsensus, Stand 2026-01-10"
+    "Q1": "[UNTERNEHMEN], Q3-Bericht 2025, URL, abgerufen 2026-01-15 [primär geprüft]",
+    "Q2": "LSEG Konsensus, Stand 2026-01-10 [sekundär]"
   }
 }
 ```
@@ -866,10 +913,10 @@ VORLAGE (ein Segment vollständig; weitere Segmente analog mit i = 1, 2, …):
 jeder Pflicht-Eintrag vorhanden.)
 
 ═══════════════════════════════════════════════════════════════════════════
-SCHRITT 7 · PLAUSIBILITÄTS- & QUALITÄTSCHECKS (9 Checks)
+SCHRITT 7 · PLAUSIBILITÄTS- & QUALITÄTSCHECKS (11 Checks)
 ═══════════════════════════════════════════════════════════════════════════
 
-Führe ALLE 9 Checks durch. Dokumentiere das Ergebnis explizit:
+Führe ALLE 11 Checks durch. Dokumentiere das Ergebnis explizit:
   ✅ bestanden | ⚠️ Anpassung nötig | ❌ Problem
 
 Bei ⚠️ oder ❌: Schätzungen in Schritten 2–3 ANPASSEN und die
@@ -938,6 +985,10 @@ Plausibel für die Branche?
   Telko 8–15 % | Energie 10–18 % | Gesundheit 15–30 %
 
 Ein ROIC > 100 % oder < 0 % signalisiert fast immer einen Parameterfehler!
+AUSNAHMEN (Formelartefakt, kein Parameterfehler – im Kommentar so nennen):
+  • NWC% negativ (Vorauszahlungen / Deferred Revenue) und CAPEX ≈ D&A:
+    Reinvest-Marge → 0 oder negativ, ROIC explodiert oder kippt.
+  • g ≤ 0 (schrumpfendes Segment): ROIC wird negativ, P(ROIC<WACC) ≈ 100 %.
 
 ────────────────────────────────────────────────────────────────────────
 Check 7 · Fade-Konsistenz
@@ -979,6 +1030,24 @@ Vergleiche mit aktuellem Aktienkurs: Premium/Discount in %.
 > 100 % Abweichung → Parameterfehler wahrscheinlich → nochmal prüfen!
 
 ────────────────────────────────────────────────────────────────────────
+Check 10 · Steady-State-Konsistenz
+────────────────────────────────────────────────────────────────────────
+Der Endwert rechnet mit den Terminal-Werten (siehe A). Prüfe je Segment:
+  • D&A-Terminal ≈ 0,8–1,0 × CAPEX-Terminal?
+  • CAPEX-Terminal gegen die Quote VOR einer Investitionsphase begründet?
+  • Terminal-FCFF-Marge = (EBITDA − D&A)·(1 − t) + D&A − CAPEX − NWC·g/(1+g)
+    plausibel gegen Historie und Peers? Wert im Kommentar nennen.
+
+────────────────────────────────────────────────────────────────────────
+Check 11 · Jahr-1-FCFF gegen Ist
+────────────────────────────────────────────────────────────────────────
+Rechne den Modell-FCFF für Jahr 1 (Summe der Segmente − Holdingkosten)
+und vergleiche ihn mit dem LTM-Free-Cash-Flow bzw. der FCF-Guidance.
+Zeige die Überleitung: SBC (im Modell Aufwand), Zinserträge (in der
+Bridge über das Cash), M&A (falls als CAPEX modelliert), CAPEX-Anstieg.
+Unerklärte Abweichung > 25 % → ⚠️ und Parameter prüfen.
+
+────────────────────────────────────────────────────────────────────────
 
 Ergebnistabelle:
 
@@ -993,6 +1062,28 @@ Ergebnistabelle:
 | 7 | Fade-Konsistenz | ✅/⚠️/❌ | … |
 | 8 | Korrelationslogik | ✅/⚠️/❌ | … |
 | 9 | Impliziter Fair Value | ✅/⚠️/❌ | … |
+| 10 | Steady-State-Konsistenz | ✅/⚠️/❌ | … |
+| 11 | Jahr-1-FCFF gegen Ist | ✅/⚠️/❌ | … |
+
+
+═══════════════════════════════════════════════════════════════════════════
+SCHRITT 7b · PFLICHT-SZENARIEN (Strukturfragen)
+═══════════════════════════════════════════════════════════════════════════
+
+Die MC-Streuung erfasst nur Parameterunsicherheit. Strukturfragen
+gehören in benannte Szenarien. Liefere MINDESTENS diese drei, jeweils
+als Liste der geänderten JSON-Keys mit neuen Werten:
+
+  1. SBC nicht als Aufwand: EBITDA-Margen (initial + terminal) um
+     SBC/Umsatz erhöhen.
+  2. WACC −1 pp und +1 pp (alle Segmente + Holding-Diskontsatz).
+  3. Die größte Strukturfrage der Firma (z. B. dauerhafter vs. abebbender
+     CAPEX, Erfolg einer Produktmigration, Normalisierung eines Zyklus),
+     mit Begründung, warum gerade diese.
+
+| Szenario | Geänderte Keys → Werte | Begründung |
+|---|---|---|
+| … | … | … |
 
 
 ═══════════════════════════════════════════════════════════════════════════
@@ -1004,6 +1095,11 @@ ZITIERFORMAT (VERPFLICHTEND):
 [Q2] Autor/Institution, Titel, Quelle/Publisher, Datum, URL, Abrufdatum
 …
 Verwende in allen Begründungen ausschließlich Kurzverweise wie [Q1], [Q2].
+Jede Quelle trägt ihren Prüfstatus:
+  [primär geprüft]     – Zahl im Originaldokument (Bericht, Filing) gelesen
+  [primär, teilweise]  – Original gelesen, aber nicht vollständig
+  [sekundär]           – nur über Presse, Transkript, Datenportal
+Zentrale Zahlen (Umsätze, Bridge) sollen [primär geprüft] sein.
 
 | Kürzel | Typ | Vollzitat |
 |---|---|---|

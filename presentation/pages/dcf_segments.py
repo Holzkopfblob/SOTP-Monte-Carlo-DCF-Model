@@ -15,6 +15,7 @@ from domain.models import (
     SegmentConfig,
     TerminalValueMethod,
 )
+from infrastructure.config_io import segment_config_from_state
 from presentation.ui_helpers import (
     render_distribution_input,
     render_info_distributions,
@@ -263,7 +264,6 @@ def render_segments(container, n_segments: int) -> list[SegmentConfig]:
                         "tendenziell mit höherem CAPEX einher."
                     ),
                 )
-                intra_corr_matrix: list[list[float]] | None = None
                 if enable_intra_corr:
                     _short = [
                         "Wachst.", "EBITDA", "D&A",
@@ -316,32 +316,8 @@ def render_segments(container, n_segments: int) -> list[SegmentConfig]:
                         st.warning(
                             "⚠️ Die Matrix ist nicht positiv semi-definit. Verringern Sie extreme Korrelationen (nahe ±1), bis die Matrix gültig ist."
                         )
-                    else:
-                        intra_corr_matrix = corr_values
-                segment_configs.append(SegmentConfig(
-                    name=seg_name,
-                    base_revenue=float(base_rev),
-                    forecast_years=int(forecast_yrs),
-                    revenue_growth=rev_growth,
-                    ebitda_margin=ebitda_m,
-                    da_pct_revenue=da_pct,
-                    tax_rate=tax_r,
-                    capex_pct_revenue=capex,
-                    nwc_pct_delta_revenue=nwc,
-                    wacc=wacc_d,
-                    terminal_method=tv_method,
-                    terminal_growth_rate=tv_growth,
-                    exit_multiple=tv_multiple,
-                    revenue_growth_mode=growth_mode,
-                    fade_speed=fade_speed_val,
-                    # Phase 3: parameter fade terminals
-                    ebitda_margin_terminal=ebitda_m_term,
-                    da_pct_revenue_terminal=da_pct_term,
-                    tax_rate_terminal=tax_r_term,
-                    capex_pct_revenue_terminal=capex_term,
-                    nwc_pct_delta_revenue_terminal=nwc_term,
-                    # Phase 4: intra-segment parameter correlation
-                    intra_param_correlation=intra_corr_matrix,
-                ))
+                # Same conversion as headless runs (config_io) – the widgets
+                # above have written their values into the session state.
+                segment_configs.append(segment_config_from_state(st.session_state, i))
 
     return segment_configs

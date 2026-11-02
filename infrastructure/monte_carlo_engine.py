@@ -15,7 +15,6 @@ from scipy.stats import qmc
 from domain.distributions import create_distribution
 from domain.fade import build_fade_curve
 from domain.models import (
-    DistributionConfig,
     RevenueGrowthMode,
     SamplingMethod,
     SegmentConfig,
@@ -131,6 +130,7 @@ class MonteCarloEngine:
             ]
 
         for seg, samples in zip(self.config.segments, all_samples):
+            terminals = samples.pop(self._TERMINALS_KEY, {})
             for pname, arr in samples.items():
                 if arr.ndim == 2:
                     input_samples[f"{seg.name} | {pname}"] = arr[:, 0]
@@ -154,6 +154,7 @@ class MonteCarloEngine:
                 fade_speed=seg.fade_speed,
                 mid_year_convention=self.config.mid_year_convention,
                 decompose=True,
+                terminal_params=terminals or None,
             )
             segment_evs[seg.name] = detail.ev
             segment_tv_ev[seg.name] = tv_ev_ratio(detail.pv_tv, detail.ev)
@@ -311,28 +312,6 @@ class MonteCarloEngine:
             return create_distribution(dist_config).sample(n, self.rng)
         return np.full(n, scalar_fallback, dtype=np.float64)
 
-    # ── Parameter fade (Phase 3) ──────────────────────────────────────
-
-    def _apply_param_fade(
-        self,
-        initial: np.ndarray,
-        terminal_cfg: DistributionConfig | None,
-        n: int,
-        forecast_years: int,
-        fade_speed: float,
-    ) -> np.ndarray:
-        """Return (n,) array when no fade or (n, T) fade curve.
-
-        If *terminal_cfg* is ``None`` the initial (n,) array passes
-        through unchanged.  Otherwise the terminal values are sampled
-        and an exponentially-decaying path is built via
-        ``build_fade_curve``.
-        """
-        if terminal_cfg is None:
-            return initial  # (n,) – constant across years
-        terminal = create_distribution(terminal_cfg).sample(n, self.rng)
-        return build_fade_curve(initial, terminal, forecast_years, fade_speed)  # (n, T)
-
     # ── Shared segment output builder (DRY) ───────────────────────────
 
     # Constant maps – defined once, reused by every code path.
@@ -345,6 +324,10 @@ class MonteCarloEngine:
         "nwc_pct_delta_revenue": "NWC (% ΔUmsatz)",
         "wacc":                  "WACC",
     }
+
+    # Internal key under which _build_segment_output passes the sampled
+    # fade targets; popped before samples are used as inputs/sensitivities.
+    _TERMINALS_KEY = "__terminals__"
 
     _FADE_KEYS = [
         "ebitda_margin", "da_pct_revenue", "tax_rate",
@@ -374,11 +357,20 @@ class MonteCarloEngine:
         s: dict[str, np.ndarray] = {}
         s["Umsatzwachstum"] = raw["revenue_growth"]
 
+        # Terminal draws are kept for the steady-state terminal value.
+        # Sampling order is unchanged (one draw per faded parameter).
+        terminals: dict[str, np.ndarray] = {}
         for pkey in self._FADE_KEYS:
-            s[self._LABEL_MAP[pkey]] = self._apply_param_fade(
-                raw[pkey], fade_terminals[pkey],
-                n, seg.forecast_years, seg.fade_speed,
-            )
+            term_cfg = fade_terminals[pkey]
+            if term_cfg is None:
+                s[self._LABEL_MAP[pkey]] = raw[pkey]  # (n,) – constant across years
+                continue
+            terminal = create_distribution(term_cfg).sample(n, self.rng)
+            terminals[pkey] = terminal
+            s[self._LABEL_MAP[pkey]] = build_fade_curve(
+                raw[pkey], terminal, seg.forecast_years, seg.fade_speed,
+            )  # (n, T)
+        s[self._TERMINALS_KEY] = terminals
 
         s["WACC"] = np.maximum(raw["wacc"], 0.005)
 

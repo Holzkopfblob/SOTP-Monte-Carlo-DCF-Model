@@ -6,10 +6,10 @@ explanation boxes for financial / statistical concepts.
 """
 from __future__ import annotations
 
-import numpy as np
 import streamlit as st
 
 from domain.models import DistributionConfig, DistributionType
+from infrastructure.config_io import dist_config_from_state
 from presentation.explanations import (
     text_corporate_bridge,
     text_distributions,
@@ -72,7 +72,6 @@ def render_distribution_input(
         Fully populated config with decimal values.
     """
     pct_label = " (%)" if is_percentage else ""
-    divisor = 100.0 if is_percentage else 1.0
     d = default_value  # shorthand for display default
 
     # ── Header row ────────────────────────────────────────────────────
@@ -91,21 +90,21 @@ def render_distribution_input(
         )
 
     dist_type = DistributionType(dist_type_str)
-    config = DistributionConfig(dist_type=dist_type)
 
     # ── Parameter inputs (conditional) ────────────────────────────────
+    # Widgets only; their values land in st.session_state under the keys
+    # below and are converted by config_io (shared with headless runs).
     if dist_type == DistributionType.FIXED:
-        val = st.number_input(
+        st.number_input(
             f"Wert{pct_label}",
             value=d,
             key=f"{key_prefix}_fixed",
             format="%.4f",
         )
-        config.fixed_value = val / divisor
 
     elif dist_type == DistributionType.NORMAL:
         c1, c2 = st.columns(2)
-        mu = c1.number_input(
+        c1.number_input(
             "μ (Mittelwert)", value=d,
             key=f"{key_prefix}_n_mu", format="%.4f",
         )
@@ -115,8 +114,6 @@ def render_distribution_input(
         )
         if sigma <= 0:
             st.warning("⚠️ Standardabweichung σ muss > 0 sein. Wert wird auf Minimum gesetzt.")
-        config.mean = mu / divisor
-        config.std = sigma / divisor
 
     elif dist_type == DistributionType.LOGNORMAL:
         st.caption(
@@ -137,16 +134,6 @@ def render_distribution_input(
             st.warning("⚠️ Lognormalverteilung erfordert einen positiven Mittelwert.")
         if sig_disp <= 0:
             st.warning("⚠️ Standardabweichung muss > 0 sein.")
-        desired_mean = mu_disp / divisor
-        desired_std = sig_disp / divisor
-        # Convert displayed mean/std → underlying normal μ, σ
-        if desired_mean > 1e-12 and desired_std > 1e-12:
-            sigma_sq = float(np.log(1.0 + (desired_std / desired_mean) ** 2))
-            config.ln_sigma = float(np.sqrt(sigma_sq))
-            config.ln_mu = float(np.log(desired_mean) - sigma_sq / 2.0)
-        else:
-            config.ln_mu = float(np.log(max(desired_mean, 1e-12)))
-            config.ln_sigma = 0.1
 
     elif dist_type == DistributionType.TRIANGULAR:
         c1, c2, c3 = st.columns(3)
@@ -157,9 +144,6 @@ def render_distribution_input(
             st.warning("⚠️ Min muss kleiner als Max sein. Werte werden automatisch korrigiert.")
         if mo < lo or mo > hi:
             st.warning("⚠️ Mode sollte zwischen Min und Max liegen. Wird auf den gültigen Bereich geklammert.")
-        config.low = lo / divisor
-        config.mode = mo / divisor
-        config.high = hi / divisor
 
     elif dist_type == DistributionType.UNIFORM:
         c1, c2 = st.columns(2)
@@ -167,8 +151,6 @@ def render_distribution_input(
         hi = c2.number_input("Max", value=d * 1.2, key=f"{key_prefix}_uni_hi", format="%.4f")
         if lo >= hi:
             st.warning("⚠️ Min muss kleiner als Max sein. Werte werden automatisch korrigiert.")
-        config.low = lo / divisor
-        config.high = hi / divisor
 
     elif dist_type == DistributionType.PERT:
         st.caption(
@@ -183,11 +165,8 @@ def render_distribution_input(
             st.warning("⚠️ Min muss kleiner als Max sein. Werte werden automatisch korrigiert.")
         if mo < lo or mo > hi:
             st.warning("⚠️ Mode sollte zwischen Min und Max liegen. Wird auf den gültigen Bereich geklammert.")
-        config.low = lo / divisor
-        config.mode = mo / divisor
-        config.high = hi / divisor
 
-    return config
+    return dist_config_from_state(st.session_state, key_prefix, d, is_percentage)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

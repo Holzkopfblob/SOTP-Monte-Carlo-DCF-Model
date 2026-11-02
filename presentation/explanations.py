@@ -66,6 +66,11 @@ Prognosezeitraum (typischerweise **60–80 %** des EV).
 **Gordon Growth:**  $TV = \frac{FCFF_T \cdot (1+g)}{WACC - g}$
 — Bedingung: $g < WACC$.
 
+Mit **Parameter-Fade** gilt $TV = \frac{FCFF_{T+1}}{WACC - g}$, wobei
+$FCFF_{T+1}$ mit $Umsatz_T \cdot (1+g)$ und den **Terminal-Werten**
+(Marge, D&A, Steuer, CAPEX, NWC) gerechnet wird – nicht mit dem Stand,
+den der Fade in Jahr $T$ erreicht hat.
+
 **Exit-Multiple:**  $TV = EBITDA_T \times Multiple$
 — Intuitiver Marktbezug über Peer-Multiples.
 

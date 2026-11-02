@@ -8,33 +8,25 @@ import pandas as pd
 import streamlit as st
 
 from domain.models import (
-    CorporateBridgeConfig,
-    DistributionConfig,
-    DistributionType,
     SamplingMethod,
     SegmentConfig,
     SimulationConfig,
 )
-from infrastructure.config_io import RESULTS_FINGERPRINT_KEY, ui_fingerprint
+from infrastructure.config_io import (
+    RESULTS_FINGERPRINT_KEY,
+    corporate_bridge_from_dists,
+    split_bridge_param as _split_bridge_param,  # noqa: F401 – kept for callers/tests
+    ui_fingerprint,
+)
 from infrastructure.monte_carlo_engine import MonteCarloEngine
 
-
-def _split_bridge_param(
-    dist: DistributionConfig | None,
-    fallback: float = 0.0,
-) -> tuple[float, DistributionConfig | None]:
-    """Extract scalar + optional stochastic override from a unified config.
-
-    When the distribution is "Fest", the scalar value is used and no
-    stochastic override is passed to the engine.  For any other type
-    the representative value becomes the scalar fallback while the full
-    distribution is forwarded for MC sampling.
-    """
-    if dist is None:
-        return fallback, None
-    if dist.dist_type == DistributionType.FIXED:
-        return dist.fixed_value, None
-    return dist.representative_value(), dist
+# setup-dict key (dcf_setup.render_setup) → bridge prefix (config_io)
+_SETUP_BRIDGE_KEYS = {
+    "bridge_corp_costs": "bridge_cc", "bridge_corp_discount": "bridge_cd",
+    "bridge_net_debt": "bridge_nd", "bridge_shares": "bridge_sh",
+    "bridge_minority": "bridge_mi", "bridge_pension": "bridge_pn",
+    "bridge_non_op": "bridge_no", "bridge_associates": "bridge_as",
+}
 
 
 def render_simulation(
@@ -87,37 +79,13 @@ def render_simulation(
             if not segment_configs:
                 st.error("Es sind keine Segmente konfiguriert. Gehen Sie zu **🏢 Segmente** und ergänzen Sie mindestens ein Segment.")
             else:
-                # Split unified DistributionConfig → scalar + stochastic
-                cc_val, cc_stoch = _split_bridge_param(setup["bridge_corp_costs"], 50.0)
-                cd_val, cd_stoch = _split_bridge_param(setup["bridge_corp_discount"], 0.09)
-                nd_val, nd_stoch = _split_bridge_param(setup["bridge_net_debt"], 500.0)
-                sh_val, sh_stoch = _split_bridge_param(setup["bridge_shares"], 100.0)
-                mi_val, mi_stoch = _split_bridge_param(setup.get("bridge_minority"))
-                pn_val, pn_stoch = _split_bridge_param(setup.get("bridge_pension"))
-                no_val, no_stoch = _split_bridge_param(setup.get("bridge_non_op"))
-                as_val, as_stoch = _split_bridge_param(setup.get("bridge_associates"))
-
+                # Same bridge assembly as headless runs (config_io)
                 config = SimulationConfig(
                     n_simulations=n_simulations,
                     random_seed=random_seed,
                     segments=segment_configs,
-                    corporate_bridge=CorporateBridgeConfig(
-                        annual_corporate_costs=cc_val,
-                        corporate_cost_discount_rate=cd_val,
-                        net_debt=nd_val,
-                        shares_outstanding=sh_val,
-                        minority_interests=mi_val,
-                        pension_liabilities=pn_val,
-                        non_operating_assets=no_val,
-                        associate_investments=as_val,
-                        stochastic_corporate_costs=cc_stoch,
-                        stochastic_corporate_cost_discount_rate=cd_stoch,
-                        stochastic_net_debt=nd_stoch,
-                        stochastic_shares=sh_stoch,
-                        stochastic_minority_interests=mi_stoch,
-                        stochastic_pension_liabilities=pn_stoch,
-                        stochastic_non_operating_assets=no_stoch,
-                        stochastic_associate_investments=as_stoch,
+                    corporate_bridge=corporate_bridge_from_dists(
+                        {p: setup.get(k) for k, p in _SETUP_BRIDGE_KEYS.items()}
                     ),
                     mid_year_convention=setup["mid_year_conv"],
                     sampling_method=setup.get("sampling_method", SamplingMethod.PSEUDO_RANDOM),
