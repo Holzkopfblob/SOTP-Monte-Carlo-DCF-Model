@@ -23,7 +23,7 @@ Der Prompt in [prompts/sotp_research_prompt.md](prompts/sotp_research_prompt.md)
 - Vollständige Parameter-Checkliste für alle Segmente
 - Einheitliches Format für Verteilungen, Begründungen und Quellen
 - Strikte Zitationslogik (`[Q1]`, `[Q2]`, …)
-- Wizard-taugliche Ausgabe-Reihenfolge
+- Ein JSON-Block am Ende, den die App direkt übernimmt – inklusive Begründung je Parameter
 
 Kurz: Der Prompt sorgt dafür, dass du aus „Meinung“ belastbare, nachvollziehbare Inputs machst.
 
@@ -34,15 +34,22 @@ Kurz: Der Prompt sorgt dafür, dass du aus „Meinung“ belastbare, nachvollzie
 	- Ersetze `[UNTERNEHMEN]`
 	- Führe ihn mit einem Modell/Tool mit Web- und Datenzugriff aus
 
-2. **Ergebnisse in den Wizard übertragen**
-	- **⚙️ Setup:** Iterationen, Seed, Sampling, Corporate Bridge
-	- **🏢 Segmente:** Segment für Segment die Verteilungen eintragen
+2. **Ergebnis in die App übernehmen**
+	- Sidebar → **📋 Research-Ergebnis einfügen** → komplette LLM-Antwort einfügen → **Übernehmen**
+	- Alle Werte stehen danach im Wizard; unter jedem Feld steht die Begründung (📎) mit Quellenverweis, das Quellenverzeichnis liegt in der Sidebar
+	- **⚙️ Setup → 🏢 Segmente:** prüfen und bei Bedarf anpassen
 	- **🎲 Simulation:** Lauf starten
 	- **📈 Ergebnisse:** Verteilungen, Risiko, Treiber und Qualität interpretieren
 
-3. **Szenarien vergleichen**
-	- Konservative vs. Base vs. Upside-Annahmen als separate Durchläufe
-	- Ergebnisse über Quantile statt nur über Mittelwerte vergleichen
+3. **Version speichern**
+	- Nach der Simulation **⬇️ Konfiguration speichern**: Die Datei enthält Annahmen, Quellen und das Ergebnis (P5/P50/P95)
+	- Das Ergebnis wird nur gespeichert, wenn es zu genau diesen Annahmen gehört – wer nach dem Lauf noch etwas ändert, muss neu simulieren
+
+4. **Versionen vergleichen**
+	- Sidebar → **🔍 Versionsvergleich** → zwei oder mehr gespeicherte Dateien hochladen
+	- Zeitleiste: Bewertung je Version (P50 mit P5–P95-Spanne) neben dem Kurs zum Recherchezeitpunkt
+	- Diff-Tabelle: welche Annahme sich wie geändert hat – mit der neuen Begründung daneben
+	- Szenarien (konservativ / Base / Upside) lassen sich genauso als Versionen vergleichen
 
 ## Beispiel-Konfiguration
 

@@ -5,16 +5,7 @@ from __future__ import annotations
 import numpy as np
 import plotly.graph_objects as go
 
-from .common import COLORS, PALETTE_EXTENDED, apply_figure_defaults
-
-
-def _hex_to_rgba(hex_color: str, alpha: float) -> str:
-    """Convert #RRGGBB to rgba(r, g, b, a) string for Plotly."""
-    h = hex_color.lstrip("#")
-    r = int(h[0:2], 16)
-    g = int(h[2:4], 16)
-    b = int(h[4:6], 16)
-    return f"rgba({r}, {g}, {b}, {alpha})"
+from .common import COLORS, PALETTE_EXTENDED, apply_figure_defaults, hex_to_rgba
 
 
 def convergence_chart(
@@ -30,7 +21,7 @@ def convergence_chart(
         x=np.concatenate([indices, indices[::-1]]),
         y=np.concatenate([ci_high, ci_low[::-1]]),
         fill="toself",
-        fillcolor="rgba(31, 119, 180, 0.15)",
+        fillcolor=hex_to_rgba(COLORS["primary"], 0.15),
         line=dict(width=0),
         name="95 %-KI",
         hoverinfo="skip",
@@ -175,9 +166,9 @@ def quality_score_gauge(score: dict[str, float]) -> go.Figure:
             axis=dict(range=[0, 100]),
             bar=dict(color=COLORS["primary"]),
             steps=[
-                dict(range=[0, 40], color=_hex_to_rgba(COLORS["negative"], 0.13)),
-                dict(range=[40, 70], color=_hex_to_rgba(COLORS["secondary"], 0.13)),
-                dict(range=[70, 100], color=_hex_to_rgba(COLORS["positive"], 0.13)),
+                dict(range=[0, 40], color=hex_to_rgba(COLORS["negative"], 0.13)),
+                dict(range=[40, 70], color=hex_to_rgba(COLORS["secondary"], 0.13)),
+                dict(range=[70, 100], color=hex_to_rgba(COLORS["positive"], 0.13)),
             ],
             threshold=dict(line=dict(color=COLORS["negative"], width=3), thickness=0.8, value=total),
         ),
@@ -355,4 +346,48 @@ def valuation_confidence_panel(
         height=360,
     )
     fig.update_layout(yaxis=dict(range=[0, 105]), showlegend=False)
+    return fig
+
+
+def valuation_timeline(
+    labels: list[str],
+    p5: list[float],
+    p50: list[float],
+    p95: list[float],
+    market_prices: list[float | None] | None = None,
+    y_label: str = "Preis je Aktie",
+) -> go.Figure:
+    """Median with P5–P95 range per saved version, optional market price."""
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=labels,
+        y=p50,
+        mode="lines+markers",
+        name="Median (P50)",
+        line=dict(color=COLORS["primary"], width=2.5),
+        marker=dict(size=9),
+        error_y=dict(
+            type="data", symmetric=False,
+            array=[hi - mid for hi, mid in zip(p95, p50)],
+            arrayminus=[mid - lo for lo, mid in zip(p5, p50)],
+            color=COLORS["primary"], thickness=1.5, width=8,
+        ),
+        hovertemplate="%{x}<br>P50: %{y:,.2f}<extra></extra>",
+    ))
+    if market_prices and any(p is not None for p in market_prices):
+        fig.add_trace(go.Scatter(
+            x=labels,
+            y=market_prices,
+            mode="markers",
+            name="Kurs bei Recherche",
+            marker=dict(color=COLORS["secondary"], size=10, symbol="diamond"),
+        ))
+    apply_figure_defaults(
+        fig,
+        title="Bewertung über die Zeit (Balken = P5–P95)",
+        xaxis_title="Version",
+        yaxis_title=y_label,
+        height=420,
+    )
+    fig.update_xaxes(type="category")
     return fig

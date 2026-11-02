@@ -6,7 +6,7 @@
 
 ## DER PROMPT
 
-```
+````
 Du bist ein Senior Equity Research Analyst (CFA, 15+ Jahre Erfahrung in
 fundamentaler Unternehmensbewertung). Deine Aufgabe:
 
@@ -14,15 +14,16 @@ fundamentaler Unternehmensbewertung). Deine Aufgabe:
   Sum-of-the-Parts (SOTP) Monte-Carlo-DCF-Modell
   für [UNTERNEHMEN].
 
-Die Ergebnisse werden direkt in eine Streamlit-App eingegeben. Halte dich
+Die Ergebnisse werden als JSON-Block direkt in eine Streamlit-App importiert. Halte dich
 EXAKT an die unten definierten Formate und Einheiten.
 
 STRIKTE AUSGABEREGELN (VERPFLICHTEND):
-1. Gib ausschließlich die geforderten Tabellen und Blöcke aus.
+1. Gib ausschließlich die geforderten Tabellen und Blöcke aus. Alle App-Werte
+   stehen NUR im JSON-Block aus Schritt 6 (am Ende der Antwort).
 2. Keine Einleitung, keine Disclaimer, kein zusätzlicher Fließtext.
 3. Einheiten strikt einhalten: % als Prozentwert, absolute Werte in Mio.
-4. Verwende exakt die vorgegebenen Spaltennamen und Reihenfolge.
-5. Fülle nicht genutzte Felder konsequent mit „–“.
+4. Verwende exakt die vorgegebenen Spaltennamen, JSON-Keys und Reihenfolge.
+5. Fülle nicht genutzte Tabellenfelder mit „–“; im JSON lässt du sie weg.
 6. Verwende nur erlaubte Verteilungstypen und korrekte Parameter.
 7. Nenne in jeder Begründung mindestens eine belastbare Quelle.
 8. Markiere Konzernannahmen explizit mit „≈ Konzernannahme“.
@@ -719,93 +720,150 @@ Sampling-Empfehlung:
 
 
 ═══════════════════════════════════════════════════════════════════════════
-SCHRITT 6 · WIZARD-READY EINGABETABELLEN (in App-Reihenfolge)
+SCHRITT 6 · APP-IMPORT ALS JSON (ein Block, GANZ AM ENDE der Antwort)
 ═══════════════════════════════════════════════════════════════════════════
 
-Liefere die Ergebnisse in EXAKT dieser Wizard-Reihenfolge:
+Liefere ALLE Werte aus Schritt 1–5 in EINEM ```json-Block. Die App
+übernimmt ihn über „📋 Research-Ergebnis einfügen" – nichts wird abgetippt.
 
-1) ⚙️ Setup (Simulation + Corporate Bridge)
-2) 🏢 Segmente (pro Segment eine vollständige Tabelle)
-3) 🎲 Simulation (Sampling/Iterationen/Seed)
+Reihenfolge der Antwort:
+  Schritt 7 (Checks) → Schritt 8 (Quellen) → Executive Summary → JSON-Block
+So sind Korrekturen aus den Plausibilitätschecks im JSON bereits enthalten.
 
-Danach folgen Plausibilitätschecks und Quellen.
+JSON-REGELN:
+  • Gültiges JSON: doppelte Anführungszeichen, Dezimalpunkt, keine
+    Kommentare, keine Tausendertrennzeichen. Nicht genutzte Felder WEGLASSEN.
+  • Werte in Anzeige-Einheit: % als Prozentwert (6.5 = 6,5 %), absolute
+    Werte in Mio. Lognormal: GEWÜNSCHTER Mittelwert / Std.-Abw.
+  • Segment-Index i beginnt bei 0.
+  • Verteilungstyp-Strings EXAKT so:
+      "Fest (Deterministisch)", "Normalverteilung", "Lognormalverteilung",
+      "Dreiecksverteilung", "Gleichverteilung", "PERT-Verteilung"
+  • Pro Parameter-Präfix <p> immer <p>_dtype plus NUR die Wert-Keys
+    des gewählten Typs:
+      Fest       → <p>_fixed
+      Normal     → <p>_n_mu, <p>_n_sig
+      Lognormal  → <p>_ln_mu, <p>_ln_sig
+      Dreieck    → <p>_tri_lo, <p>_tri_mo, <p>_tri_hi
+      Gleich     → <p>_uni_lo, <p>_uni_hi
+      PERT       → <p>_pert_lo, <p>_pert_mo, <p>_pert_hi
 
-─────────────── FÜR JEDES SEGMENT EINE TABELLE ───────────────
+PARAMETER-PRÄFIXE <p>:
+  Segment i:  s{i}_rg   Umsatzwachstum      s{i}_em   EBITDA-Marge
+              s{i}_da   D&A (% Umsatz)      s{i}_tx   Steuersatz
+              s{i}_cx   CAPEX (% Umsatz)    s{i}_nwc  NWC (% ΔUmsatz)
+              s{i}_wacc WACC                s{i}_tvg  TV-Wachstum
+              s{i}_evm  Exit-Multiple (nur bei Exit-Multiple-Ansatz)
+  Fade-Terminals (nur wenn seg_{i}_param_fade = true):
+              s{i}_em_term, s{i}_da_term, s{i}_tx_term, s{i}_cx_term, s{i}_nwc_term
+  Bridge:     bridge_cc Holdingkosten p.a.     bridge_cd Diskontierungssatz (%)
+              bridge_nd Nettoverschuldung      bridge_sh Aktien verwässert (Mio.)
+              bridge_mi Minderheitsanteile     bridge_pn Pensionsrückstellungen
+              bridge_no Nicht-operative Assets bridge_as Beteiligungen
 
-### SEGMENT [N]: [Name]
+SEGMENT-FELDER (direkte Werte, keine Verteilung):
+  seg_{i}_name         Segmentname
+  seg_{i}_basrev       Basisumsatz (Mio.)
+  seg_{i}_fyrs         Prognosejahre (Ganzzahl)
+  seg_{i}_growth_mode  "Konstant (g über alle Jahre gleich)" oder
+                       "Fade-Modell (g konvergiert zum Terminal-Wachstum)"
+  seg_{i}_fade_speed   λ (z. B. 0.5)
+  seg_{i}_param_fade   true / false
+  seg_{i}_tv_method    "Gordon Growth Model (Ewige Rente)" oder "Exit-Multiple-Ansatz"
+  seg_{i}_intra_corr   true / false; wenn true zusätzlich seg_{i}_ic_{r}_{c}
+                       für r < c (0 Wachstum, 1 EBITDA, 2 D&A, 3 Steuer,
+                       4 CAPEX, 5 NWC, 6 WACC)
 
-| Parameter | Wachstumsmodell | Verteilung | Min | Mode | Max | μ | σ | Terminal | λ | Begründung |
-|---|---|---|---|---|---|---|---|---|---|---|
-| Basisumsatz (Mio.) | – | FEST: [Wert] | – | – | – | – | – | – | – | [Quelle, GJ] |
-| Prognosejahre | – | FEST: [N] | – | – | – | – | – | – | – | [Warum N Jahre?] |
-| Umsatzwachstum (%) | [Konstant/Fade] | [Typ]: … | … | … | … | … | … | [g_terminal %] | [λ] | [Hist. CAGR, Konsensus, TAM, Guidance] |
-| EBITDA-Marge (%) | – | [Typ]: … | … | … | … | … | … | [m_terminal %] | – | [Hist., Peer-Median, Skaleneffekte] |
-| D&A (% Umsatz) | – | [Typ]: … | … | … | … | … | … | [d_terminal %] | – | [Hist. Ratio, Kapitalintensität] |
-| Steuersatz (%) | – | [Typ]: … | … | … | … | … | … | [t_terminal %] | – | [ETR-Analyse, Jurisdiktion] |
-| CAPEX (% Umsatz) | – | [Typ]: … | … | … | … | … | … | [c_terminal %] | – | [Maintenance vs. Growth, Guidance] |
-| NWC (% ΔUmsatz) | – | [Typ]: … | … | … | … | … | … | [n_terminal %] | – | [CCC, Branchenvergleich] |
-| WACC (%) | – | [Typ]: … | … | … | … | … | … | – | – | [CAPM komplett zeigen!] |
-| TV-Methode | – | [Gordon Growth / Exit Multiple] | – | – | – | – | – | – | – | [Warum diese Methode?] |
-| TV-Wachstum (%) | – | [Typ]: … | … | … | … | … | … | – | – | [BIP-Benchmark, WACC-Spread] ★ |
-| ODER: Exit-Multiple | – | [Typ]: … | … | … | … | … | … | – | – | [Peer-Multiples, M&A-Comps] ★ |
+KORRELATION: corr_{i}_{j} für ALLE Paare inkl. Diagonale (1.0), symmetrisch.
+Bei nur einem Segment: "setup_corr_enable": false und "correlation": {}.
 
-★ ALS VERTEILUNG, nicht Fest. PERT bevorzugt.
+QUELLEN (Pflicht – macht die Recherche in der App nachvollziehbar):
+  "quellen": je Parameter-Präfix bzw. Segment-Feld EINE Begründung mit
+  Kurzverweis, z. B. "s0_rg": "CAGR 2020–25 5,8 % [Q1]; Konsens 2026–28
+  6–7 % [Q2]". Pflicht für alle Präfixe aus Schritt 2 und 3 sowie
+  seg_{i}_basrev und seg_{i}_fyrs. Die App zeigt sie direkt am Eingabefeld.
+  "quellenverzeichnis": Vollzitate aus Schritt 8, Schlüssel "Q1", "Q2", …
 
-Hinweise:
-  • „Terminal": Langfristiger Zielwert für Parameter-Fade. „–" wenn kein Fade.
-  • „λ": Nur in Zeile Umsatzwachstum; gilt für ALLE Fade-Parameter dieses Segments.
-  • Nicht benötigte Spalten mit „–" füllen.
-  • %-Spalten: Eingabe als % (z.B. 20.0 für 20 %), NICHT als Dezimalzahl.
-  • Lognormal: μ und σ sind der GEWÜNSCHTE Mittelwert/Std.-Abw., nicht
-    die unterliegenden Normal-Parameter.
+METADATEN:
+  "stichtag" = Datum der Recherche (JJJJ-MM-TT); "saved_at" = dasselbe
+  Datum als "JJJJ-MM-TTT00:00:00". "kurs_bei_recherche" = Aktienkurs am
+  Stichtag in Berichtswährung (oder weglassen) – die App zeigt ihn im
+  Versionsvergleich neben der Bewertung.
 
-─────────────── CORPORATE BRIDGE ───────────────
+VORLAGE (ein Segment vollständig; weitere Segmente analog mit i = 1, 2, …):
 
-### CORPORATE BRIDGE
+```json
+{
+  "schema_version": 2,
+  "saved_at": "2026-01-15T00:00:00",
+  "metadata": {
+    "company": "[UNTERNEHMEN]",
+    "report_currency": "EUR",
+    "stichtag": "2026-01-15",
+    "kurs_bei_recherche": 100.0
+  },
+  "ui_state": {
+    "setup": {
+      "setup_n_sim": 50000,
+      "setup_seed": 42,
+      "setup_n_seg": 1,
+      "setup_mid_year": true,
+      "setup_ext_bridge": true,
+      "setup_sampling": "Pseudo-Random (Standard)",
+      "setup_corr_enable": false
+    },
+    "bridge": {
+      "bridge_cc_dtype": "Fest (Deterministisch)", "bridge_cc_fixed": 50,
+      "bridge_cd_dtype": "Fest (Deterministisch)", "bridge_cd_fixed": 8.5,
+      "bridge_nd_dtype": "PERT-Verteilung", "bridge_nd_pert_lo": 900, "bridge_nd_pert_mo": 1000, "bridge_nd_pert_hi": 1150,
+      "bridge_sh_dtype": "Fest (Deterministisch)", "bridge_sh_fixed": 100,
+      "bridge_mi_dtype": "Fest (Deterministisch)", "bridge_mi_fixed": 0,
+      "bridge_pn_dtype": "Fest (Deterministisch)", "bridge_pn_fixed": 0,
+      "bridge_no_dtype": "Fest (Deterministisch)", "bridge_no_fixed": 0,
+      "bridge_as_dtype": "Fest (Deterministisch)", "bridge_as_fixed": 0
+    },
+    "segments": [
+      {
+        "seg_0_name": "Segment A",
+        "seg_0_basrev": 1000,
+        "seg_0_fyrs": 10,
+        "seg_0_growth_mode": "Fade-Modell (g konvergiert zum Terminal-Wachstum)",
+        "seg_0_fade_speed": 0.5,
+        "seg_0_param_fade": true,
+        "seg_0_tv_method": "Gordon Growth Model (Ewige Rente)",
+        "seg_0_intra_corr": false,
+        "s0_rg_dtype": "PERT-Verteilung", "s0_rg_pert_lo": 3.0, "s0_rg_pert_mo": 5.0, "s0_rg_pert_hi": 8.0,
+        "s0_em_dtype": "PERT-Verteilung", "s0_em_pert_lo": 15.0, "s0_em_pert_mo": 18.0, "s0_em_pert_hi": 21.0,
+        "s0_em_term_dtype": "Fest (Deterministisch)", "s0_em_term_fixed": 18.0,
+        "s0_da_dtype": "Fest (Deterministisch)", "s0_da_fixed": 4.0,
+        "s0_da_term_dtype": "Fest (Deterministisch)", "s0_da_term_fixed": 4.0,
+        "s0_tx_dtype": "Fest (Deterministisch)", "s0_tx_fixed": 27.0,
+        "s0_tx_term_dtype": "Fest (Deterministisch)", "s0_tx_term_fixed": 27.0,
+        "s0_cx_dtype": "PERT-Verteilung", "s0_cx_pert_lo": 4.0, "s0_cx_pert_mo": 5.0, "s0_cx_pert_hi": 6.5,
+        "s0_cx_term_dtype": "Fest (Deterministisch)", "s0_cx_term_fixed": 4.5,
+        "s0_nwc_dtype": "Fest (Deterministisch)", "s0_nwc_fixed": 10.0,
+        "s0_nwc_term_dtype": "Fest (Deterministisch)", "s0_nwc_term_fixed": 10.0,
+        "s0_wacc_dtype": "Normalverteilung", "s0_wacc_n_mu": 8.5, "s0_wacc_n_sig": 0.5,
+        "s0_tvg_dtype": "PERT-Verteilung", "s0_tvg_pert_lo": 1.5, "s0_tvg_pert_mo": 2.0, "s0_tvg_pert_hi": 2.5
+      }
+    ],
+    "correlation": {}
+  },
+  "quellen": {
+    "seg_0_basrev": "Segmentumsatz GJ 2025 [Q1]",
+    "seg_0_fyrs": "Zyklus bis Normalisierung ca. 10 Jahre [Q2]",
+    "s0_rg": "CAGR 2020–25 5,8 % [Q1]; Konsens 2026–28 6–7 % [Q2]",
+    "bridge_nd": "Nettofinanzverschuldung 31.12.2025 [Q1]"
+  },
+  "quellenverzeichnis": {
+    "Q1": "[UNTERNEHMEN], Geschäftsbericht 2025, URL, abgerufen 2026-01-15",
+    "Q2": "LSEG Konsensus, Stand 2026-01-10"
+  }
+}
+```
 
-| Posten | Wert / Verteilung | Einheit | Wirkung | Begründung |
-|---|---|---|---|---|
-| Holdingkosten p.a. | [Wert oder Verteilung] | Mio. | Abzug (PV) | [Quelle] |
-| Diskontierungssatz | [Wert oder Verteilung] | % | für PV(Holding) | [= Konzern-WACC] |
-| Nettoverschuldung | [Wert oder Verteilung] | Mio. | Abzug | [Berechnung zeigen] |
-| Aktien (verwässert) | [Wert oder Verteilung] | Mio. Stk. | Divisor | [Quelle] |
-| Minderheitsanteile | [Wert oder 0] | Mio. | Abzug | [Quelle] |
-| Pensionsrückstellungen | [Wert oder 0] | Mio. | Abzug | [DBO − Plan Assets] |
-| Nicht-operative Assets | [Wert oder 0] | Mio. | Zuschlag | [Welche?] |
-| Beteiligungen | [Wert oder 0] | Mio. | Zuschlag | [Welche?] |
-
-─────────────── KORRELATIONSMATRIX ───────────────
-
-### CROSS-SEGMENT-KORRELATION
-
-| Segment i | Segment j | ρ | Begründung |
-|---|---|---|---|
-| … | … | … | [Warum diese Höhe?] |
-
-─────────────── INTRA-SEGMENT-COPULA (optional) ───────────────
-
-### INTRA-SEGMENT-COPULA [Segmentname]
-
-Nur ausfüllen, wenn explizit empfohlen.
-
-| Param 1 | Param 2 | ρ | Begründung |
-|---|---|---|---|
-| Wachstum | EBITDA-Marge | … | … |
-| Wachstum | CAPEX | … | … |
-| D&A | CAPEX | … | … |
-| … | … | … | … |
-
-─────────────── SIMULATIONSPARAMETER ───────────────
-
-### SIMULATIONSPARAMETER
-
-| Parameter | Wert |
-|---|---|
-| MC-Iterationen | 50 000 |
-| Random Seed | 42 |
-| Mid-Year Convention | Ja |
-| Sampling-Methode | [Pseudo-Random (Standard) / Quasi-MC (Sobol)] |
-
+(Die Vorlage zeigt nur einige Quellen-Einträge – in deiner Antwort ist
+jeder Pflicht-Eintrag vorhanden.)
 
 ═══════════════════════════════════════════════════════════════════════════
 SCHRITT 7 · PLAUSIBILITÄTS- & QUALITÄTSCHECKS (9 Checks)
@@ -961,14 +1019,15 @@ Verwende in allen Begründungen ausschließlich Kurzverweise wie [Q1], [Q2].
 ZUSAMMENFASSUNG (EXECUTIVE SUMMARY)
 ═══════════════════════════════════════════════════════════════════════════
 
-Schließe mit einer Executive Summary (max. 5 Sätze):
+Danach eine Executive Summary (max. 5 Sätze), ganz am Schluss folgt der
+JSON-Block aus Schritt 6:
   1. Berichtswährung + Anzahl Segmente
   2. Wichtigste Werttreiber-Unsicherheiten (die breitesten Verteilungen)
   3. Welche Segmente treiben den Wert, welche sind marginal?
   4. Erwartete Bewertungsrichtung vs. aktueller Kurs
   5. Empfehlung zur Interpretation der MC-Ergebnisse
      (auf welche Quantile achten, wo liegt das Risiko?)
-```
+````
 
 ---
 

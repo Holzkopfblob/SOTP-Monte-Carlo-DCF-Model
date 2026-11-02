@@ -26,5 +26,5 @@ def render_excel_export_section(config, results) -> None:
             ".spreadsheetml.sheet"
         ),
         type="primary",
-        use_container_width=True,
+        width="stretch",
     )

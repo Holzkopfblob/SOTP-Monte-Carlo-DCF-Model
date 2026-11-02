@@ -67,7 +67,7 @@ $$\text{CVaR}_\alpha = \mathbb{E}[X \mid X \leq \text{VaR}_\alpha]$$
             percentile_convergence_chart(
                 results.convergence_indices, p5, p50, p95,
             ),
-            use_container_width=True,
+            width="stretch",
         )
 
 
@@ -102,7 +102,7 @@ $$\text{EP} \approx \text{Revenue} \times [(\text{EBITDA\%} - \text{D\&A\%}) \ti
 
     st.plotly_chart(
         economic_profit_chart(seg_ep),
-        use_container_width=True,
+        width="stretch",
     )
 
     if seg_pvd:
@@ -153,10 +153,10 @@ def render_margin_of_safety_section(results) -> None:
         with mc1:
             st.plotly_chart(
                 margin_of_safety_chart(prices, market_price),
-                use_container_width=True,
+                width="stretch",
             )
         with mc2:
             st.plotly_chart(
                 implied_return_cdf(prices, market_price),
-                use_container_width=True,
+                width="stretch",
             )

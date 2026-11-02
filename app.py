@@ -23,13 +23,14 @@ from datetime import datetime
 import numpy as np
 import streamlit as st
 
-from infrastructure.config_io import collect_config, apply_config
+from infrastructure.config_io import apply_config, collect_config, parse_config_text
 from presentation.layout.base import (
     configure_page,
     inject_global_styles,
     render_app_header,
     render_sidebar_footer,
 )
+from presentation.pages.dcf_compare import render_compare
 from presentation.pages.dcf_setup import render_setup
 from presentation.pages.dcf_segments import render_segments
 from presentation.pages.dcf_simulation import render_simulation
@@ -124,7 +125,7 @@ _preserve_config_widget_state()
 # ══════════════════════════════════════════════════════════════════════════
 
 render_app_header(
-    title="📊 Sum-of-the-Parts Monte-Carlo DCF Modell",
+    title="📊 SOTP Monte-Carlo DCF",
     caption=(
         "Stochastische Unternehmensbewertung · FCFF-Ansatz · "
         "Vektorisierte Simulation"
@@ -133,23 +134,51 @@ render_app_header(
 
 with st.sidebar:
     st.header("SOTP MC-DCF")
-    st.markdown("---")
-    if "results" in st.session_state and st.session_state.results is not None:
+    view = st.radio(
+        "Ansicht", ["🧮 Bewertung", "🔍 Versionsvergleich"],
+        key="app_view", horizontal=True, label_visibility="collapsed",
+    )
+    meta = (st.session_state.get("cfg_passthrough") or {}).get("metadata") or {}
+    if meta.get("company"):
+        st.caption(
+            f"**{meta['company']}**"
+            + (f" · Stand {meta['stichtag']}" if meta.get("stichtag") else "")
+            + (f" · {meta['report_currency']}" if meta.get("report_currency") else "")
+        )
+
+    # Research import first – it is where every valuation starts.
+    with st.expander("📋 Research-Ergebnis einfügen", expanded=not meta):
+        pasted = st.text_area(
+            "LLM-Antwort", key="config_paste", height=160,
+            label_visibility="collapsed",
+            placeholder="Komplette Antwort des Research-Prompts oder nur den JSON-Block einfügen …",
+        )
+        if st.button("Übernehmen", width="stretch", type="primary", disabled=not pasted.strip()):
+            try:
+                _apply_config(parse_config_text(pasted))
+            except ValueError as e:
+                st.error(str(e))
+    if st.session_state.pop("_config_just_loaded", False):
+        st.success("✅ Konfiguration erfolgreich geladen!")
+
+    st.divider()
+    if st.session_state.get("results") is not None:
         r = st.session_state.results
+        p5, p50, p95 = np.percentile(r.price_per_share, [5, 50, 95])
         st.success("Simulation abgeschlossen")
-        st.metric("Ø Enterprise Value", f"{np.mean(r.total_ev):,.1f}")
-        st.metric("Ø Equity Value", f"{np.mean(r.equity_values):,.1f}")
-        st.metric("Ø Preis/Aktie", f"{np.mean(r.price_per_share):,.2f}")
-        st.metric("Iterationen", f"{r.n_simulations:,}")
+        st.caption(
+            f"Fairer Wert je Aktie (Median) **{p50:,.2f}**  \n"
+            f"P5 – P95: {p5:,.0f} – {p95:,.0f} · {r.n_simulations:,} Szenarien"
+        )
     else:
-        st.info("Noch keine Simulation durchgeführt.")
+        st.caption("Noch keine Simulation durchgeführt.")
 
-    st.markdown("---")
+    st.divider()
     st.subheader("💾 Speichern / Laden")
-
     save_name = st.text_input(
-        "Modellname", value="SOTP_Modell",
-        help="Dateiname für den JSON-Export.",
+        "Modellname", value=str(meta.get("company") or "SOTP_Modell").replace(" ", "_"),
+        help="Dateiname für den JSON-Export. Mit Simulationsergebnis gespeichert "
+             "wird die Datei zum vergleichbaren Zeitpunkt im 🔍 Versionsvergleich.",
     )
     cfg_json = json.dumps(_collect_config(), indent=2, ensure_ascii=False)
     st.download_button(
@@ -157,29 +186,23 @@ with st.sidebar:
         data=cfg_json,
         file_name=f"{save_name}_{datetime.now():%Y%m%d_%H%M}.json",
         mime="application/json",
-        use_container_width=True,
+        width="stretch",
     )
-
-    st.markdown("")
     uploaded_cfg = st.file_uploader(
         "Konfiguration laden (.json)", type=["json"],
     )
     if uploaded_cfg is not None:
-        if st.button("⬆️ Konfiguration anwenden", use_container_width=True, type="primary"):
+        if st.button("⬆️ Konfiguration anwenden", width="stretch", type="primary"):
             try:
-                raw = uploaded_cfg.getvalue().decode("utf-8")
-                loaded = json.loads(raw)
-                if "ui_state" not in loaded and "setup" not in loaded:
-                    st.error("Ungültiges Dateiformat – erwartete 'ui_state' oder Legacy-'setup'.")
-                else:
-                    _apply_config(loaded)
-            except json.JSONDecodeError:
-                st.error("Ungültige JSON-Datei.")
-            except Exception as e:
-                st.error(f"Fehler beim Laden: {e}")
+                _apply_config(parse_config_text(uploaded_cfg.getvalue().decode("utf-8")))
+            except ValueError as e:
+                st.error(str(e))
 
-    if st.session_state.pop("_config_just_loaded", False):
-        st.success("✅ Konfiguration erfolgreich geladen!")
+    verz = (st.session_state.get("cfg_passthrough") or {}).get("quellenverzeichnis")
+    if verz:
+        with st.expander("📚 Quellenverzeichnis"):
+            for ref_key, ref in verz.items():
+                st.markdown(f"**[{ref_key}]** {ref}")
 
     render_sidebar_footer(tech_stack="Built with Streamlit · NumPy · Plotly")
 
@@ -198,6 +221,10 @@ if "wizard_setup" not in st.session_state:
     st.session_state.wizard_setup = None
 if "wizard_segments" not in st.session_state:
     st.session_state.wizard_segments = None
+
+if view == "🔍 Versionsvergleich":
+    render_compare(st.container())
+    st.stop()
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -227,19 +254,16 @@ def _go_to(step: str) -> None:
 current_step = st.session_state.wizard_step
 current_idx = _step_index(current_step)
 
-st.markdown("### Schritt-für-Schritt Workflow")
-progress_cols = st.columns(len(WIZARD_STEPS))
-for idx, ((step_id, label), col) in enumerate(zip(WIZARD_STEPS, progress_cols)):
+steps_md = []
+for idx, (step_id, label) in enumerate(WIZARD_STEPS):
+    name = f"{idx + 1} · {label.split(' ', 1)[1]}"
     if idx < current_idx:
-        state_label = "✅"
+        steps_md.append(f":green[✓ {name}]")
     elif idx == current_idx:
-        state_label = "➡️"
+        steps_md.append(f":blue-background[**{name}**]")
     else:
-        state_label = "◻️"
-    col.caption(f"{state_label} {label}")
-
-st.progress((current_idx + 1) / len(WIZARD_STEPS))
-st.markdown("")
+        steps_md.append(f":gray[{name}]")
+st.markdown("  →  ".join(steps_md))
 
 container = st.container()
 
@@ -248,9 +272,9 @@ if current_step == "setup":
 
     nav_left, nav_right = st.columns([1, 1])
     with nav_left:
-        st.button("Zurück", disabled=True, use_container_width=True)
+        st.button("Zurück", disabled=True, width="stretch")
     with nav_right:
-        if st.button("Weiter: Segmente", type="primary", use_container_width=True):
+        if st.button("Weiter: Segmente", type="primary", width="stretch"):
             previous_setup = st.session_state.wizard_setup or {}
             previous_n_segments = previous_setup.get("n_segments")
             st.session_state.wizard_setup = setup
@@ -270,10 +294,10 @@ elif current_step == "segments":
         segment_configs = render_segments(container, int(setup["n_segments"]))
         nav_left, nav_right = st.columns([1, 1])
         with nav_left:
-            if st.button("Zurück: Setup", use_container_width=True):
+            if st.button("Zurück: Setup", width="stretch"):
                 _go_to("setup")
         with nav_right:
-            if st.button("Weiter: Simulation", type="primary", use_container_width=True):
+            if st.button("Weiter: Simulation", type="primary", width="stretch"):
                 st.session_state.wizard_segments = segment_configs
                 st.session_state.results = None
                 st.session_state.config = None
@@ -295,14 +319,14 @@ elif current_step == "simulation":
         render_simulation(container, setup, segment_configs)
         nav_left, nav_right = st.columns([1, 1])
         with nav_left:
-            if st.button("Zurück: Segmente", use_container_width=True):
+            if st.button("Zurück: Segmente", width="stretch"):
                 _go_to("segments")
         with nav_right:
             can_go_results = st.session_state.results is not None
             if st.button(
                 "Weiter: Ergebnisse",
                 type="primary",
-                use_container_width=True,
+                width="stretch",
                 disabled=not can_go_results,
             ):
                 _go_to("results")
@@ -311,10 +335,10 @@ elif current_step == "results":
     render_results(container)
     nav_left, nav_right = st.columns([1, 1])
     with nav_left:
-        if st.button("Zurück: Simulation", use_container_width=True):
+        if st.button("Zurück: Simulation", width="stretch"):
             _go_to("simulation")
     with nav_right:
-        st.button("Weiter", disabled=True, use_container_width=True)
+        st.button("Weiter", disabled=True, width="stretch")
 else:
     st.session_state.wizard_step = "setup"
     st.rerun()

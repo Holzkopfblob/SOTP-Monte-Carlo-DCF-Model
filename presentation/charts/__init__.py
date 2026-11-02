@@ -12,6 +12,7 @@ from .diagnostics import (
     roic_histogram,
     roic_vs_wacc_scatter,
     tv_ev_decomposition_chart,
+    valuation_timeline,
     valuation_confidence_panel,
 )
 from .distribution import cdf_plot, cdf_with_reference, histogram_kde
@@ -50,4 +51,5 @@ __all__ = [
     "conditional_tornado_chart",
     "percentile_convergence_chart",
     "valuation_confidence_panel",
+    "valuation_timeline",
 ]

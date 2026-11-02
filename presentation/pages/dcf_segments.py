@@ -22,6 +22,7 @@ from presentation.ui_helpers import (
     render_info_fcff,
     render_info_terminal_value,
     render_info_wacc,
+    render_source,
 )
 from presentation.charts import revenue_fade_preview, parameter_fade_preview
 
@@ -57,6 +58,10 @@ def render_segments(container, n_segments: int) -> list[SegmentConfig]:
                     value=5, min_value=1, max_value=30,
                     key=f"seg_{i}_fyrs",
                 )
+                with sc1:
+                    render_source(f"seg_{i}_basrev")
+                with sc2:
+                    render_source(f"seg_{i}_fyrs")
 
                 st.markdown("---")
                 st.markdown("##### 📐 Werttreiber")
@@ -215,7 +220,7 @@ def render_segments(container, n_segments: int) -> list[SegmentConfig]:
                             fade_speed=fade_speed_val,
                             forecast_years=int(forecast_yrs),
                         ),
-                        use_container_width=True,
+                        width="stretch",
                     )
 
                     # ── Parameter-Fade Vorschau ───────────────────────
@@ -241,7 +246,7 @@ def render_segments(container, n_segments: int) -> list[SegmentConfig]:
                                     forecast_years=int(forecast_yrs),
                                     params=fade_params,
                                 ),
-                                use_container_width=True,
+                                width="stretch",
                             )
 
                 # ── Build config object ───────────────────────────────

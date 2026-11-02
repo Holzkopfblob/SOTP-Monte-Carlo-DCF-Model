@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import plotly.graph_objects as go
 
-from .common import COLORS, PALETTE_EXTENDED, apply_figure_defaults
+from .common import COLORS, PALETTE_EXTENDED, apply_figure_defaults, hex_to_rgba
 
 
 def tornado_chart(
@@ -218,7 +218,7 @@ def percentile_convergence_chart(
         x=np.concatenate([indices, indices[::-1]]),
         y=np.concatenate([p95, p5[::-1]]),
         fill="toself",
-        fillcolor="rgba(31, 119, 180, 0.08)",
+        fillcolor=hex_to_rgba(COLORS["primary"], 0.08),
         line=dict(width=0),
         name="P5-P95 Band",
         hoverinfo="skip",

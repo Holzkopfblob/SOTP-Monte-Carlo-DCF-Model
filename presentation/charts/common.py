@@ -17,6 +17,15 @@ COLORS = {
 
 TEMPLATE = PLOTLY_TEMPLATE
 
+
+def hex_to_rgba(hex_color: str, alpha: float) -> str:
+    """Convert #RRGGBB to rgba(r, g, b, a) string for Plotly."""
+    h = hex_color.lstrip("#")
+    r = int(h[0:2], 16)
+    g = int(h[2:4], 16)
+    b = int(h[4:6], 16)
+    return f"rgba({r}, {g}, {b}, {alpha})"
+
 PALETTE_EXTENDED = [
     COLORS["primary"],
     COLORS["secondary"],

@@ -41,9 +41,8 @@ def render_setup_simulation_section() -> dict:
             [s.value for s in SamplingMethod],
             index=0,
             key="setup_sampling",
-            help="Antithetic Variates halbiert die Varianz bei gleicher "
-                 "Iterationsanzahl. Sobol (Quasi-MC) erzeugt gleichmäßigere "
-                 "Abtastung des Parameterraums.",
+            help="Sobol (Quasi-MC) tastet den Parameterraum gleichmäßiger ab und "
+                 "konvergiert schneller; Pseudo-Random ist der robuste Standard.",
         )
         sampling_method = SamplingMethod(sampling_label)
 

@@ -20,7 +20,7 @@ def render_distribution_section(results) -> None:
                 "Enterprise Value – Verteilung",
                 "Enterprise Value (Mio.)",
             ),
-            use_container_width=True,
+            width="stretch",
         )
     with chart_c2:
         st.plotly_chart(
@@ -29,7 +29,7 @@ def render_distribution_section(results) -> None:
                 "Equity Value – Verteilung",
                 "Equity Value (Mio.)",
             ),
-            use_container_width=True,
+            width="stretch",
         )
 
     chart_c3, chart_c4 = st.columns(2)
@@ -41,7 +41,7 @@ def render_distribution_section(results) -> None:
                 "Preis je Aktie",
                 color=CHART_COLORS["accent"],
             ),
-            use_container_width=True,
+            width="stretch",
         )
     with chart_c4:
         st.plotly_chart(
@@ -51,5 +51,5 @@ def render_distribution_section(results) -> None:
                 "Preis je Aktie",
                 color=CHART_COLORS["accent"],
             ),
-            use_container_width=True,
+            width="stretch",
         )

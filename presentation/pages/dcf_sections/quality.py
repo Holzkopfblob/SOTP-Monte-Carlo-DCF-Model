@@ -58,7 +58,7 @@ $$\text{TV/EV} = \frac{PV(\text{TV})}{PV(\text{FCFF}) + PV(\text{TV})}$$
 
     st.plotly_chart(
         tv_ev_decomposition_chart(seg_names, fcff_shares, tv_shares),
-        use_container_width=True,
+        width="stretch",
     )
 
     cols = st.columns(len(seg_names))
@@ -99,12 +99,12 @@ def render_quality_section(results) -> None:
     with qc1:
         st.plotly_chart(
             quality_score_gauge(score),
-            use_container_width=True,
+            width="stretch",
         )
     with qc2:
         st.plotly_chart(
             quality_score_breakdown_chart(score),
-            use_container_width=True,
+            width="stretch",
         )
 
 
@@ -161,19 +161,19 @@ sind die Annahmen möglicherweise zu optimistisch.
     with rc1:
         st.plotly_chart(
             roic_histogram(results.segment_implied_roic, wacc_mean=avg_wacc),
-            use_container_width=True,
+            width="stretch",
         )
 
     with rc2:
         st.plotly_chart(
             reinvestment_rate_chart(results.segment_reinvest_rates),
-            use_container_width=True,
+            width="stretch",
         )
 
     if seg_wacc:
         st.plotly_chart(
             roic_vs_wacc_scatter(results.segment_implied_roic, seg_wacc),
-            use_container_width=True,
+            width="stretch",
         )
 
     cols = st.columns(len(results.segment_implied_roic))

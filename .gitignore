@@ -2,6 +2,6 @@ __pycache__/
 *.pyc
 *.pyo
 .vscode/
-.streamlit/
+.streamlit/secrets.toml
 *.bak
 .env

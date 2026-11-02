@@ -29,7 +29,7 @@ def render_setup_bridge_section() -> dict:
 
     with st.expander("📐 Diskontierung Holdingkosten (%)", expanded=True):
         bridge_corp_discount = render_distribution_input(
-            "Diskontierungssatz (%)", "bridge_cd",
+            "Diskontierungssatz", "bridge_cd",
             default_value=9.0, is_percentage=True,
             help_text="Diskontierungssatz für die Perpetuity der Holdingkosten.",
         )

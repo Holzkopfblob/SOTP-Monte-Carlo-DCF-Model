@@ -30,6 +30,13 @@ from presentation.explanations import (
 DIST_OPTIONS = [dt.value for dt in DistributionType]
 
 
+def render_source(key: str) -> None:
+    """Show the research justification for *key* from the loaded ``quellen`` block."""
+    quellen = (st.session_state.get("cfg_passthrough") or {}).get("quellen") or {}
+    if quellen.get(key):
+        st.caption(f"📎 {quellen[key]}")
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Core input renderer
 # ═══════════════════════════════════════════════════════════════════════════
@@ -74,6 +81,7 @@ def render_distribution_input(
         st.markdown(f"**{label}{pct_label}**")
         if help_text:
             st.caption(help_text)
+        render_source(key_prefix)
     with col_dist:
         dist_type_str = st.selectbox(
             "Verteilung",

@@ -23,7 +23,7 @@ def render_sensitivity_section(results) -> None:
     if sensitivities:
         st.plotly_chart(
             tornado_chart(sensitivities),
-            use_container_width=True,
+            width="stretch",
         )
     else:
         st.info(
@@ -54,7 +54,7 @@ def render_conditional_sensitivity_section(results) -> None:
     if bear or bull:
         st.plotly_chart(
             conditional_tornado_chart(bear, bull, top_n=10),
-            use_container_width=True,
+            width="stretch",
         )
     else:
         st.info(

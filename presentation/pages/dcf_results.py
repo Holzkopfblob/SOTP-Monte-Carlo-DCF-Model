@@ -73,7 +73,7 @@ def render_results(container) -> None:
                     non_operating_assets=results.base_non_operating_assets,
                     associate_investments=results.base_associate_investments,
                 ),
-                use_container_width=True,
+                width="stretch",
             )
 
         with tab_risk:
@@ -111,7 +111,7 @@ def render_results(container) -> None:
                         results.convergence_ci_low,
                         results.convergence_ci_high,
                     ),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
                 final_width = (
@@ -154,7 +154,7 @@ def render_results(container) -> None:
                         tail_ratio=tail_ratio,
                         quality_total=quality_total,
                     ),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
         with tab_detail:
@@ -184,7 +184,7 @@ def render_results(container) -> None:
                                         f"EV-Verteilung – {seg_name}",
                                         "Enterprise Value (Mio.)",
                                     ),
-                                    use_container_width=True,
+                                    width="stretch",
                                 )
                 else:
                     st.info("Detailcharts sind aktuell deaktiviert. Aktivieren Sie **Detailcharts laden**, wenn Sie Segmentverteilungen im Detail prüfen möchten.")

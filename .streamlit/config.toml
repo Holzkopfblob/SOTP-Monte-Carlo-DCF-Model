@@ -1,0 +1,16 @@
+# App-wide look – colours mirror presentation/theme/tokens.py
+[theme]
+base = "light"
+primaryColor = "#2457c5"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f3f5f9"
+textColor = "#1b2333"
+borderColor = "#e3e7ee"
+baseRadius = "0.5rem"
+
+[global]
+# Loaded configs set widget values via session state on purpose.
+disableWidgetStateDuplicationWarning = true
+
+[client]
+toolbarMode = "minimal"

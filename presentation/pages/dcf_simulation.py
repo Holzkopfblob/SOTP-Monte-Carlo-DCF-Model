@@ -15,6 +15,7 @@ from domain.models import (
     SegmentConfig,
     SimulationConfig,
 )
+from infrastructure.config_io import RESULTS_FINGERPRINT_KEY, ui_fingerprint
 from infrastructure.monte_carlo_engine import MonteCarloEngine
 
 
@@ -79,7 +80,7 @@ def render_simulation(
             run_button = st.button(
                 "🚀 Simulation starten",
                 type="primary",
-                use_container_width=True,
+                width="stretch",
             )
 
         if run_button:
@@ -131,13 +132,18 @@ def render_simulation(
                 progress_bar.progress(90, text="Berechne Statistiken …")
                 st.session_state.results = results
                 st.session_state.config = config
+                # Ties the result snapshot in saved JSONs to exactly these inputs.
+                st.session_state[RESULTS_FINGERPRINT_KEY] = ui_fingerprint(dict(st.session_state))
                 progress_bar.progress(100, text="Fertig!")
+                # The sidebar (status + download incl. result snapshot) was
+                # rendered before this run finished – rerun so it is current.
+                st.session_state["_sim_just_finished"] = n_simulations
+                st.rerun()
 
-                st.success(
-                    f"✅ Simulation abgeschlossen – "
-                    f"{n_simulations:,} Szenarien berechnet."
-                )
-                st.balloons()
+        n_done = st.session_state.pop("_sim_just_finished", None)
+        if n_done:
+            st.success(f"✅ Simulation abgeschlossen – {n_done:,} Szenarien berechnet.")
+            st.balloons()
 
         if st.session_state.results is not None:
             st.markdown("---")

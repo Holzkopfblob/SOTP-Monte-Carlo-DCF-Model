@@ -326,3 +326,88 @@ class TestRoundTrip:
         assert re_export["metadata"]["report_currency"] == "EUR"
         assert re_export["metadata"]["sector_tags"] == ["Industrie"]
         assert re_export["research"]["version"] == "2026-03-29"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Research import, result snapshot, version diff
+# ═══════════════════════════════════════════════════════════════════════════
+
+from pathlib import Path
+from types import SimpleNamespace
+
+from infrastructure.config_io import (
+    RESULTS_FINGERPRINT_KEY,
+    diff_configs,
+    parse_config_text,
+    ui_fingerprint,
+)
+
+_PROMPT = Path(__file__).resolve().parent.parent / "prompts" / "sotp_research_prompt.md"
+
+
+class TestResearchImport:
+    def test_prompt_template_is_importable(self):
+        """The JSON template in the research prompt must load into the app."""
+        cfg = parse_config_text(_PROMPT.read_text(encoding="utf-8"))
+        state = apply_config(cfg, {})
+        assert state["s0_rg_pert_mo"] == pytest.approx(5.0)
+        assert state["cfg_passthrough"]["quellen"]["s0_rg"].endswith("[Q2]")
+        assert "Q1" in state["cfg_passthrough"]["quellenverzeichnis"]
+
+    def test_extracts_fenced_block_from_llm_chatter(self):
+        text = 'Checks {ok}\n```json\n{"ui_state": {"setup": {"setup_n_seg": 2}}}\n```\nEnde {x}'
+        assert parse_config_text(text)["ui_state"]["setup"]["setup_n_seg"] == 2
+
+    @pytest.mark.parametrize("text", ["kein json", "{nicht: gültig}", '{"foo": 1}'])
+    def test_rejects_unusable_text(self, text):
+        with pytest.raises(ValueError):
+            parse_config_text(text)
+
+
+class TestResultSnapshot:
+    def _results(self):
+        arr = np.linspace(0.0, 100.0, 101)
+        return SimpleNamespace(n_simulations=101, total_ev=arr, equity_values=arr, price_per_share=arr)
+
+    def test_snapshot_saved_only_for_matching_inputs(self):
+        state = _build_state(1)
+        state["results"] = self._results()
+        state[RESULTS_FINGERPRINT_KEY] = ui_fingerprint(state)
+
+        snap = collect_config(state)["ergebnis"]
+        assert snap["preis_je_aktie"]["p50"] == pytest.approx(50.0)
+        assert snap["preis_je_aktie"]["p5"] == pytest.approx(5.0)
+
+        state["seg_0_basrev"] = 9_999.0  # input edited after the run
+        assert "ergebnis" not in collect_config(state)
+
+    def test_loaded_snapshot_is_not_passed_through(self):
+        cfg = collect_config(_build_state(1))
+        cfg["ergebnis"] = {"stale": True}
+        assert "ergebnis" not in collect_config(apply_config(cfg, {}))
+
+
+class TestDiffConfigs:
+    def test_reports_changes_with_labels_and_sources(self):
+        state = _build_state(2, with_corr=True)
+        state["s0_rg_dtype"] = state["s0_wacc_dtype"] = "Fest (Deterministisch)"
+        old = collect_config(state)
+        new = json.loads(json.dumps(old))
+        seg = new["ui_state"]["segments"][0]
+        seg["s0_rg_fixed"] = 7.0
+        seg["s0_wacc_n_mu"] = 1.0  # leftover of an inactive dist type → ignored
+        new["ui_state"]["correlation"].update(corr_0_1=0.8, corr_1_0=0.8)
+        new["quellen"] = {"s0_rg": "Konsens [Q2]"}
+
+        rows = diff_configs(old, new)
+        assert [(r["parameter"], r["alt"], r["neu"]) for r in rows] == [
+            ("Umsatzwachstum (%) · Wert", 0.05, 7.0),
+            ("ρ Segment 1 ↔ 2", 0.5, 0.8),
+        ]
+        assert rows[0]["quelle"] == "Konsens [Q2]"
+        assert diff_configs(old, old) == []
+
+        # Value changed again, justification copied over unchanged → flagged.
+        newer = json.loads(json.dumps(new))
+        newer["ui_state"]["segments"][0]["s0_rg_fixed"] = 8.0
+        assert diff_configs(new, newer)[0]["quelle"].startswith("⚠️")
