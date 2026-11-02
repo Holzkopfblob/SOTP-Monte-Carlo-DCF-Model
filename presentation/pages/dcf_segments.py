@@ -222,6 +222,9 @@ def render_segments(container, n_segments: int) -> list[SegmentConfig]:
                             forecast_years=int(forecast_yrs),
                         ),
                         width="stretch",
+                        # Unique per segment: identical previews in two
+                        # segments would otherwise collide (duplicate ID).
+                        key=f"seg_{i}_revenue_fade_preview",
                     )
 
                     # ── Parameter-Fade Vorschau ───────────────────────
@@ -248,6 +251,7 @@ def render_segments(container, n_segments: int) -> list[SegmentConfig]:
                                     params=fade_params,
                                 ),
                                 width="stretch",
+                                key=f"seg_{i}_param_fade_preview",
                             )
 
                 # ── Build config object ───────────────────────────────

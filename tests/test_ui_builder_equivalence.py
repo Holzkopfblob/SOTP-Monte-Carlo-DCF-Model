@@ -42,6 +42,22 @@ def _page():
         pickle.dump({"setup": setup, "segments": segs}, f)
 
 
+def test_identical_fade_segments_render(tmp_path, monkeypatch):
+    """Two segments with the same fade inputs must not collide (duplicate chart ID)."""
+    fade = "Fade-Modell (g konvergiert zum Terminal-Wachstum)"
+    seg = lambda i: {f"seg_{i}_growth_mode": fade, f"seg_{i}_param_fade": True}  # noqa: E731
+    cfg = {"schema_version": 2, "ui_state": {
+        "setup": {"setup_n_seg": 2}, "bridge": {},
+        "segments": [seg(0), seg(1)], "correlation": {}}}
+    cfg_path = tmp_path / "twin.json"
+    cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+    monkeypatch.setenv("SOTP_TEST_CFG", str(cfg_path))
+    monkeypatch.setenv("SOTP_TEST_OUT", str(tmp_path / "ui.pkl"))
+    at = AppTest.from_function(_page, default_timeout=60)
+    at.run()
+    assert not at.exception, at.exception
+
+
 def test_pages_match_builder(tmp_path, monkeypatch):
     out = tmp_path / "ui.pkl"
     monkeypatch.setenv("SOTP_TEST_CFG", str(CFG))
