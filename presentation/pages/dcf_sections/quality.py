@@ -13,7 +13,31 @@ from presentation.charts import (
     roic_vs_wacc_scatter,
     tv_ev_decomposition_chart,
 )
+from domain.checks import result_checks, roic_is_artifact
 from presentation.pages.dcf_sections.builders import build_quality_payload
+
+
+def render_checks_section(results, config) -> None:
+    """Plausibility checks (prompt checks 4, 5, 6, 7, 9, 11) as one table."""
+    st.subheader("🧾 Plausibilitäts-Checks")
+    st.caption("Automatische Checks aus dem Research-Prompt. ⚠️/❌ heißt: Annahme prüfen oder "
+               "die Abweichung im Bericht begründen. Schwellen stehen in `domain/checks.py`.")
+    meta = st.session_state.setdefault("cfg_passthrough", {}).setdefault("metadata", {})
+    ist = st.number_input(
+        "Ist-FCFF Jahr 1 (Mio., optional)", value=float(meta.get("ist_fcff_jahr1") or 0.0), step=100.0,
+        help="Unlevered: FCF + Zinsen × (1 − t), ohne Spektrum/M&A, nach Holdingkosten. "
+             "Bei anteiliger Konsolidierung nur der eigene Anteil. Wird mit der Konfiguration gespeichert.",
+        key="chk_ist_fcff",
+    )
+    if ist:
+        meta["ist_fcff_jahr1"] = ist
+    else:
+        meta.pop("ist_fcff_jahr1", None)
+    rows = result_checks(config, results, meta, ist_fcff=ist or None)
+    st.dataframe(
+        [{"Check": c.id, "Status": c.status, "Prüfung": c.name, "Detail": c.detail} for c in rows],
+        hide_index=True, width="stretch",
+    )
 
 
 def render_tv_ev_section(results) -> None:
@@ -182,6 +206,9 @@ sind die Annahmen möglicherweise zu optimistisch.
         wacc_ref = float(np.mean(seg_wacc.get(seg_name, np.array([avg_wacc]))))
         spread = mean_roic - wacc_ref
         label = "🟢" if spread > 0.02 else ("🟡" if spread > -0.02 else "🔴")
+        seg = next((s for s in config.segments if s.name == seg_name), None)
+        if label != "🟢" and seg is not None and roic_is_artifact(seg):
+            label = "ℹ️ Artefakt (g oder Reinvestition ≤ 0)"
         col.metric(
             f"ROIC – {seg_name}",
             f"{mean_roic:.1%}",

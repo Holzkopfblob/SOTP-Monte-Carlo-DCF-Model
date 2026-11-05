@@ -18,6 +18,7 @@ from infrastructure.config_io import (
     split_bridge_param as _split_bridge_param,  # noqa: F401 – kept for callers/tests
     ui_fingerprint,
 )
+from domain.checks import OK, config_checks
 from infrastructure.monte_carlo_engine import MonteCarloEngine
 
 # setup-dict key (dcf_setup.render_setup) → bridge prefix (config_io)
@@ -65,6 +66,10 @@ def render_simulation(
                     for sc in segment_configs
                 ]
                 st.table(pd.DataFrame(overview_rows))
+
+            for c in config_checks(segment_configs):
+                if c.status != OK:
+                    st.warning(f"{c.status} Check {c.id} · {c.name}: {c.detail}")
 
         st.markdown("")
         run_col1, run_col2, run_col3 = st.columns([1, 2, 1])

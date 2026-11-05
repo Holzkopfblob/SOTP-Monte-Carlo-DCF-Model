@@ -3,6 +3,7 @@
 from .distribution import render_distribution_section
 from .export import render_excel_export_section
 from .quality import (
+    render_checks_section,
     render_quality_section,
     render_roic_section,
     render_tv_ev_section,
@@ -25,6 +26,7 @@ from .summary import (
 )
 
 __all__ = [
+    "render_checks_section",
     "render_key_metrics_section",
     "render_descriptive_stats_section",
     "render_distribution_section",

@@ -11,6 +11,7 @@ from presentation.charts import (
     margin_of_safety_chart,
     percentile_convergence_chart,
 )
+from domain.checks import roic_is_artifact
 from presentation.pages.dcf_sections.builders import build_tail_risk_metrics
 
 
@@ -71,7 +72,7 @@ $$\text{CVaR}_\alpha = \mathbb{E}[X \mid X \leq \text{VaR}_\alpha]$$
         )
 
 
-def render_economic_profit_section(results) -> None:
+def render_economic_profit_section(results, config=None) -> None:
     """Economic Profit (EVA) per segment + probability of value destruction."""
     seg_ep = getattr(results, "segment_economic_profit", None)
     seg_pvd = getattr(results, "segment_prob_value_destruction", None)
@@ -109,6 +110,9 @@ $$\text{EP} \approx \text{Revenue} \times [(\text{EBITDA\%} - \text{D\&A\%}) \ti
         cols = st.columns(len(seg_pvd))
         for col, (seg_name, pvd) in zip(cols, seg_pvd.items()):
             label = "🟢" if pvd < 0.15 else ("🟡" if pvd < 0.35 else "🔴")
+            seg = next((s for s in getattr(config, "segments", []) if s.name == seg_name), None)
+            if pvd > 0.5 and seg is not None and roic_is_artifact(seg):
+                label = "ℹ️ Artefakt (g oder Reinvestition ≤ 0)"
             col.metric(
                 f"P(ROIC < WACC) – {seg_name}",
                 f"{pvd:.1%}",

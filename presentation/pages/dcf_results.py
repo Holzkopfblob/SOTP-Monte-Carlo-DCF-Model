@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import streamlit as st
 from presentation.pages.dcf_sections import (
+    render_checks_section,
     render_conditional_sensitivity_section,
     render_descriptive_stats_section,
     render_distribution_section,
@@ -81,7 +82,7 @@ def render_results(container) -> None:
             st.divider()
             render_margin_of_safety_section(results)
             st.divider()
-            render_economic_profit_section(results)
+            render_economic_profit_section(results, config)
 
         with tab_drivers:
             render_sensitivity_section(results)
@@ -89,6 +90,8 @@ def render_results(container) -> None:
             render_conditional_sensitivity_section(results)
 
         with tab_quality:
+            render_checks_section(results, config)
+            st.divider()
             render_tv_ev_section(results)
             st.divider()
             render_roic_section(results, config)

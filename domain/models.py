@@ -94,7 +94,7 @@ class DistributionConfig:
         if dt == DistributionType.NORMAL:
             return self.mean
         if dt == DistributionType.LOGNORMAL:
-            return self.ln_mu
+            return float(np.exp(self.ln_mu))  # median; ln_mu itself is in log space
         if dt in (DistributionType.TRIANGULAR, DistributionType.PERT):
             return self.mode
         if dt == DistributionType.UNIFORM:
