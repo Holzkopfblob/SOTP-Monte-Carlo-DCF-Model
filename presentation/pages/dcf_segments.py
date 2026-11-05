@@ -64,6 +64,24 @@ def render_segments(container, n_segments: int) -> list[SegmentConfig]:
                 with sc2:
                     render_source(f"seg_{i}_fyrs")
 
+                # ── Ownership (partly owned, e.g. listed subsidiary) ──
+                anteil = sc1.number_input(
+                    "Beteiligungsquote (%)", value=100.0, min_value=0.1, max_value=100.0, step=0.1,
+                    key=f"seg_{i}_anteil", format="%.1f",
+                    help="Wirtschaftlicher Anteil der Mutter. Umsatz und Margen bleiben zu 100 % wie von der "
+                         "Tochter berichtet; bewertet wird Quote × Unternehmenswert. Minderheiten dieser "
+                         "Tochter dann nicht in der Bridge (Regel 3.5).",
+                )
+                with sc1:
+                    render_source(f"seg_{i}_anteil")
+                if anteil < 100.0:
+                    with sc2:
+                        render_distribution_input(
+                            "Nettoschulden der Tochter (Mio.)", f"s{i}_snd", 0.0,
+                            help_text="Teil der konsolidierten Nettoschulden, der zur Tochter gehört. "
+                                      "Die App zieht davon nur den Fremdanteil (1 − Quote) aus der Bridge heraus.",
+                        )
+
                 st.markdown("---")
                 st.markdown("##### 📐 Werttreiber")
 

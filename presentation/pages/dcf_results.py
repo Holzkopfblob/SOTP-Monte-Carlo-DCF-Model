@@ -75,9 +75,23 @@ def render_results(container) -> None:
                     pension_liabilities=results.base_pension_liabilities,
                     non_operating_assets=results.base_non_operating_assets,
                     associate_investments=results.base_associate_investments,
+                    subsidiary_minorities=results.base_subsidiary_minorities,
+                    ownership=results.segment_ownership,
                 ),
                 width="stretch",
             )
+            partly = {k: q for k, q in results.segment_ownership.items() if q < 1.0}
+            if partly:
+                st.caption(
+                    "Teilweise gehaltene Segmente: EV zu 100 %, davon zählt die Beteiligungsquote. "
+                    "„Fremdanteil Töchter“ = (1 − Quote) × (EV − Nettoschulden der Tochter); die "
+                    "Nettoverschuldung ist der konsolidierte Wert."
+                )
+                st.dataframe([{
+                    "Segment": k, "Quote": f"{q:.1%}",
+                    "EV 100 % (Ø)": round(results.base_segment_evs[k], 0),
+                    "EV anteilig (Ø)": round(q * results.base_segment_evs[k], 0),
+                } for k, q in partly.items()], hide_index=True)
 
         with tab_risk:
             render_tail_risk_section(results)

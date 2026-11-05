@@ -649,6 +649,13 @@ App-Feld: „Aktien ausstehend (Mio.)" (Verteilungsinput)
 ────────────────────────────────────────────────────────────────────────
 App-Feld: „Minderheitsanteile (Mio.)"
 • Buchwert Non-controlling Interests
+• AUSNAHME teilweise gehaltene Töchter (z. B. börsennotierte Tochter mit
+  großem Fremdanteil): Segment zu 100 % modellieren, „Beteiligungsquote (%)"
+  und „Nettoschulden der Tochter" im Segment setzen (Schritt 6). Die
+  Minderheiten DIESER Tochter dann NICHT hier eintragen, sonst zählen sie
+  doppelt; hier nur die übrigen Minderheiten zum Buchwert. Grund: Der
+  Buchwert unterschätzt den Fremdanteil an einer Tochter, die weit über
+  Buchwert bewertet ist (Telekom/T-Mobile US: rund 100 Mrd. €).
 • Falls nicht vorhanden → Fest: 0
 • Einheit: Mio.
 
@@ -791,6 +798,7 @@ PARAMETER-PRÄFIXE <p>:
               s{i}_cx   CAPEX (% Umsatz)    s{i}_nwc  NWC (% ΔUmsatz)
               s{i}_wacc WACC                s{i}_tvg  TV-Wachstum
               s{i}_evm  Exit-Multiple (nur bei Exit-Multiple-Ansatz)
+              s{i}_snd  Nettoschulden der Tochter (Mio., nur bei Quote < 100 %)
   Fade-Terminals (nur wenn seg_{i}_param_fade = true):
               s{i}_em_term, s{i}_da_term, s{i}_tx_term, s{i}_cx_term, s{i}_nwc_term
   Bridge:     bridge_cc Holdingkosten p.a.     bridge_cd Diskontierungssatz (%)
@@ -807,6 +815,11 @@ SEGMENT-FELDER (direkte Werte, keine Verteilung):
   seg_{i}_fade_speed   λ (z. B. 0.5)
   seg_{i}_param_fade   true / false
   seg_{i}_tv_method    "Gordon Growth Model (Ewige Rente)" oder "Exit-Multiple-Ansatz"
+  seg_{i}_anteil       Beteiligungsquote in % (Standard 100). Bei < 100 %:
+                       Umsatz und Margen zu 100 % wie von der Tochter
+                       berichtet, s{i}_snd = ihr Teil der konsolidierten
+                       Nettoschulden; bridge_nd bleibt der konsolidierte
+                       Wert, die App zieht nur den Fremdanteil heraus
   seg_{i}_intra_corr   true / false; wenn true zusätzlich seg_{i}_ic_{r}_{c}
                        für r < c (0 Wachstum, 1 EBITDA, 2 D&A, 3 Steuer,
                        4 CAPEX, 5 NWC, 6 WACC)

@@ -18,6 +18,8 @@ def waterfall_chart(
     pension_liabilities: float = 0.0,
     non_operating_assets: float = 0.0,
     associate_investments: float = 0.0,
+    subsidiary_minorities: float = 0.0,
+    ownership: dict[str, float] | None = None,
 ) -> go.Figure:
     """SOTP value-bridge waterfall."""
     names: list[str] = []
@@ -25,15 +27,21 @@ def waterfall_chart(
     measures: list[str] = []
 
     for seg_name, ev in segment_evs.items():
-        names.append(f"EV {seg_name}")
+        q = (ownership or {}).get(seg_name, 1.0)
+        names.append(f"EV {seg_name}" + (" (100 %)" if q < 1.0 else ""))
         values.append(ev)
+        measures.append("relative")
+
+    if abs(subsidiary_minorities) > 0.01:
+        names.append("Fremdanteil Töchter")
+        values.append(-subsidiary_minorities)
         measures.append("relative")
 
     names.append("Holdingkosten (PV)")
     values.append(-corporate_costs_pv)
     measures.append("relative")
 
-    names.append("Nettoverschuldung")
+    names.append("Nettoverschuldung (konsolidiert)" if subsidiary_minorities else "Nettoverschuldung")
     values.append(-net_debt)
     measures.append("relative")
 
