@@ -195,13 +195,24 @@ def collect_config(state: dict) -> dict:
     return cfg
 
 
+# Early v1 files kept the bridge as plain numbers in "setup".
+_OLDEST_V1_BRIDGE = {"setup_corp_costs": "bridge_cc", "setup_corp_disc": "bridge_cd",
+                     "setup_net_debt": "bridge_nd", "setup_shares": "bridge_sh"}
+
+
 def _extract_ui_state(cfg: dict) -> dict:
     """Return normalized ui_state from v2 schema or legacy v1 payload."""
     if isinstance(cfg.get("ui_state"), dict):
         return cfg["ui_state"]
+    setup = cfg.get("setup", {})
+    bridge = dict(cfg.get("bridge", {}))
+    for old, prefix in _OLDEST_V1_BRIDGE.items():
+        if old in setup and f"{prefix}_dtype" not in bridge:
+            bridge[f"{prefix}_dtype"] = DistributionType.FIXED.value
+            bridge[f"{prefix}_fixed"] = setup[old]
     return {
-        "setup": cfg.get("setup", {}),
-        "bridge": cfg.get("bridge", {}),
+        "setup": setup,
+        "bridge": bridge,
         "segments": cfg.get("segments", []),
         "correlation": cfg.get("correlation", {}),
     }

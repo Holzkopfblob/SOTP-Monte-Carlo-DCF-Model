@@ -238,6 +238,31 @@ class TestApplyConfig:
         assert updated["seg_0_name"] == "Legacy Segment"
         assert updated["corr_0_0"] == pytest.approx(1.0)
 
+    def test_oldest_v1_bridge_in_setup_is_migrated(self):
+        # Early v1 files (Feb 2026) kept the bridge as plain numbers in "setup".
+        # Without migration they silently fell back to the defaults (net debt 500, 100 shares).
+        from infrastructure.config_io import build_simulation_config
+        old_cfg = {
+            "version": 1,
+            "setup": {"setup_n_sim": 100, "setup_seed": 42, "setup_n_seg": 1,
+                      "setup_corp_costs": 800.0, "setup_corp_disc": 6.0,
+                      "setup_net_debt": 137_300.0, "setup_shares": 4_938.0},
+            "segments": [{"seg_0_name": "Old", "seg_0_basrev": 1_000.0}],
+        }
+        b = build_simulation_config(old_cfg).corporate_bridge
+        assert b.annual_corporate_costs == pytest.approx(800.0)
+        assert b.corporate_cost_discount_rate == pytest.approx(0.06)
+        assert b.net_debt == pytest.approx(137_300.0)
+        assert b.shares_outstanding == pytest.approx(4_938.0)
+
+    def test_explicit_bridge_wins_over_oldest_setup_keys(self):
+        cfg = {
+            "version": 1,
+            "setup": {"setup_net_debt": 1.0},
+            "bridge": {"bridge_nd_dtype": "Fest (Deterministisch)", "bridge_nd_fixed": 2.0},
+        }
+        assert apply_config(cfg, {})["bridge_nd_fixed"] == pytest.approx(2.0)
+
     def test_unknown_top_level_blocks_are_preserved(self):
         cfg = collect_config(_build_state(1))
         cfg["metadata"] = {"report_currency": "EUR", "company": "Airbus SE"}
