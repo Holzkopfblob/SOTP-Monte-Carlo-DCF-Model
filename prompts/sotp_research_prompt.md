@@ -827,6 +827,22 @@ QUELLEN (Pflicht – macht die Recherche in der App nachvollziehbar):
   Pensionen, Vorzugsaktien als Minderheiten) in "quellen" mit „Hier: …"
   beginnen, damit die Belegung am Eingabefeld sichtbar ist.
 
+SZENARIEN (Pflicht, siehe Schritt 7b):
+  "szenarien": Liste von {"name": "…", "ops": [{"muster": "…", "op": "+" | "=", "wert": …}]}
+  • muster: Feldpräfix oder Feld, Platzhalter * erlaubt, z. B. "s*_wacc",
+    "s0_em", "s0_em_term", "bridge_cd", "seg_0_basrev".
+  • "+" auf ein Präfix verschiebt alle Lagewerte der Verteilung (Min/Modus/
+    Max bzw. μ); die Streuung bleibt. "=" auf ein Präfix setzt den Modus und
+    verschiebt Min/Max mit. "=" auf ein exaktes Feld (z. B. "bridge_mi_fixed",
+    "bridge_mi_dtype") setzt genau dieses Feld.
+  • wert in Anzeige-Einheit (Prozentpunkte, Mio.).
+  • Szenarien ändern möglichst nur Werte, nicht den Verteilungstyp: Dann
+    enthält das Δ kein Stichprobenrauschen.
+  Bei einer Folgeanalyse optional "ueberleitung": benannte Schritte von der
+  Vorversion aus, gleiches Format plus "von": Stichtag der Vorversion
+  (JJJJ-MM-TT). Die App wendet sie im Versionsvergleich vor den übrigen
+  Unterschieden an.
+
 METADATEN:
   "stichtag" = Datum der Recherche (JJJJ-MM-TT); "saved_at" = dasselbe
   Datum als "JJJJ-MM-TTT00:00:00". "kurs_bei_recherche" = Aktienkurs am
@@ -905,7 +921,12 @@ VORLAGE (ein Segment vollständig; weitere Segmente analog mit i = 1, 2, …):
   "quellenverzeichnis": {
     "Q1": "[UNTERNEHMEN], Q3-Bericht 2025, URL, abgerufen 2026-01-15 [primär geprüft]",
     "Q2": "LSEG Konsensus, Stand 2026-01-10 [sekundär]"
-  }
+  },
+  "szenarien": [
+    {"name": "WACC +1 pp (inkl. Holding)",
+     "ops": [{"muster": "s*_wacc", "op": "+", "wert": 1}, {"muster": "bridge_cd", "op": "+", "wert": 1}]},
+    {"name": "SBC nicht als Aufwand", "ops": [{"muster": "s*_em*", "op": "+", "wert": 0.6}]}
+  ]
 }
 ```
 
@@ -1027,7 +1048,11 @@ Berechne einen groben Punkt-DCF mit den Base-Case-Werten:
   4. Kurs = EV / Aktien
 
 Vergleiche mit aktuellem Aktienkurs: Premium/Discount in %.
-> 100 % Abweichung → Parameterfehler wahrscheinlich → nochmal prüfen!
+> 50 % Abweichung → Lücke erklären: erst Annahmen gegen die eigene Evidenz
+prüfen (organisches statt gemeldetes Wachstum, wiederkehrende Sonderposten,
+k_d, Leasing-Definition, Minderheiten). Bleibt die Lücke, im Bericht den
+Reverse DCF angeben (WACC-Aufschlag bzw. TV-g, bei dem P50 = Kurs). Die App
+rechnet ihn im Tab „🎯 Szenarien“ exakt nach.
 
 ────────────────────────────────────────────────────────────────────────
 Check 10 · Steady-State-Konsistenz
@@ -1071,15 +1096,19 @@ SCHRITT 7b · PFLICHT-SZENARIEN (Strukturfragen)
 ═══════════════════════════════════════════════════════════════════════════
 
 Die MC-Streuung erfasst nur Parameterunsicherheit. Strukturfragen
-gehören in benannte Szenarien. Liefere MINDESTENS diese drei, jeweils
-als Liste der geänderten JSON-Keys mit neuen Werten:
+gehören in benannte Szenarien. Liefere sie im JSON-Block als "szenarien"
+(Format unter SZENARIEN in Schritt 6). Die App rechnet jedes Szenario mit
+Seed und Iterationen der Basis und zeigt P50, Δ und P5/P95. MINDESTENS:
 
   1. SBC nicht als Aufwand: EBITDA-Margen (initial + terminal) um
-     SBC/Umsatz erhöhen.
-  2. WACC −1 pp und +1 pp (alle Segmente + Holding-Diskontsatz).
-  3. Die größte Strukturfrage der Firma (z. B. dauerhafter vs. abebbender
-     CAPEX, Erfolg einer Produktmigration, Normalisierung eines Zyklus),
-     mit Begründung, warum gerade diese.
+     SBC/Umsatz erhöhen, z. B. {"muster": "s*_em*", "op": "+", "wert": 0.6}.
+  2. WACC −1 pp und +1 pp (alle Segmente + Holding-Diskontsatz):
+     "s*_wacc" und "bridge_cd" jeweils "+" ±1.
+  3. Endwachstum der Gordon-Segmente 0 % bzw. −1 pp.
+  4. Die zwei bis drei größten Strukturfragen der Firma (z. B. dauerhafter
+     vs. abebbender CAPEX, Erfolg einer Produktmigration, Normalisierung
+     eines Zyklus, Bewertung von Minderheiten), mit Begründung, warum
+     gerade diese.
 
 | Szenario | Geänderte Keys → Werte | Begründung |
 |---|---|---|
