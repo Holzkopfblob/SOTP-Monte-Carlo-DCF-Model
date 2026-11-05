@@ -9,6 +9,7 @@ import json
 import pandas as pd
 import streamlit as st
 
+from application.scenario_service import named_steps_for, version_date, walk
 from infrastructure.config_io import diff_configs
 from presentation.charts import valuation_timeline
 
@@ -115,6 +116,32 @@ def render_compare(container) -> None:
             df[["Alt", "Neu"]] = df[["Alt", "Neu"]].astype(str)
             st.caption(f"{len(rows)} geänderte Eingaben.")
             st.dataframe(df, width="stretch", hide_index=True)
+
+        # ── Walk old → new ────────────────────────────────────────────
+        st.subheader("🪜 Überleitung: Woher kommt die Wertänderung?")
+        named = named_steps_for(cfgs[old_lbl], cfgs[new_lbl])
+        st.caption(
+            "Rechnet die alte Version auf dem heutigen Modell und ändert dann Schritt für Schritt bis zur "
+            "neuen: zuerst die benannten Schritte aus dem Block `ueberleitung` der neuen Datei, die von dieser "
+            f"alten Version ausgehen (`von` = {version_date(cfgs[old_lbl]) or '–'}: {len(named)}), dann die übrigen Unterschiede nach Bereich. Beide Enden mit Seed und "
+            "Iterationen der neuen Version. Die Zuordnung hängt von der Reihenfolge ab, das Endergebnis nicht."
+        )
+        if st.button("▶ Überleitung rechnen", key="walk_run") and rows:
+            bar = st.progress(0.0, text="Überleitung …")
+            try:
+                st.session_state["walk_result"] = (old_lbl, new_lbl, walk(
+                    cfgs[old_lbl], cfgs[new_lbl], named, progress=lambda f, t: bar.progress(min(f, 1.0), text=t)))
+            except ValueError as e:
+                st.error(f"Benannter Schritt ungültig: {e}")
+        res = st.session_state.get("walk_result")
+        if res and res[:2] == (old_lbl, new_lbl):
+            w = res[2]
+            st.dataframe(pd.DataFrame([{"Schritt": z["schritt"], "P50": round(z["p50"], 2),
+                                        "Δ": None if z["delta"] is None else round(z["delta"], 2)}
+                                       for z in w["zeilen"]]), width="stretch", hide_index=True)
+            (st.success if w["schliesst"] else st.error)(
+                f"Endstand {w['zeilen'][-1]['p50']:,.2f} = neue Version {w['p50_b']:,.2f}"
+                if w["schliesst"] else "Überleitung schließt nicht auf die neue Version – bitte melden.")
 
         verz = cfgs[new_lbl].get("quellenverzeichnis")
         if verz:

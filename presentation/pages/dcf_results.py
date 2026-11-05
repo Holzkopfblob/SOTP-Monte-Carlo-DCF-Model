@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import streamlit as st
 from presentation.pages.dcf_sections import (
+    render_scenarios_section,
     render_checks_section,
     render_conditional_sensitivity_section,
     render_descriptive_stats_section,
@@ -46,10 +47,11 @@ def render_results(container) -> None:
 
         st.header("📈 Simulationsergebnisse")
         render_info_interpretation()
-        tab_overview, tab_risk, tab_drivers, tab_quality, tab_detail = st.tabs([
+        tab_overview, tab_risk, tab_drivers, tab_scen, tab_quality, tab_detail = st.tabs([
             "🧭 Überblick",
             "⚠️ Risiko",
             "🧠 Treiber",
+            "🎯 Szenarien",
             "✅ Qualität",
             "🧪 Detail & Export",
         ])
@@ -88,6 +90,9 @@ def render_results(container) -> None:
             render_sensitivity_section(results)
             st.divider()
             render_conditional_sensitivity_section(results)
+
+        with tab_scen:
+            render_scenarios_section()
 
         with tab_quality:
             render_checks_section(results, config)

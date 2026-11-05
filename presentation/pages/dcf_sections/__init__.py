@@ -8,6 +8,7 @@ from .quality import (
     render_roic_section,
     render_tv_ev_section,
 )
+from .scenarios import render_scenarios_section
 from .risk import (
     render_economic_profit_section,
     render_margin_of_safety_section,
@@ -26,6 +27,7 @@ from .summary import (
 )
 
 __all__ = [
+    "render_scenarios_section",
     "render_checks_section",
     "render_key_metrics_section",
     "render_descriptive_stats_section",

@@ -182,6 +182,13 @@ def collect_config(state: dict) -> dict:
     results = state.get("results")
     if results is not None and state.get(RESULTS_FINGERPRINT_KEY) == _fingerprint(ui_state):
         cfg["ergebnis"] = summarize_results(results)
+        # Scenario / reverse-DCF results only if computed from these inputs and definitions.
+        scen = state.get(SCENARIO_RESULTS_KEY) or {}
+        defs = (state.get(_PASSTHROUGH_STATE_KEY) or {}).get("szenarien")
+        if scen.get("fingerprint") == _fingerprint(ui_state) and scen.get("definitionen") == defs:
+            for k in ("szenarien", "reverse_dcf"):
+                if scen.get(k) is not None:
+                    cfg["ergebnis"][k] = scen[k]
 
     # Preserve unknown top-level config fields loaded from external files
     # (e.g. metadata, notes, taxonomy). These are not interpreted by the UI
@@ -286,6 +293,7 @@ def apply_config(cfg: dict, state: dict) -> dict:
 # ── Result snapshot ───────────────────────────────────────────────────
 
 RESULTS_FINGERPRINT_KEY = "results_fingerprint"
+SCENARIO_RESULTS_KEY = "szenario_ergebnis"  # {"fingerprint", "definitionen", "szenarien", "reverse_dcf"}
 
 
 def _fingerprint(ui_state: dict) -> str:

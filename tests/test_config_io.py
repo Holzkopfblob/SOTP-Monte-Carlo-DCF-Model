@@ -263,6 +263,27 @@ class TestApplyConfig:
         }
         assert apply_config(cfg, {})["bridge_nd_fixed"] == pytest.approx(2.0)
 
+    def test_scenario_blocks_round_trip_and_results_only_when_current(self):
+        from types import SimpleNamespace
+        from infrastructure.config_io import RESULTS_FINGERPRINT_KEY, SCENARIO_RESULTS_KEY, ui_fingerprint
+        defs = [{"name": "WACC +1", "ops": [{"muster": "s*_wacc", "op": "+", "wert": 1}]}]
+        cfg = collect_config(_build_state(1))
+        cfg["szenarien"] = defs
+        cfg["ueberleitung"] = [{"name": "x", "von": "2026-02-22", "ops": []}]
+        state = apply_config(cfg, {})
+        arr = np.array([1.0, 2.0, 3.0])
+        state["results"] = SimpleNamespace(n_simulations=3, total_ev=arr, equity_values=arr, price_per_share=arr)
+        state[RESULTS_FINGERPRINT_KEY] = ui_fingerprint(state)
+        state[SCENARIO_RESULTS_KEY] = {"fingerprint": ui_fingerprint(state), "definitionen": defs,
+                                       "szenarien": {"zeilen": []}, "reverse_dcf": {"status": "ok"}}
+        saved = collect_config(state)
+        assert saved["szenarien"] == defs and saved["ueberleitung"][0]["von"] == "2026-02-22"
+        assert saved["ergebnis"]["szenarien"] == {"zeilen": []}
+        assert saved["ergebnis"]["reverse_dcf"] == {"status": "ok"}
+        # definitions edited after the run → stale results are not saved
+        state["cfg_passthrough"]["szenarien"] = [{"name": "anders", "ops": []}]
+        assert "szenarien" not in collect_config(state)["ergebnis"]
+
     def test_unknown_top_level_blocks_are_preserved(self):
         cfg = collect_config(_build_state(1))
         cfg["metadata"] = {"report_currency": "EUR", "company": "Airbus SE"}
