@@ -15,6 +15,7 @@ from scipy.stats import qmc
 from domain.distributions import create_distribution
 from domain.fade import build_fade_curve
 from domain.models import (
+    DistributionType,
     RevenueGrowthMode,
     SamplingMethod,
     SegmentConfig,
@@ -84,6 +85,8 @@ class MonteCarloEngine:
             base_pension_liabilities=bridge_bases["base_pension_liabilities"],
             base_non_operating_assets=bridge_bases["base_non_operating_assets"],
             base_associate_investments=bridge_bases["base_associate_investments"],
+            base_subsidiary_minorities=bridge_bases["base_subsidiary_minorities"],
+            segment_ownership=bridge_bases["segment_ownership"],
             price_per_share=price_per_share,
             n_simulations=n,
             convergence_indices=conv_idx,
@@ -199,8 +202,11 @@ class MonteCarloEngine:
 
     def _compute_equity_bridge(self, segment_evs, input_samples, n):
         """Aggregate segment EVs through the corporate bridge to equity."""
+        segs = {s.name: s for s in self.config.segments}
+        share = {k: float(segs[k].ownership_share) if k in segs else 1.0 for k in segment_evs}
+        # Attributable EV: q · EV (q = 1.0 leaves the array bit-identical)
         total_ev = np.sum(
-            np.column_stack(list(segment_evs.values())), axis=1
+            np.column_stack([share[k] * v for k, v in segment_evs.items()]), axis=1
         )
 
         bridge = self.config.corporate_bridge
@@ -225,6 +231,22 @@ class MonteCarloEngine:
         associates_arr = self._sample_bridge_param(
             bridge.stochastic_associate_investments, bridge.associate_investments, n)
 
+        # Subsidiary net debt – drawn after all bridge items, fixed values use no
+        # random numbers, so configs without subsidiaries keep their stream.
+        outside_nd = np.zeros(n)
+        outside_equity = np.zeros(n)
+        for k, ev in segment_evs.items():
+            seg = segs.get(k)
+            if seg is None or share[k] == 1.0:
+                continue
+            d = seg.subsidiary_net_debt
+            nd = self._sample_bridge_param(None if d.dist_type == DistributionType.FIXED else d,
+                                           d.fixed_value, n)
+            if d.dist_type != DistributionType.FIXED:
+                input_samples[f"{k} | Nettoschulden Tochter"] = nd
+            outside_nd += (1.0 - share[k]) * nd
+            outside_equity += (1.0 - share[k]) * (ev - nd)
+
         # Track stochastic bridge inputs for sensitivity
         if bridge.stochastic_corporate_costs is not None:
             input_samples["Bridge | Holdingkosten"] = corp_costs_arr
@@ -246,7 +268,7 @@ class MonteCarloEngine:
         pv_corp = compute_corporate_costs_pv(corp_costs_arr, corp_disc_arr)
 
         equity_values = (
-            total_ev - pv_corp - net_debt_arr - minority_arr - pension_arr
+            total_ev - pv_corp - (net_debt_arr - outside_nd) - minority_arr - pension_arr
             + non_op_arr + associates_arr
         )
         price_per_share = equity_values / shares_arr
@@ -262,6 +284,8 @@ class MonteCarloEngine:
             "base_pension_liabilities": float(np.mean(pension_arr)),
             "base_non_operating_assets": float(np.mean(non_op_arr)),
             "base_associate_investments": float(np.mean(associates_arr)),
+            "base_subsidiary_minorities": float(np.mean(outside_equity)),
+            "segment_ownership": share,
         }
 
         return total_ev, equity_values, price_per_share, base_seg, bridge_bases

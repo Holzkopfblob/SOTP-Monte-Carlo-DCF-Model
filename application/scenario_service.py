@@ -48,7 +48,7 @@ def _dist_prefixes(state: dict) -> list[str]:
 
 
 _SEG_FIELD_KEY = re.compile(r"^seg_\d+_(name|basrev|fyrs|tv_method|growth_mode|fade_speed|param_fade|"
-                            r"intra_corr|ic_\d_\d)$")
+                            r"intra_corr|anteil|ic_\d_\d)$")
 
 
 def _is_model_key(key: str) -> bool:

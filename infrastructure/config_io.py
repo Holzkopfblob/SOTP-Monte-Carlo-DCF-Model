@@ -40,6 +40,8 @@ BRIDGE_PREFIXES: list[str] = list(_BRIDGE_FIELD_TO_PREFIX.values())
 
 DIST_PARAMS: list[str] = [
     "rg", "em", "da", "tx", "cx", "nwc", "wacc", "tvg", "evm",
+    # Punkt 4: net debt of a partly owned subsidiary (Mio., not %)
+    "snd",
     # Phase 3: terminal distribution params for parameter fade
     "em_term", "da_term", "tx_term", "cx_term", "nwc_term",
 ]
@@ -147,7 +149,7 @@ def collect_config(state: dict) -> dict:
         seg: dict = {}
         for suffix in ["_name", "_basrev", "_fyrs", "_tv_method",
                        "_growth_mode", "_fade_speed", "_param_fade",
-                       "_intra_corr"]:
+                       "_intra_corr", "_anteil"]:
             key = f"seg_{i}{suffix}"
             if key in state:
                 seg[key] = _coerce_json(state[key])
@@ -371,6 +373,7 @@ _PARAM_LABELS = {
     "rg": "Umsatzwachstum (%)", "em": "EBITDA-Marge (%)", "da": "D&A (% Umsatz)",
     "tx": "Steuersatz (%)", "cx": "CAPEX (% Umsatz)", "nwc": "NWC (% ΔUmsatz)",
     "wacc": "WACC (%)", "tvg": "TV-Wachstum (%)", "evm": "Exit-Multiple",
+    "snd": "Nettoschulden Tochter (Mio.)",
 }
 _BRIDGE_LABELS = {
     "bridge_cc": "Holdingkosten p.a. (Mio.)", "bridge_cd": "Diskontierungssatz Holding (%)",
@@ -382,7 +385,7 @@ _SEG_FIELD_LABELS = {
     "_name": "Name", "_basrev": "Basisumsatz (Mio.)", "_fyrs": "Prognosejahre",
     "_tv_method": "TV-Methode", "_growth_mode": "Wachstumsmodell",
     "_fade_speed": "Fade-Geschwindigkeit λ", "_param_fade": "Parameter-Fade",
-    "_intra_corr": "Intra-Segment-Copula",
+    "_intra_corr": "Intra-Segment-Copula", "_anteil": "Beteiligungsquote (%)",
 }
 _SETUP_LABELS = {
     "setup_n_sim": "Iterationen", "setup_seed": "Seed", "setup_n_seg": "Anzahl Segmente",
@@ -614,6 +617,8 @@ def segment_config_from_state(state: dict, i: int):
         capex_pct_revenue_terminal=terms["cx"],
         nwc_pct_delta_revenue_terminal=terms["nwc"],
         intra_param_correlation=intra,
+        ownership_share=float(state.get(f"seg_{i}_anteil", 100.0)) / 100.0,
+        subsidiary_net_debt=dist("snd", 0.0, pct=False),
     )
 
 

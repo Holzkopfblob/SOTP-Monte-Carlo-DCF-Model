@@ -133,7 +133,8 @@ def result_checks(config, results, metadata: dict | None = None,
                          f"P50 {p50:,.2f} vs. Kurs {float(kurs):,.2f} ({gap:+.0%}). "
                          + ("Lücke erklären (Reverse DCF, Annahmen gegen Evidenz)" if abs(gap) > FAIR_VALUE_GAP_WARN else "")))
 
-    model = sum(year1_fcff(s) for s in config.segments) - config.corporate_bridge.annual_corporate_costs
+    model = (sum(year1_fcff(s) * s.ownership_share for s in config.segments)
+             - config.corporate_bridge.annual_corporate_costs)
     if ist_fcff:
         dev = model / ist_fcff - 1.0
         st = OK if abs(dev) <= FCFF_TOL_OK else (WARN if abs(dev) <= FCFF_TOL_WARN else FAIL)
@@ -141,5 +142,5 @@ def result_checks(config, results, metadata: dict | None = None,
                          f"Modell {model:,.0f} vs. Ist {ist_fcff:,.0f} ({dev:+.0%})"))
     else:
         out.append(Check("11", "Jahr-1-FCFF vs. Ist", INFO,
-                         f"Modell {model:,.0f} (Segmente − Holdingkosten). Ist-Wert eintragen, um zu vergleichen"))
+                         f"Modell {model:,.0f} (Segmente anteilig − Holdingkosten). Ist-Wert eintragen, um zu vergleichen"))
     return out

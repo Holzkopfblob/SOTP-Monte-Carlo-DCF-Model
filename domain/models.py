@@ -150,6 +150,14 @@ class SegmentConfig:
     # retains its marginal distribution but draws become dependent.
     intra_param_correlation: list[list[float]] | None = None
 
+    # ── Punkt 4: ownership of a (listed) subsidiary ───────────────────
+    # Share of the segment owned by the parent (1.0 = 100 %). The segment is
+    # modelled at 100 % (revenue as the subsidiary reports); the engine values
+    # only q · EV and deducts the outside share of the subsidiary's net debt
+    # from the consolidated net debt in the bridge.
+    ownership_share: float = 1.0
+    subsidiary_net_debt: DistributionConfig = field(default_factory=lambda: DistributionConfig(fixed_value=0.0))
+
 
 # ── Default intra-segment correlation matrix ──────────────────────────────
 # Sensible empirical defaults reflecting typical accounting identities:
@@ -277,6 +285,9 @@ class SimulationResults:
     base_pension_liabilities:   float = 0.0
     base_non_operating_assets:  float = 0.0
     base_associate_investments: float = 0.0
+    # Outside shareholders' part of subsidiary equity: Σ (1 − q) · (EV − ND_sub)
+    base_subsidiary_minorities: float = 0.0
+    segment_ownership: dict[str, float] = field(default_factory=dict)
 
     # Derived
     price_per_share: np.ndarray = field(default_factory=lambda: np.array([]))
