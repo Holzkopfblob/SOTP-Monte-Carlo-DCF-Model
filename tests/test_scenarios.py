@@ -138,3 +138,29 @@ def test_named_steps_only_from_their_start_version():
     b = {"ueberleitung": [{"name": "Feb", "von": "2026-02-22", "ops": []}, {"name": "immer", "ops": []}]}
     assert [s["name"] for s in named_steps_for(a, b)] == ["Feb", "immer"]
     assert [s["name"] for s in named_steps_for(other, b)] == ["immer"]
+
+
+class TestFixesAfterReview:
+    def test_editor_values_become_numbers(self):
+        g = group_scenarios([{"szenario": "x", "muster": " s0_wacc ", "op": "+", "wert": "1"}])
+        assert g == [{"name": "x", "ops": [{"muster": "s0_wacc", "op": "+", "wert": 1.0}]}]
+
+    def test_segment_fields_can_be_created_but_not_typos(self):
+        s, _ = apply_ops(_state(), [{"muster": "seg_0_growth_mode", "op": "=", "wert": "Fade"}])
+        assert s["seg_0_growth_mode"] == "Fade"
+        with pytest.raises(ValueError, match="trifft kein Feld"):
+            apply_ops(_state(), [{"muster": "seg_0_wachstum", "op": "=", "wert": 1}])
+
+    def test_free_tvg_pattern_is_bounded(self):
+        r = reverse_dcf(_state(), ["s*_tvg"], -1e9, -1.0, 20.0)
+        assert r["status"] == "nicht erreichbar" and "+5.50" in r["detail"]
+
+    def test_negative_wacc_shift_is_bounded(self):
+        # WACC 8 %, TV-g 2 %: WACC may fall at most to 2 + 0.5 → Δ ≥ −5.5
+        r = reverse_dcf(_state(), ["s0_wacc"], 1e9, -20.0, 0.0)
+        assert r["status"] == "nicht erreichbar" and "-5.50" in r["detail"]
+
+    def test_walk_ignores_inactive_leftovers_and_setup_defaults(self):
+        a = _state(s0_em_tri_mo=99.0)          # inactive leftover (em is PERT)
+        b = _state(setup_mid_year=True)        # default value made explicit
+        assert [r["schritt"] for r in walk(_cfg(a), _cfg(b))["zeilen"]] == ["A auf heutigem Modell"]

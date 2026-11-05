@@ -1,6 +1,7 @@
 """Scenarios and reverse DCF tab (N1/N2) – UI only; logic in application.scenario_service."""
 from __future__ import annotations
 
+import pandas as pd
 import streamlit as st
 
 from application.scenario_service import (
@@ -51,11 +52,20 @@ def render_scenarios_section() -> None:
     st.subheader("🎯 Szenarien")
     with st.expander("ℹ️ Wie schreibe ich ein Szenario?", expanded=False):
         st.markdown(_HELP)
-    rows = [{"szenario": s["name"], "muster": o["muster"], "op": o.get("op", "="), "wert": str(o["wert"])}
-            for s in passthrough.get("szenarien") or [] for o in s["ops"]]
+    # The editor gets a stable input, built once per loaded definition set (never its own
+    # output), and definitions are written back only when an edit changed them.
+    loaded = passthrough.get("szenarien")
+    if st.session_state.get("_scen_seen") != loaded or "_scen_init" not in st.session_state:
+        st.session_state["_scen_init"] = pd.DataFrame(
+            [{"szenario": s["name"], "muster": o["muster"], "op": o.get("op", "="), "wert": str(o["wert"])}
+             for s in loaded or [] for o in s["ops"]], columns=["szenario", "muster", "op", "wert"])
+        st.session_state["_scen_seen"] = loaded
+        st.session_state.pop("scen_editor", None)
+    st.caption("Beispiel: Szenario „WACC +1 pp“, Muster `s*_wacc`, Op `+`, Wert `1` (und eine zweite Zeile "
+               "mit `bridge_cd` für die Holding).")
     edited = st.data_editor(
-        rows or [{"szenario": "WACC +1 pp", "muster": "s*_wacc", "op": "+", "wert": "1"}],
-        num_rows="dynamic", width="stretch", key="scen_editor",
+        st.session_state["_scen_init"], num_rows="dynamic", width="stretch", key="scen_editor",
+        hide_index=True,
         column_config={
             "szenario": st.column_config.TextColumn("Szenario"),
             "muster": st.column_config.TextColumn("Muster"),
@@ -63,10 +73,13 @@ def render_scenarios_section() -> None:
             "wert": st.column_config.TextColumn("Wert"),
         },
     )
-    records = edited.to_dict("records") if hasattr(edited, "to_dict") else list(edited)
-    passthrough["szenarien"] = group_scenarios(records) or None
-    if passthrough["szenarien"] is None:
-        passthrough.pop("szenarien")
+    defs = group_scenarios(edited.to_dict("records")) or None
+    if defs != group_scenarios(st.session_state["_scen_init"].to_dict("records")):
+        if defs is None:
+            passthrough.pop("szenarien", None)
+        else:
+            passthrough["szenarien"] = defs
+        st.session_state["_scen_seen"] = passthrough.get("szenarien")
 
     if st.button("▶ Szenarien rechnen", type="primary", disabled="szenarien" not in passthrough):
         bar = st.progress(0.0, text="Szenarien …")

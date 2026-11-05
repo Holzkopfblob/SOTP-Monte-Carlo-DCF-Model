@@ -22,7 +22,7 @@ import numpy as np
 from domain.checks import OK, config_checks
 from domain.models import DistributionType, TerminalValueMethod
 from infrastructure.config_io import (
-    BRIDGE_PREFIXES, DIST_PARAMS, SETUP_KEYS, _split_dist_key, apply_config,
+    _ACTIVE_SUFFIXES, BRIDGE_PREFIXES, DIST_PARAMS, SETUP_KEYS, _split_dist_key, apply_config,
     simulation_config_from_state,
 )
 from infrastructure.monte_carlo_engine import MonteCarloEngine
@@ -47,9 +47,13 @@ def _dist_prefixes(state: dict) -> list[str]:
     return [k[:-6] for k in state if k.endswith("_dtype")]
 
 
+_SEG_FIELD_KEY = re.compile(r"^seg_\d+_(name|basrev|fyrs|tv_method|growth_mode|fade_speed|param_fade|"
+                            r"intra_corr|ic_\d_\d)$")
+
+
 def _is_model_key(key: str) -> bool:
     """True for keys the model reads (so creating them is not a typo)."""
-    if key in SETUP_KEYS:
+    if key in SETUP_KEYS or _SEG_FIELD_KEY.match(key):
         return True
     split = _split_dist_key(key)
     if not split:
@@ -139,7 +143,8 @@ def group_scenarios(rows: list[dict]) -> list[dict]:
     for r in rows:
         name = str(r.get("szenario") or "").strip()
         if name and str(r.get("muster") or "").strip():
-            out.setdefault(name, []).append({"muster": r["muster"], "op": r.get("op", "="), "wert": r["wert"]})
+            out.setdefault(name, []).append({"muster": str(r["muster"]).strip(), "op": r.get("op") or "=",
+                                             "wert": _num(r["wert"])})
     return [{"name": k, "ops": v} for k, v in out.items()]
 
 
@@ -183,25 +188,38 @@ def preset_patterns(name: str, state: dict) -> list[str]:
             == TerminalValueMethod.GORDON_GROWTH.value]
 
 
-def _max_tvg_shift(state: dict, patterns: list[str]) -> float | None:
-    """Largest +Δ on TV-g that keeps every Gordon segment ≥ 0.5 pp below its WACC."""
+def _shift_bounds(state: dict, patterns: list[str]) -> tuple[float | None, float | None]:
+    """(min Δ, max Δ) that keep every Gordon segment's TV-g ≥ 0.5 pp below its WACC.
+
+    A shift on TV-g caps Δ from above, a shift on WACC caps it from below; shifting
+    both by the same Δ keeps the gap and sets no bound.
+    """
     sc = simulation_config_from_state(state)
-    lim = None
+    lo = hi = None
     for i, seg in enumerate(sc.segments):
-        if f"s{i}_tvg" in patterns and seg.terminal_method == TerminalValueMethod.GORDON_GROWTH:
-            sfx = _LOCATION.get(state.get(f"s{i}_tvg_dtype"), ())
-            g_hi = max(float(state[f"s{i}_tvg{x}"]) for x in sfx if f"s{i}_tvg{x}" in state)
-            room = float(seg.wacc.representative_value()) * 100 - 0.5 - g_hi
-            lim = room if lim is None else min(lim, room)
-    return lim
+        if seg.terminal_method != TerminalValueMethod.GORDON_GROWTH:
+            continue
+        hits = {p: any(fnmatch.fnmatchcase(f"s{i}_{p}", m) for m in patterns) for p in ("tvg", "wacc")}
+        if hits["tvg"] == hits["wacc"]:
+            continue
+        sfx = _LOCATION.get(state.get(f"s{i}_tvg_dtype"), ())
+        g_hi = max(float(state[f"s{i}_tvg{x}"]) for x in sfx if f"s{i}_tvg{x}" in state)
+        room = float(seg.wacc.representative_value()) * 100 - 0.5 - g_hi
+        if hits["tvg"]:
+            hi = room if hi is None else min(hi, room)
+        else:
+            lo = -room if lo is None else max(lo, -room)
+    return lo, hi
 
 
 def reverse_dcf(state: dict, patterns: list[str], target: float, lo: float, hi: float,
                 tol: float = 0.005, progress: Progress = None) -> dict:
     """Shift Δ (same Δ on every pattern) at which the P50 equals *target*."""
-    lim = _max_tvg_shift(state, patterns)
-    if lim is not None and hi > lim:
-        hi = lim
+    b_lo, b_hi = _shift_bounds(state, patterns)
+    if b_hi is not None and hi > b_hi:
+        hi = b_hi
+    if b_lo is not None and lo < b_lo:
+        lo = b_lo
     if hi <= lo:
         return {"status": "nicht erreichbar", "detail": "Kein Suchbereich, TV-g liegt schon nahe am WACC"}
 
@@ -252,6 +270,22 @@ def _area(key: str) -> str | None:
     return None  # iterations, seed, segment count: not assumptions
 
 
+_SETUP_DEFAULTS = {"setup_mid_year": True, "setup_sampling": "Pseudo-Random (Standard)",
+                   "setup_ext_bridge": False, "setup_corr_enable": False}
+
+
+def _effective(state: dict) -> dict:
+    """Values the model reads: inactive distribution leftovers dropped, setup defaults filled."""
+    out = {**_SETUP_DEFAULTS, **state}
+    for k in list(out):
+        split = _split_dist_key(k)
+        if split and split[1] != "_dtype":
+            active = _ACTIVE_SUFFIXES.get(out.get(f"{split[0]}_dtype"))
+            if active is not None and split[1] not in active:
+                del out[k]
+    return out
+
+
 def _state_of(cfg: dict) -> dict:
     return {k: v for k, v in apply_config(cfg, {}).items() if k != "cfg_passthrough"}
 
@@ -280,8 +314,9 @@ def walk(cfg_a: dict, cfg_b: dict, named_steps: list[dict] | None = None,
     if int(cur.get("setup_n_seg", 0)) != int(b.get("setup_n_seg", 0)):
         areas = ["Struktur"]
     else:
-        areas = list(dict.fromkeys(_area(k) for k in [*cur, *b]
-                                   if _area(k) and cur.get(k) != b.get(k)))
+        ea, eb = _effective(cur), _effective(b)
+        areas = list(dict.fromkeys(_area(k) for k in [*ea, *eb]
+                                   if _area(k) and ea.get(k) != eb.get(k)))
         areas.sort(key=lambda x: (x != "Bridge", x == "Korrelation", x))
     for area in areas:
         nxt = {k: v for k, v in cur.items() if not (area == "Struktur" and _area(k) or _area(k) == area)}
