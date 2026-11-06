@@ -159,6 +159,11 @@ def collect_config(state: dict) -> dict:
                 key = f"{prefix}{sfx}"
                 if key in state:
                     seg[key] = _coerce_json(state[key])
+        # Full ownership is the default: don't write it (and the then meaningless
+        # subsidiary net debt), so re-saving an old file changes nothing.
+        if float(seg.get(f"seg_{i}_anteil", 100.0)) >= 100.0:
+            for k in [k for k in seg if k == f"seg_{i}_anteil" or k.startswith(f"s{i}_snd_")]:
+                del seg[k]
         # Intra-segment correlation matrix (7×7)
         for row in range(7):
             for col_idx in range(7):

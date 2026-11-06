@@ -69,9 +69,10 @@ class ExcelExporter:
                 "Max": np.max(arr),
             }
 
-        rows.append(_row("Gesamt Enterprise Value", r.total_ev))
+        rows.append(_row("Gesamt Enterprise Value" + (" (anteilig)" if any(q < 1.0 for q in (getattr(r, "segment_ownership", {}) or {}).values()) else ""), r.total_ev))
+        own = getattr(r, "segment_ownership", {}) or {}
         for name, ev in r.segment_evs.items():
-            rows.append(_row(f"  EV – {name}", ev))
+            rows.append(_row(f"  EV – {name}" + (" (100 %)" if own.get(name, 1.0) < 1.0 else ""), ev))
         rows.append(_row("PV Holdingkosten", r.pv_corporate_costs))
 
         # Extended bridge items (as scalar rows using base-case values)
@@ -131,9 +132,10 @@ class ExcelExporter:
         data["Simulation #"] = np.arange(1, r.n_simulations + 1)
         for k, v in r.input_samples.items():
             data[k] = v
+        own = getattr(r, "segment_ownership", {}) or {}
         for k, v in r.segment_evs.items():
-            data[f"EV – {k}"] = v
-        data["Total EV"] = r.total_ev
+            data[f"EV – {k}" + (" (100 %)" if own.get(k, 1.0) < 1.0 else "")] = v
+        data["Total EV (anteilig)" if any(q < 1.0 for q in own.values()) else "Total EV"] = r.total_ev
         data["PV Holdingkosten"] = r.pv_corporate_costs
         data["Equity Value"] = r.equity_values
         data["Preis je Aktie"] = r.price_per_share

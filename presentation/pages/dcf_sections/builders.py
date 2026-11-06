@@ -25,7 +25,7 @@ def build_stats_table(results) -> pd.DataFrame:
         "Preis / Aktie": key_metrics["price"],
     }
     for seg_name, seg_ev in results.segment_evs.items():
-        stats_data[f"EV – {seg_name}"] = compute_statistics(seg_ev)
+        stats_data[f"EV – {seg_name}" + (" (100 %)" if getattr(results, "segment_ownership", {}).get(seg_name, 1.0) < 1.0 else "")] = compute_statistics(seg_ev)
     return pd.DataFrame(stats_data).T
 
 

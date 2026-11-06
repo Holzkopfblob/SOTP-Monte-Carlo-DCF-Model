@@ -85,6 +85,12 @@ class TestConfigAndChecks:
         assert seg.ownership_share == pytest.approx(0.548)
         assert seg.subsidiary_net_debt.fixed_value == pytest.approx(72206.0)  # Mio., not %
 
+    def test_full_ownership_is_not_saved(self):
+        state = {"setup_n_seg": 1, "seg_0_name": "A", "seg_0_anteil": 100.0,
+                 "s0_snd_dtype": "Fest (Deterministisch)", "s0_snd_fixed": 5.0}
+        seg = collect_config(state)["ui_state"]["segments"][0]
+        assert "seg_0_anteil" not in seg and not any(k.startswith("s0_snd") for k in seg)
+
     def test_missing_fields_default_to_full_ownership(self):
         seg = segment_config_from_state({"seg_0_basrev": 10.0}, 0)
         assert seg.ownership_share == 1.0 and seg.subsidiary_net_debt.fixed_value == 0.0
