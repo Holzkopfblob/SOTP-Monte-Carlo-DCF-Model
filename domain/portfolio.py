@@ -51,10 +51,14 @@ def kelly_weights(
     max_w: float = 0.2,
     min_cash: float = 0.0,
     allow_short: bool = False,
+    lo: np.ndarray | None = None,
+    hi: np.ndarray | None = None,
 ) -> np.ndarray:
     """Fractional Kelly als CRRA-Optimum mit γ = 1/fraction (γ = 1 ⇒ log ⇒ volles
     Kelly), direkt unter den Grenzen gelöst:
       0 ≤ w ≤ max_w  (mit Short: −max_w ≤ w ≤ max_w),  Σ|w| ≤ 1 − min_cash.
+    *lo*/*hi* (je Titel) ersetzen diese Standardgrenzen, z. B. lo = hi = Ist-Gewicht
+    für eine eingefrorene Position.
     Σ|w| über die Zerlegung w = u − v (u, v ≥ 0), damit alles glatt bleibt."""
     n, k = R.shape
     gamma = 1.0 / fraction
@@ -73,12 +77,18 @@ def kelly_weights(
         g = (X * mu[:, None]).mean(axis=0)
         return -u.mean(), -np.concatenate([g, -g])
 
-    bounds = [(0.0, max_w)] * k + [(0.0, max_w if allow_short else 0.0)] * k
+    lo = np.full(k, -max_w if allow_short else 0.0) if lo is None else np.asarray(lo, float)
+    hi = np.full(k, max_w) if hi is None else np.asarray(hi, float)
+    b_lo = np.concatenate([np.maximum(lo, 0), np.maximum(-hi, 0)])     # u ≥ lo⁺, v ≥ (−hi)⁺
+    b_hi = np.concatenate([np.maximum(hi, 0), np.maximum(-lo, 0)])     # u ≤ hi⁺, v ≤ (−lo)⁺
+    bounds = list(zip(b_lo, b_hi))
     cons = [{"type": "ineq", "fun": lambda x: budget - x.sum(), "jac": lambda x: -np.ones(2 * k)}]
-    res = minimize(neg_utility, np.zeros(2 * k), jac=True, method="SLSQP",
+    res = minimize(neg_utility, b_lo.copy(), jac=True, method="SLSQP",
                    bounds=bounds, constraints=cons, options={"maxiter": 500, "ftol": 1e-12})
     w = res.x[:k] - res.x[k:]
-    w[np.abs(w) < 1e-6] = 0.0
+    fixed = np.isclose(lo, hi)
+    w[fixed] = lo[fixed]                       # eingefrorene Titel exakt, ohne Solver-Rauschen
+    w[~fixed & (np.abs(w) < 1e-6)] = 0.0
     return w
 
 
@@ -88,14 +98,39 @@ def orders(
     cash_eur: float,
     target_w: np.ndarray,
     min_order_eur: float = 0.0,
+    lot: float = 1e-6,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Order je Titel in ganzen Stück (Vorzeichen = Kauf/Verkauf) und Zielstück.
+    """Order je Titel (Vorzeichen = Kauf/Verkauf) und Zielstück, in Vielfachen von *lot*
+    (Standard: Bruchstücke auf 6 Stellen; lot=1 für ganze Aktien).
     Zielstück wird Richtung 0 gerundet, damit Käufe das Cash nicht überziehen.
-    Orders unter *min_order_eur* entfallen (Zielstück = Bestand)."""
+    Orders unter *min_order_eur* entfallen (Zielstück = Bestand). Fehlt danach Cash für die
+    Käufe (z. B. weil ein kleiner Verkauf entfallen ist), werden die Käufe anteilig gekürzt;
+    fiele dabei einer unter die Mindestorder, entfällt der kleinste Kauf und der Rest wird neu
+    verteilt. Der Vorschlag überzieht das Konto nie."""
     shares = np.asarray(shares, float)
+    prices_eur = np.asarray(prices_eur, float)
     total = cash_eur + float(shares @ prices_eur)
-    target = np.trunc(target_w * total / prices_eur)
-    delta = target - shares
-    small = np.abs(delta * prices_eur) < min_order_eur
-    delta[small] = 0.0
+
+    def to_lot(x):
+        return np.round(np.trunc(x / lot) * lot, 6)
+
+    def drop_small(d):
+        d = d.copy()
+        d[np.abs(d * prices_eur) < min_order_eur] = 0.0
+        return d
+
+    delta = drop_small(to_lot(target_w * total / prices_eur) - shares)
+    avail = max(cash_eur - float(delta[delta < 0] @ prices_eur[delta < 0]), 0.0)  # Verkäufe bringen Cash
+    # ponytail: „kleinster Kauf zuerst raus“ ist eine Heuristik; Optimum wäre eine Neuoptimierung mit Cash-Grenze
+    while True:
+        buys = delta > 0
+        need = float(delta[buys] @ prices_eur[buys])
+        if need <= avail + 1e-9:
+            break
+        scaled = to_lot(delta[buys] * avail / need)
+        if np.all(scaled * prices_eur[buys] >= min_order_eur):
+            delta[buys] = scaled
+            break
+        idx = np.flatnonzero(buys)
+        delta[idx[np.argmin(delta[buys] * prices_eur[buys])]] = 0.0   # kleinsten Kauf streichen
     return delta, shares + delta

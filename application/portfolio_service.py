@@ -77,9 +77,9 @@ def simulate_valuation(path: str | Path) -> dict:
 @dataclass
 class Params:
     fraction: float = 0.5
-    max_w: float = 0.2
+    max_w: float = 0.15
     min_cash: float = 0.0   # Cash = Optimizer-Ergebnis; >0 nur als Untergrenze
-    min_order_eur: float = 1000.0
+    min_order_eur: float = 100.0
     allow_short: bool = False
     rf: float = 0.0315   # Bund 3 J. (Bundesbank-Zinsstruktur 13.11.2026); App lädt tagesaktuell
     horizon_years: int = 3
@@ -137,12 +137,27 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
     V = correlate_samples(V, corr.values, seed=p.seed)
     R = horizon_returns(V, px_local)                         # Wert und Kurs in gleicher Währung
     rf_h = (1 + p.rf) ** p.horizon_years - 1
-    w = kelly_weights(R, rf_h, p.fraction, p.max_w, p.min_cash, p.allow_short)
 
     shares = np.array([float(pos.get("stueck") or 0) for pos in positions])
     total = cash_eur + float(shares @ px_eur)
     w_ist = shares * px_eur / total if total > 0 else np.zeros(len(names))
-    delta, target = orders(shares, px_eur, cash_eur, w, p.min_order_eur)
+
+    # Optimieren → Orders → Titel, deren Order an der Mindestorder scheitert, auf Ist-Gewicht
+    # einfrieren und das tatsächlich verfügbare Geld neu verteilen, bis jede Order ausführbar ist.
+    lo = np.full(len(names), -p.max_w if p.allow_short else 0.0)
+    hi = np.full(len(names), p.max_w)
+    frozen = np.zeros(len(names), bool)
+    for _ in range(len(names) + 1):
+        w = kelly_weights(R, rf_h, p.fraction, p.max_w, p.min_cash, p.allow_short, lo, hi)
+        delta, target = orders(shares, px_eur, cash_eur, w, p.min_order_eur)
+        new = (delta == 0) & ~np.isclose(w, w_ist, atol=1e-4) & ~frozen
+        if not new.any():
+            break
+        frozen |= new
+        lo[frozen] = hi[frozen] = w_ist[frozen]
+    if frozen.any():
+        warnings.append("Wegen der Mindestorder unverändert gelassen und neu verteilt: "
+                        + ", ".join(np.array(names)[frozen]) + ".")
 
     for name, val, px in zip(names, valuations, px_local):
         stored = val["p50_gespeichert"]

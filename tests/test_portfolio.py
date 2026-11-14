@@ -48,6 +48,14 @@ def test_limits_hold_long_only():
     assert w.sum() == pytest.approx(0.9, abs=1e-4)
 
 
+def test_frozen_position_keeps_weight_and_rest_is_reallocated():
+    rng = np.random.default_rng(5)
+    R = np.column_stack([rng.uniform(-0.9, -0.5, 5000), rng.uniform(0.3, 1.0, 5000), rng.uniform(0.2, 0.8, 5000)])
+    lo = np.array([0.3, 0.0, 0.0]); hi = np.array([0.3, 0.5, 0.5])   # Titel 0 eingefroren trotz Verlust
+    w = kelly_weights(R, fraction=1.0, min_cash=0.0, lo=lo, hi=hi)
+    assert w[0] == 0.3 and w[1:].sum() == pytest.approx(0.7, abs=1e-4) and (w[1:] <= 0.5 + 1e-9).all()
+
+
 def test_negative_upside_zero_without_short_negative_with_short():
     R = np.random.default_rng(2).uniform(-0.95, -0.5, (5000, 1))
     assert kelly_weights(R, fraction=0.5, max_w=0.2)[0] == 0.0
@@ -82,12 +90,35 @@ def test_wealth_cash_earns_rf():
     assert wealth(np.zeros((3, 2)), np.zeros(2), 0.08) == pytest.approx(np.full(3, 1.08))
 
 
+def test_orders_never_overdraw_when_small_sell_is_dropped():
+    # A (60 €) soll raus, Verkauf < Mindestorder 80 € entfällt; B soll 144 € kaufen, Cash nur 100 €
+    # → Kauf auf 100 € (2 Stück) gekürzt, Konto bleibt ≥ 0
+    shares, px = np.array([0.6, 0.0]), np.array([100.0, 50.0])
+    delta, _ = orders(shares, px, 100.0, np.array([0.0, 0.9]), min_order_eur=80.0)
+    assert delta.tolist() == [0.0, 2.0] and 100.0 - float(delta @ px) >= -1e-9
+
+
+def test_orders_drop_smallest_buy_instead_of_scaling_all_below_min():
+    # Cash 1.700 €, Käufe 1.200 € und 1.100 €, Mindestorder 1.000 €: anteilig wären beide < 1.000 €
+    # → kleinerer Kauf entfällt, größerer läuft voll
+    px = np.array([100.0, 100.0, 100.0])
+    delta, _ = orders(np.array([0.0, 0.0, 33.0]), px, 1700.0, np.array([0.24, 0.22, 0.66]),
+                      min_order_eur=1000.0, lot=1.0)
+    assert delta.tolist() == [12.0, 0.0, 0.0]
+
+
+def test_orders_fractional_by_default():
+    # 2000 € × 20 % / 765,5 € = 0,522534… → 6 Stellen Richtung 0
+    delta, target = orders(np.array([0.0]), np.array([765.5]), 2000.0, np.array([0.2]))
+    assert target.tolist() == [0.522534] and target[0] * 765.5 <= 400.0
+
+
 def test_orders_whole_shares_and_min_order():
     delta, target = orders(np.array([10.0, 0.0]), np.array([100.0, 30.0]), cash_eur=1000.0,
-                           target_w=np.array([0.5, 0.49]), min_order_eur=50.0)
+                           target_w=np.array([0.5, 0.49]), min_order_eur=50.0, lot=1.0)
     # Gesamt 2000 €: Titel 1 Ziel 10 Stück (keine Order), Titel 2 trunc(980/30) = 32
     assert delta.tolist() == [0.0, 32.0] and target.tolist() == [10.0, 32.0]
-    delta, _ = orders(np.array([10.0]), np.array([100.0]), 0.0, np.array([0.98]), min_order_eur=150.0)
+    delta, _ = orders(np.array([10.0]), np.array([100.0]), 0.0, np.array([0.98]), min_order_eur=150.0, lot=1.0)
     assert delta.tolist() == [0.0]                 # 1 Stück = 100 € < 150 €
     delta, target = orders(np.array([3.991219]), np.array([250.0]), 0.0, np.array([0.0]))
     assert delta.tolist() == [-3.991219] and target.tolist() == [0.0]   # Bruchstücke ganz verkaufen

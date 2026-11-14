@@ -91,11 +91,11 @@ def render_portfolio(container) -> None:
 
         c1, c2, c3 = st.columns(3)
         fraction = c1.slider("Kelly-Faktor", 0.1, 1.0, 0.5, 0.05)
-        max_w = c2.slider("Max. Gewicht je Titel", 0.05, 0.5, 0.2, 0.01)
+        max_w = c2.slider("Max. Gewicht je Titel", 0.05, 0.5, 0.15, 0.01)
         min_cash = c3.slider("Mindest-Cash (Untergrenze)", 0.0, 0.5, 0.0, 0.01,
                              help="0 = Cash-Quote bestimmt allein der Optimizer.")
         c4, c5, c6 = st.columns(3)
-        min_order = c4.number_input("Mindestorder (EUR)", 0.0, value=1000.0, step=50.0)
+        min_order = c4.number_input("Mindestorder (EUR)", 0.0, value=100.0, step=50.0)
         rf_default, rf_day = _bund_3y()
         rf = c5.number_input("Cash-Zins p. a. (Bund 3 J.)", 0.0, 0.1, rf_default, 0.0025, format="%.4f",
                              help=f"Bundesbank-Zinsstruktur 3 Jahre, Stand {rf_day}. Laufzeit = Horizont.")
