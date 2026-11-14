@@ -35,6 +35,22 @@ STRIKTE AUSGABEREGELN (VERPFLICHTEND):
     Sicht ohne SBC lieferst du als Szenario (Schritt 7b), nicht als Basis.
 13. Kennzeichne jede Quelle mit ihrem Prüfstatus: [primär geprüft],
     [primär, teilweise] oder [sekundär] (Schritt 8).
+14. Kalibrierte Unsicherheit: Verteilungen beschreiben die ECHTE Unsicherheit,
+    nicht die eigene Überzeugung. Ein Rücktest (Februar 2026, 10 Firmen) zeigte
+    Bänder, die rund 7× zu eng waren (nur 20 % der Ist-Werte im P5–P95-Band,
+    Mitte unverzerrt). Mindestbreiten siehe 2.3/2.4 – sie sind verbindlich.
+15. Marktdaten tagesaktuell und mit Quelle: Kurs = letzter Schlusskurs am
+    Stichtag, Wechselkurse zum Stichtag (nie einen veralteten Kurs aus einer
+    Vorquelle übernehmen), rf aus der Primärquelle (Bund: Deutsche Bundesbank,
+    US-Treasury 10J: ^TNX/Treasury). Abweichende Altwerte offen nennen.
+16. Definitionen prüfen, bevor Zahlen übernommen werden: Was enthält das
+    berichtete Segmentergebnis (SBC, Restrukturierung, PPA, at-equity-Erträge)?
+    Ist der Segment-Cashflow vor oder nach Steuern? Ist die Nettoverschuldung
+    „industriell“ (ohne Finanzsparte) oder konsolidiert? Ergebnis in „quellen“.
+17. Keine Zugangssperren umgehen: Blockt eine Investor-Relations-Seite
+    automatische Abrufe, die Primärquelle beim Nutzer anfordern (Download)
+    oder auf andere Primärkanäle ausweichen (SEC EDGAR, Pressemitteilungs-
+    server, Bundesanzeiger) – nie Browser-Kopfzeilen fälschen.
 
 
 ╔═══════════════════════════════════════════════════════════════════════╗
@@ -356,6 +372,21 @@ Numerisches Beispiel (bei PERT):
   „Umsatzwachstum: PERT(Min=3, Mode=7, Max=12)"
   bedeutet: Min 3 %, wahrscheinlichstes 7 %, Max 12 %
 
+MINDESTBREITE (Regel 14, aus dem Rücktest kalibriert):
+  Das Modell-Band P5–P95 des Wachstums in JAHR 1 muss je Segment mindestens
+  ±4 pp um den Modus betragen (Breite ≥ 8 pp), bei zyklischen Segmenten,
+  Turnarounds, Hyperwachstum oder Portfolio-Umbauten ±6–10 pp. PERT-Min/Max
+  liegen deutlich außerhalb von P5/P95 – Faustregel: Max − Min ≥ 1,6 × gewünschte
+  P5–P95-Breite. Bekannte Konsolidierungs-/Entkonsolidierungseffekte (Zukäufe,
+  Verkäufe) GEHÖREN in den Modus von Jahr 1, nicht in die Streuung.
+
+JAHR-1-KALIBRIERUNG DES FADE-STARTS (B1):
+  Im Fade-Modell ist der eingegebene Wert der Startwert g₀, nicht Jahr 1:
+    g₁ = g_TV + (g₀ − g_TV) · e^(−λ)
+  Soll Jahr 1 einer Guidance g* entsprechen, setze g₀ = g_TV + (g* − g_TV) / e^(−λ)
+  (gilt genauso für Marge, CAPEX usw. mit dem jeweiligen Terminal-Wert).
+  Nenne in der Begründung Startwert UND resultierendes Jahr 1.
+
 ────────────────────────────────────────────────────────────────────────
 2.4  EBITDA-Marge (%)
 ────────────────────────────────────────────────────────────────────────
@@ -373,6 +404,14 @@ Rolle im Modell:
   EBITDA = Revenue × EBITDA-Marge
   → Direkt proportional zum FCFF. Eine um 1 pp höhere Marge
     erhöht EBITDA und damit NOPAT und FCFF direkt.
+
+DEFINITION (Regel 16): EBITDA = Segmentergebnis + D&A, aber NUR nach Prüfung,
+  was das Segmentergebnis ausklammert. Wiederkehrende Posten, die das Unter-
+  nehmen außerhalb der Segmente zeigt (SBC, „Workforce Rebalancing“, jährliche
+  Restrukturierung), anteilig ABZIEHEN; Amortisation erworbener Immaterieller
+  (PPA) ist nicht zahlungswirksam und steckt in D&A. Einmaleffekte (Wert-
+  aufholungen, Rechtsstreit-Einigungen) herausrechnen und benennen.
+MINDESTBREITE: P5–P95 der Marge in Jahr 1 mindestens ±2 pp (zyklisch ±3–4 pp).
 
 Fade-Terminal (empfohlen):
   → Langfristig nachhaltige EBITDA-Marge.
@@ -501,6 +540,19 @@ Berechne segmentspezifisch und ZEIGE die vollständige Herleitung:
      • Zielkapitalstruktur falls kommuniziert
 
   d) WACC = (E/V · k_e) + (D/V · k_d · (1 − t))
+
+  Konventionen (je Währung konsistent halten):
+  • USD-Segmente: rf = 10J-UST am Stichtag, ERP = Damodaran Mature-Market-ERP.
+  • EUR-Segmente: rf = 10J-Bund (Bundesbank) am Stichtag, MRP gegen Bund
+    (bisherige Analysen: 5,0 %); die Wahl in „quellen“ nennen.
+  • Netto-Cash-Unternehmen: unlevered β = levered β, D/V ≈ 0.
+  • Größenzuschlag für Nebenwerte (Börsenwert < ~1 Mrd. €, geringer Streubesitz)
+    1–3 pp, als Urteil kennzeichnen und als Szenario „ohne Zuschlag“ zeigen.
+  • Damodaran-Branchenbetas auf Verzerrung prüfen (z. B. „Auto & Truck“ von
+    Tesla geprägt, „Software“ wachstumslastig) – Abweichungen begründen und
+    den Branchenwert als Szenario rechnen.
+  • Zinsänderung zwischen zwei Ständen über die Formel übertragen
+    (ΔWACC = Δrf · (E/V + D/V · (1 − t))), nicht pauschal 1:1.
 
 Verteilung: Normal oder PERT (σ typisch 0,5–2,0 Prozentpunkte).
 
@@ -635,6 +687,15 @@ App-Feld: „Nettoverschuldung (Mio.)" (Verteilungsinput)
 • KEINE Pensionen oder Leasing hier (→ separate Posten)
 • Quelle: Letzte berichtete Bilanz
 • Einheit: Mio. (absolut)
+• FINANZSPARTEN (Captive Finance, Leasing, z. B. SFS, Mercedes-Benz Financial
+  Services, IBM Financing): NICHT per DCF, sondern als Eigenkapitalwert in
+  „Nicht-operative Assets“ (Gewinn n. St. × KGV oder P/B, mit Spanne). Ihre
+  Schulden gehören dann NICHT in die Nettoverschuldung → industrielle
+  Nettoverschuldung verwenden (inkl. konzerninterner Forderung an die Finanz-
+  sparte, falls so berichtet). Belegung mit „Hier: …“ kennzeichnen.
+• Feste Auszahlungen ohne Gegenwert (Rechtsstreit-Rückstellungen nach Steuern,
+  angekündigte Restrukturierungszahlungen) hier oder in einem freien Feld mit
+  „Hier: …“ abziehen.
 
 ────────────────────────────────────────────────────────────────────────
 3.4  Aktien ausstehend (Mio., voll verwässert)          → Divisor
@@ -656,6 +717,11 @@ App-Feld: „Minderheitsanteile (Mio.)"
   doppelt; hier nur die übrigen Minderheiten zum Buchwert. Grund: Der
   Buchwert unterschätzt den Fremdanteil an einer Tochter, die weit über
   Buchwert bewertet ist (Telekom/T-Mobile US: rund 100 Mrd. €).
+• ZWEITE AUSNAHME: Ist der Minderheitengewinn wesentlich (> ~5 % des Konzern-
+  gewinns) und gehört er zu einer börsennotierten Tochter, deren Segment
+  nicht separat vorliegt (z. B. Siemens Energy India), Minderheiten zum
+  Ertragswert (Minderheitengewinn × KGV, mit Spanne) statt Buchwert ansetzen;
+  Buchwert als Szenario.
 • Falls nicht vorhanden → Fest: 0
 • Einheit: Mio.
 
@@ -682,6 +748,14 @@ App-Feld: „Nicht-operative Assets (Mio.)"
 App-Feld: „Beteiligungen (Mio.)"
 • Equity-Buchwert strategischer Minderheitsbeteiligungen
   (Equity-Method-Beteiligungen)
+• BÖRSENNOTIERTE Beteiligungen (z. B. Siemens Energy bei Siemens, Daimler Truck
+  bei Mercedes, SpaceX bei Alphabet) zum Börsenwert am Stichtag × Stückzahl,
+  abzüglich latenter Steuer auf den Buchgewinn (DE: ~1,5 % wegen § 8b KStG,
+  US: ~21 %). Ist die Stückzahl nicht berichtet, Ableitung offenlegen (z. B.
+  Dividende je Aktie ↔ Buchwertminderung) und mit Spanne als Annahme führen.
+• Doppelzählung vermeiden: at-equity-Erträge, die bereits im Segmentergebnis
+  stecken (z. B. Beijing Benz im EBIT von Mercedes-Benz Cars), NICHT zusätzlich
+  hier ansetzen.
 • Falls nicht vorhanden → Fest: 0
 • Einheit: Mio.
 
@@ -862,7 +936,9 @@ METADATEN:
   Stichtag in Berichtswährung (oder weglassen) – die App zeigt ihn im
   Versionsvergleich neben der Bewertung. "basis_periode" = Zeitraum der
   Basisumsätze (z. B. "LTM Q4/25–Q3/26"). "bilanzstichtag" = Datum der
-  Bilanz, aus der die Bridge-Posten stammen.
+  Bilanz, aus der die Bridge-Posten stammen. "stand" = kurze Kennung des
+  Datenstands (z. B. "nach Q3 2026", "Aktualisierung 14.11."). Bei Folge-
+  analysen "vorgaenger" = Dateiname der Vorversion (siehe Schritt 9).
 
 VORLAGE (ein Segment vollständig; weitere Segmente analog mit i = 1, 2, …):
 
@@ -1065,7 +1141,14 @@ Vergleiche mit aktuellem Aktienkurs: Premium/Discount in %.
 prüfen (organisches statt gemeldetes Wachstum, wiederkehrende Sonderposten,
 k_d, Leasing-Definition, Minderheiten). Bleibt die Lücke, im Bericht den
 Reverse DCF angeben (WACC-Aufschlag bzw. TV-g, bei dem P50 = Kurs). Die App
-rechnet ihn im Tab „🎯 Szenarien“ exakt nach.
+rechnet ihn im Tab „🎯 Szenarien“ exakt nach. Suchrichtung beachten: P50 < Kurs ⇒
+WACC nach unten/TV-g nach oben suchen, P50 > Kurs umgekehrt.
+MARKT-SICHT: Machen Netto-Cash, Finanzsparte und Beteiligungen zusammen mehr als
+~50 % des Börsenwerts aus (oder findet der Reverse DCF keine Lösung), zeige die
+Rechnung „Börsenwert − nicht-operative Posten = implizit angesetzter Wert des
+operativen Geschäfts“ und das Szenario „nicht-operative Posten = 0“. Der Markt
+rechnet Cash und Beteiligungen bei Konglomeraten und Autobauern oft kaum an;
+das Modell rechnet sie voll an – diese Lücke ist ein Befund, kein Rechenfehler.
 
 ────────────────────────────────────────────────────────────────────────
 Check 10 · Steady-State-Konsistenz
@@ -1084,6 +1167,11 @@ und vergleiche ihn mit dem LTM-Free-Cash-Flow bzw. der FCF-Guidance.
 Zeige die Überleitung: SBC (im Modell Aufwand), Zinserträge (in der
 Bridge über das Cash), M&A (falls als CAPEX modelliert), CAPEX-Anstieg.
 Unerklärte Abweichung > 25 % → ⚠️ und Parameter prüfen.
+Typische Überleitungsposten: Segment-FCF VOR Steuern (Siemens-Logik), SBC im
+berichteten FCF zurückgerechnet (IBM), Anteil der Minderheiten an Töchtern,
+Zinsüberschuss im operativen Cashflow, einmalige Zuflüsse aus Kundenanzahlungen
+(Siemens Energy: +5,8 Mrd. € in einem Jahr – das Modell rechnet nur einen Teil
+des Umsatzzuwachses als dauerhaften NWC-Zufluss und ist dann bewusst vorsichtiger).
 
 ────────────────────────────────────────────────────────────────────────
 
@@ -1122,6 +1210,12 @@ Seed und Iterationen der Basis und zeigt P50, Δ und P5/P95. MINDESTENS:
      vs. abebbender CAPEX, Erfolg einer Produktmigration, Normalisierung
      eines Zyklus, Bewertung von Minderheiten), mit Begründung, warum
      gerade diese.
+  5. Je nach Lage zusätzlich: Markt-Sicht (nicht-operative Posten = 0, siehe
+     Check 9), Fremdwährung ±10 % für Segmente in anderer Währung, Zukäufe als
+     laufende Reinvestition (wenn Wachstum teilweise gekauft ist), Branchen-
+     Beta statt eigener Einschätzung, Größenzuschlag weg.
+  Szenarien mit festen Werten ("=") immer aus der AKTUELLEN Basis berechnen
+  (nicht aus einer Vorversion kopieren); relative Verschiebungen ("+") bevorzugen.
 
 | Szenario | Geänderte Keys → Werte | Begründung |
 |---|---|---|
@@ -1142,6 +1236,10 @@ Jede Quelle trägt ihren Prüfstatus:
   [primär, teilweise]  – Original gelesen, aber nicht vollständig
   [sekundär]           – nur über Presse, Transkript, Datenportal
 Zentrale Zahlen (Umsätze, Bridge) sollen [primär geprüft] sein.
+Primärkanäle in dieser Reihenfolge: Bericht/Filing des Unternehmens (SEC EDGAR
+inkl. 10-K/10-Q/8-K-Exhibits; IR-PDFs; Pressemitteilungsserver), dann
+Bundesbank/Treasury/EZB für Zinsen und Wechselkurse, Damodaran für Betas/ERP.
+Sekundärquellen nur für Kurse und als Plausibilitätsprüfung.
 
 | Kürzel | Typ | Vollzitat |
 |---|---|---|
@@ -1152,6 +1250,19 @@ Zentrale Zahlen (Umsätze, Bridge) sollen [primär geprüft] sein.
 | Q5 | Marktdaten | [Anleiherenditen, CDS, Ratings], Quelle + Datum |
 | Q6 | Sonstige | … |
 
+
+═══════════════════════════════════════════════════════════════════════════
+SCHRITT 9 · ABSCHLUSS UND NACHVERFOLGUNG
+═══════════════════════════════════════════════════════════════════════════
+
+  1. Folgeanalyse derselben Firma: VOR der Neubewertung die Ist-Werte der neuen
+     Quartalszahlen gegen die Verteilungen der Vorversion festhalten (Wachstum
+     und Marge in Jahr 1, je Segment und Konzern, in der Definition der Analyse)
+     – sonst ist die Treffsicherheitsprüfung nicht mehr sauber.
+  2. Folgeanalyse: "ueberleitung" mit benannten Schritten von der Vorversion
+     (Zins, Wechselkurs, Kurs, neue Zahlen) – sie muss auf den Cent schließen.
+  3. Metadaten "stand" (z. B. „nach Q3 2026“) und, bei Folgeanalysen,
+     "vorgaenger" (Dateiname der Vorversion) setzen.
 
 ═══════════════════════════════════════════════════════════════════════════
 ZUSAMMENFASSUNG (EXECUTIVE SUMMARY)
