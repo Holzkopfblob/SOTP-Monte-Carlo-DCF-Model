@@ -79,9 +79,9 @@ class Params:
     fraction: float = 0.5
     max_w: float = 0.2
     min_cash: float = 0.0   # Cash = Optimizer-Ergebnis; >0 nur als Untergrenze
-    min_order_eur: float = 500.0
+    min_order_eur: float = 1000.0
     allow_short: bool = False
-    rf: float = 0.025
+    rf: float = 0.0315   # Bund 3 J. (Bundesbank-Zinsstruktur 13.11.2026); App lädt tagesaktuell
     horizon_years: int = 3
     seed: int = 42
 

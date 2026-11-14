@@ -15,7 +15,7 @@ import streamlit as st
 from application.portfolio_service import (
     Params, find_valuations, load_depot, rebalance, save_depot, simulate_valuation,
 )
-from infrastructure.market_data import fetch_closes
+from infrastructure.market_data import fetch_bund_3y, fetch_closes
 
 _NEWEST = "(neueste)"
 
@@ -23,6 +23,14 @@ _NEWEST = "(neueste)"
 @st.cache_data(show_spinner=False)
 def _simulate(path: str, mtime: float) -> dict:  # mtime nur als Cache-Schlüssel
     return simulate_valuation(path)
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _bund_3y() -> tuple[float, str]:
+    try:
+        return fetch_bund_3y()
+    except Exception:  # offline / API geändert → letzter geprüfter Wert
+        return 0.0315, "Fallback 13.11.2026"
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -87,8 +95,10 @@ def render_portfolio(container) -> None:
         min_cash = c3.slider("Mindest-Cash (Untergrenze)", 0.0, 0.5, 0.0, 0.01,
                              help="0 = Cash-Quote bestimmt allein der Optimizer.")
         c4, c5, c6 = st.columns(3)
-        min_order = c4.number_input("Mindestorder (EUR)", 0.0, value=500.0, step=50.0)
-        rf = c5.number_input("Risikofreier Zins p. a.", 0.0, 0.1, 0.025, 0.0025, format="%.4f")
+        min_order = c4.number_input("Mindestorder (EUR)", 0.0, value=1000.0, step=50.0)
+        rf_default, rf_day = _bund_3y()
+        rf = c5.number_input("Cash-Zins p. a. (Bund 3 J.)", 0.0, 0.1, rf_default, 0.0025, format="%.4f",
+                             help=f"Bundesbank-Zinsstruktur 3 Jahre, Stand {rf_day}. Laufzeit = Horizont.")
         allow_short = c6.toggle("Short erlauben", False,
                                 help="Brutto Σ|Gewicht| ≤ 1 − Mindest-Cash (kein Hebel).")
 
