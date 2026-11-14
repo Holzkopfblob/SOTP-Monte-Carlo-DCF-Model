@@ -4,7 +4,9 @@ Zielgewichte und Orders berechnen.
 
 depot.json (liegt außerhalb des Repos, z. B. in 05_PRIVAT/Finanzen):
   {"bewertungen_ordner": "...", "cash_eur": 5000,
-   "positionen": [{"firma": "Rheinmetall AG", "ticker": "RHM.DE", "stueck": 3, "datei": ""}]}
+   "positionen": [{"firma": "Rheinmetall AG", "ticker": "RHM.DE", "stueck": 3, "datei": "",
+                     "einstand_eur": 812.40, "kaufdatum": "2026-10-31"}]}
+Bruchstücke erlaubt; Einstand/Kaufdatum werden nur mitgeführt (Steuer später, E24).
 ``datei`` leer = neueste Bewertung der Firma im Ordner.
 """
 from __future__ import annotations
@@ -76,7 +78,7 @@ def simulate_valuation(path: str | Path) -> dict:
 class Params:
     fraction: float = 0.5
     max_w: float = 0.2
-    min_cash: float = 0.1
+    min_cash: float = 0.0   # Cash = Optimizer-Ergebnis; >0 nur als Untergrenze
     min_order_eur: float = 500.0
     allow_short: bool = False
     rf: float = 0.025
@@ -160,17 +162,26 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
     table = pd.DataFrame({
         "Firma": names,
         "Stand": [v["stand"] for v in valuations],
-        "Kurs": px_local,
-        "Wert P50": [v["p50_neu"] for v in valuations],
+        "Kurs €": px_eur,
+        "Wert P50 €": [v["p50_neu"] * f for v, f in zip(valuations, to_eur)],
+        "Kurs lokal": [f"{px:.2f} {v['waehrung']}" for v, px in zip(valuations, px_local)],
         "Upside P50": [v["p50_neu"] / px - 1 for v, px in zip(valuations, px_local)],
         "P(Wert>Kurs)": (R > 0).mean(axis=0),
         "Ist-Gewicht": w_ist,
         "Ziel-Gewicht": w,
         "Δ Gewicht": w - w_ist,
-        "Order Stück": delta.astype(int),
+        "Order Stück": delta,
         "Order €": delta * px_eur,
-        "Ziel Stück": target.astype(int),
+        "Ziel Stück": target,
     })
+    # Cash-Zeile: Ziel = was der Optimizer übrig lässt; Order € = Cash-Veränderung durch die Orders
+    cash_order = -float((delta * px_eur).sum())
+    table.loc[len(table)] = {
+        "Firma": "Cash (EUR)", "Ist-Gewicht": cash_eur / total if total > 0 else 0.0,
+        "Ziel-Gewicht": 1.0 - float(w.sum()),
+        "Δ Gewicht": 1.0 - float(w.sum()) - (cash_eur / total if total > 0 else 0.0),
+        "Order €": cash_order,
+    }
 
     def stats(weights):
         W = wealth(R, weights, rf_h) * total

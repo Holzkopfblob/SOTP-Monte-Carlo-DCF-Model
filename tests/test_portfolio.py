@@ -89,3 +89,5 @@ def test_orders_whole_shares_and_min_order():
     assert delta.tolist() == [0.0, 32.0] and target.tolist() == [10.0, 32.0]
     delta, _ = orders(np.array([10.0]), np.array([100.0]), 0.0, np.array([0.98]), min_order_eur=150.0)
     assert delta.tolist() == [0.0]                 # 1 Stück = 100 € < 150 €
+    delta, target = orders(np.array([3.991219]), np.array([250.0]), 0.0, np.array([0.0]))
+    assert delta.tolist() == [-3.991219] and target.tolist() == [0.0]   # Bruchstücke ganz verkaufen

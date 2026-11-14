@@ -38,7 +38,11 @@ def render_portfolio(container) -> None:
 
         path = st.text_input("Depot-Datei", os.environ.get("SOTP_DEPOT", "depot.json"), key="pf_path")
         if st.session_state.get("pf_loaded") != path:
-            st.session_state.pf_depot = load_depot(path)
+            try:
+                st.session_state.pf_depot = load_depot(path)
+            except (OSError, ValueError) as e:  # JSONDecodeError ist ein ValueError
+                st.error(f"Depot-Datei nicht lesbar: {e}")
+                return
             st.session_state.pf_loaded = path
         depot = st.session_state.pf_depot
 
@@ -49,14 +53,16 @@ def render_portfolio(container) -> None:
             return
         files = {f.name: f for fs in vals.values() for f in fs}
 
-        df = pd.DataFrame(depot.get("positionen") or [], columns=["firma", "ticker", "stueck", "datei"])
+        df = pd.DataFrame(depot.get("positionen") or [], columns=["firma", "ticker", "stueck", "datei", "einstand_eur", "kaufdatum"])
         df["datei"] = df["datei"].fillna("").replace("", _NEWEST)
         edited = st.data_editor(
             df, num_rows="dynamic", width="stretch", key="pf_editor",
             column_config={
                 "firma": st.column_config.SelectboxColumn("Firma", options=sorted(vals), required=True),
                 "ticker": st.column_config.TextColumn("Ticker (Yahoo)", required=True),
-                "stueck": st.column_config.NumberColumn("Stück", min_value=0, step=1, default=0),
+                "stueck": st.column_config.NumberColumn("Stück", min_value=0.0, step=0.000001, format="%.6f", default=0.0),
+                "einstand_eur": st.column_config.NumberColumn("Einstand €/Stück", min_value=0.0, format="%.2f"),
+                "kaufdatum": st.column_config.TextColumn("Kaufdatum (JJJJ-MM-TT)"),
                 "datei": st.column_config.SelectboxColumn(
                     "Bewertung", options=[_NEWEST, *sorted(files)], default=_NEWEST),
             },
@@ -64,8 +70,10 @@ def render_portfolio(container) -> None:
         cash = st.number_input("Cash (EUR)", min_value=0.0, value=float(depot.get("cash_eur", 0.0)), step=100.0)
 
         positions = [
-            {"firma": r.firma, "ticker": str(r.ticker).strip(), "stueck": int(r.stueck or 0),
-             "datei": "" if r.datei in (None, _NEWEST) else r.datei}
+            {"firma": r.firma, "ticker": str(r.ticker).strip(), "stueck": float(r.stueck or 0),
+             "datei": "" if r.datei in (None, _NEWEST) else r.datei,
+             "einstand_eur": None if pd.isna(r.einstand_eur) else float(r.einstand_eur),
+             "kaufdatum": r.kaufdatum if isinstance(r.kaufdatum, str) else ""}
             for r in edited.itertuples() if r.firma and isinstance(r.ticker, str) and r.ticker.strip()
         ]
         if st.button("💾 Depot speichern"):
@@ -76,7 +84,8 @@ def render_portfolio(container) -> None:
         c1, c2, c3 = st.columns(3)
         fraction = c1.slider("Kelly-Faktor", 0.1, 1.0, 0.5, 0.05)
         max_w = c2.slider("Max. Gewicht je Titel", 0.05, 0.5, 0.2, 0.01)
-        min_cash = c3.slider("Mindest-Cash", 0.0, 0.5, 0.1, 0.01)
+        min_cash = c3.slider("Mindest-Cash (Untergrenze)", 0.0, 0.5, 0.0, 0.01,
+                             help="0 = Cash-Quote bestimmt allein der Optimizer.")
         c4, c5, c6 = st.columns(3)
         min_order = c4.number_input("Mindestorder (EUR)", 0.0, value=500.0, step=50.0)
         rf = c5.number_input("Risikofreier Zins p. a.", 0.0, 0.1, 0.025, 0.0025, format="%.4f")
@@ -105,9 +114,10 @@ def render_portfolio(container) -> None:
         for w in res.warnings:
             st.warning(w)
         pct = {c: "{:.1%}" for c in ["Upside P50", "P(Wert>Kurs)", "Ist-Gewicht", "Ziel-Gewicht", "Δ Gewicht"]}
-        st.dataframe(res.table.style.format({**pct, "Kurs": "{:.2f}", "Wert P50": "{:.2f}",
-                                             "Order €": "{:,.0f}"}), width="stretch", hide_index=True)
-        st.caption("Kurs und Wert in Bewertungswährung; Order € und Gewichte in EUR.")
+        st.dataframe(res.table.style.format({**pct, "Kurs €": "{:.2f}", "Wert P50 €": "{:.2f}",
+                                             "Order €": "{:,.0f}", "Order Stück": "{:.6g}", "Ziel Stück": "{:.6g}"},
+                                            na_rep=""), width="stretch", hide_index=True)
+        st.caption("Alle Beträge in EUR, USD zum aktuellen EURUSD-Kurs umgerechnet; „Kurs lokal“ = Börsenkurs in Bewertungswährung.")
 
         m = st.columns(4)
         m[0].metric("Depotwert heute", f"{res.wealth_ist['start']:,.0f} €")
