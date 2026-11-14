@@ -80,12 +80,14 @@ def kelly_weights(
     allow_short: bool = False,
     lo: np.ndarray | None = None,
     hi: np.ndarray | None = None,
+    group_caps: list[tuple[list[int], float]] | None = None,
 ) -> np.ndarray:
     """Fractional Kelly als CRRA-Optimum mit γ = 1/fraction (γ = 1 ⇒ log ⇒ volles
     Kelly), direkt unter den Grenzen gelöst:
       0 ≤ w ≤ max_w  (mit Short: −max_w ≤ w ≤ max_w),  Σ|w| ≤ 1 − min_cash.
     *lo*/*hi* (je Titel) ersetzen diese Standardgrenzen, z. B. lo = hi = Ist-Gewicht
-    für eine eingefrorene Position.
+    für eine eingefrorene Position. *group_caps*: [(Titel-Indizes, Grenze)] ⇒ Σ|w| je Gruppe ≤ Grenze
+    (eingefrorene Gewichte zählen mit; liegen sie schon darüber, gilt deren Summe als Grenze).
     Σ|w| über die Zerlegung w = u − v (u, v ≥ 0), damit alles glatt bleibt."""
     n, k = R.shape
     gamma = 1.0 / fraction
@@ -110,6 +112,11 @@ def kelly_weights(
     b_hi = np.concatenate([np.maximum(hi, 0), np.maximum(-lo, 0)])     # u ≤ hi⁺, v ≤ (−lo)⁺
     bounds = list(zip(b_lo, b_hi))
     cons = [{"type": "ineq", "fun": lambda x: budget - x.sum(), "jac": lambda x: -np.ones(2 * k)}]
+    for idx, cap in group_caps or []:
+        m = np.zeros(2 * k)
+        m[list(idx)] = m[[k + i for i in idx]] = 1.0
+        cap = max(cap, float(m @ b_lo))                 # eingefrorene Mindestgewichte nicht verletzen
+        cons.append({"type": "ineq", "fun": lambda x, m=m, c=cap: c - m @ x, "jac": lambda x, m=m: -m})
     res = minimize(neg_utility, b_lo.copy(), jac=True, method="SLSQP",
                    bounds=bounds, constraints=cons, options={"maxiter": 500, "ftol": 1e-12})
     w = res.x[:k] - res.x[k:]

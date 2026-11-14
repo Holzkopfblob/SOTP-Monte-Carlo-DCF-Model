@@ -113,11 +113,13 @@ def _settings() -> Params:
         rf = e.number_input("Cash-Zins p. a. (Bund 3 J.)", 0.0, 0.1, rf_default, 0.0025, format="%.4f",
                             help=f"Bundesbank-Zinsstruktur 3 Jahre, Stand {rf_day}.")
         min_order = f.number_input("Mindestorder (EUR)", 0.0, value=100.0, step=50.0)
-        g, h, _ = st.columns(3)
+        g, h, i = st.columns(3)
         min_cash = g.slider("Mindest-Cash", 0.0, 0.5, 0.0, 0.01, help="0 = Cash-Quote bestimmt der Optimizer.")
         allow_short = h.toggle("Short erlauben", False, help="Brutto Σ|Gewicht| ≤ 1 − Mindest-Cash (kein Hebel).")
+        group_cap = i.slider("Max. Gewicht je Gruppe", 0.05, 1.0, 0.20, 0.01,
+                             help="Summe aller Titel einer benannten Gruppe (Spalte „Gruppe“ im Depot), z. B. Auto.")
     return Params(fraction=fraction, max_w=max_w, min_cash=min_cash, min_order_eur=min_order,
-                  allow_short=allow_short, rf=rf, p_market=p_market, erp=erp)
+                  allow_short=allow_short, rf=rf, p_market=p_market, erp=erp, group_cap=group_cap)
 
 
 def _kpis(res, n_buy: int, n_sell: int, turnover: float, horizon: int) -> None:
@@ -226,6 +228,7 @@ def render_portfolio(container) -> None:
             c2.warning("Eingaben geändert – Ergebnis unten ist veraltet.", icon="⚠️")
         elif res_state:
             c2.caption(f"Berechnet mit p = {_pct(p.p_market)}, Kelly {p.fraction:g}, max. {_pct(p.max_w)} je Titel, "
+                       f"{_pct(p.group_cap)} je Gruppe, "
                        f"Cash-Zins {_pct(p.rf)}. Beträge in EUR, USD zum aktuellen Kurs.")
 
         if run:

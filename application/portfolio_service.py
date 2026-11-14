@@ -86,6 +86,7 @@ class Params:
     rf: float = 0.0315   # Bund 3 J. (Bundesbank-Zinsstruktur 13.11.2026); App lädt tagesaktuell
     horizon_years: int = 3
     seed: int = 42
+    group_cap: float = 0.20  # max. Summe |Gewicht| je benannter Gruppe (z. B. „Auto“)
     p_market: float = 0.3   # Szenario-Mischung: Wahrscheinlichkeit „Markt hat recht“ (0 = Modell voll glauben)
     erp: float = 0.05       # Marktrendite in der Markt-Welt = rf + erp p. a.
 
@@ -162,8 +163,10 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
     lo = np.full(len(names), -p.max_w if p.allow_short else 0.0)
     hi = np.full(len(names), p.max_w)
     frozen = np.zeros(len(names), bool)
+    named = {g for g in groups if groups.count(g) > 1}
+    caps = [([i for i, g in enumerate(groups) if g == name], p.group_cap) for name in sorted(named)]
     for _ in range(len(names) + 1):
-        w = kelly_weights(R, rf_h, p.fraction, p.max_w, p.min_cash, p.allow_short, lo, hi)
+        w = kelly_weights(R, rf_h, p.fraction, p.max_w, p.min_cash, p.allow_short, lo, hi, caps)
         delta, target = orders(shares, px_eur, cash_eur, w, p.min_order_eur)
         new = (delta == 0) & ~np.isclose(w, w_ist, atol=1e-4) & ~frozen
         if not new.any():

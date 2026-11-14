@@ -57,6 +57,13 @@ def test_frozen_position_keeps_weight_and_rest_is_reallocated():
     assert w[0] == 0.3 and w[1:].sum() == pytest.approx(0.7, abs=1e-4) and (w[1:] <= 0.5 + 1e-9).all()
 
 
+def test_group_cap_limits_sum_of_group():
+    rng = np.random.default_rng(8)
+    R = rng.uniform(0.5, 1.5, (5000, 4))                        # alle attraktiv ⇒ Grenzen binden
+    w = kelly_weights(R, fraction=1.0, max_w=0.3, group_caps=[([0, 1], 0.2)])
+    assert w[0] + w[1] == pytest.approx(0.2, abs=1e-4) and w[2] == pytest.approx(0.3, abs=1e-4)
+
+
 def test_negative_upside_zero_without_short_negative_with_short():
     R = np.random.default_rng(2).uniform(-0.95, -0.5, (5000, 1))
     assert kelly_weights(R, fraction=0.5, max_w=0.2)[0] == 0.0

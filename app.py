@@ -32,6 +32,7 @@ from presentation.layout.base import (
 )
 from presentation.pages.dcf_compare import render_compare
 from presentation.pages.portfolio import render_portfolio
+from presentation.pages.calibration import render_calibration
 from presentation.pages.dcf_setup import render_setup
 from presentation.pages.dcf_segments import render_segments
 from presentation.pages.dcf_simulation import render_simulation
@@ -136,7 +137,7 @@ render_app_header(
 with st.sidebar:
     st.header("SOTP MC-DCF")
     view = st.radio(
-        "Ansicht", ["🧮 Bewertung", "🔍 Versionsvergleich", "💼 Portfolio"],
+        "Ansicht", ["🧮 Bewertung", "🔍 Versionsvergleich", "💼 Portfolio", "🎯 Treffsicherheit"],
         key="app_view", horizontal=True, label_visibility="collapsed",
     )
     meta = (st.session_state.get("cfg_passthrough") or {}).get("metadata") or {}
@@ -228,6 +229,9 @@ if view == "🔍 Versionsvergleich":
     st.stop()
 if view == "💼 Portfolio":
     render_portfolio(st.container())
+    st.stop()
+if view == "🎯 Treffsicherheit":
+    render_calibration(st.container())
     st.stop()
 
 
