@@ -39,6 +39,33 @@ def horizon_returns(values: np.ndarray, prices: np.ndarray) -> np.ndarray:
     return np.maximum(values, 0.0) / np.asarray(prices, float) - 1.0
 
 
+def market_world_returns(n: int, sigma: np.ndarray, corr: np.ndarray, rf: float, erp: float,
+                         horizon: float, seed: int = 7) -> np.ndarray:
+    """Welt „Markt hat recht“: Der Kurs ist fair, die Aktie verdient ihre Marktrendite rf + ERP p. a.
+    Log-Rendite über den Horizont ~ N((ln(1+rf+erp) − σ²/2)·h, σ²·h), korreliert wie *corr*.
+    *sigma* = annualisierte Volatilität je Titel (aus der Kurshistorie)."""
+    sigma = np.asarray(sigma, float)
+    k = len(sigma)
+    z = np.random.default_rng(seed).standard_normal((n, k))
+    if k > 1:
+        z = z @ np.linalg.cholesky(nearest_corr(corr)).T
+    mu = (np.log1p(rf + erp) - sigma ** 2 / 2) * horizon
+    return np.expm1(mu + sigma * np.sqrt(horizon) * z)
+
+
+def mix_worlds(R_model: np.ndarray, R_market: np.ndarray, p_market: float,
+               groups: list[str], seed: int = 11) -> tuple[np.ndarray, np.ndarray]:
+    """Szenario-Mischung: je Sample und Gruppe mit Wahrscheinlichkeit *p_market* die Markt-Welt,
+    sonst die Modell-Welt. Titel derselben Gruppe wechseln gemeinsam (gemeinsamer Modellfehler,
+    z. B. alle Autobauer). Rückgabe: gemischte Renditen und Maske (True = Markt-Welt)."""
+    n, k = R_model.shape
+    labels = sorted(set(groups))
+    draws = np.random.default_rng(seed).random((n, len(labels))) < p_market
+    col = [labels.index(g) for g in groups]
+    mask = draws[:, col]
+    return np.where(mask, R_market, R_model), mask
+
+
 def wealth(R: np.ndarray, w: np.ndarray, rf_h: float) -> np.ndarray:
     """Endvermögen je Sample für Startvermögen 1; Cash (1 − Σw) verzinst mit rf_h."""
     return 1.0 + rf_h + (R - rf_h) @ w

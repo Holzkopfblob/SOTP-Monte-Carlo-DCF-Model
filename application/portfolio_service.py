@@ -20,7 +20,9 @@ import numpy as np
 import pandas as pd
 
 from application.simulation_service import SimulationService
-from domain.portfolio import correlate_samples, horizon_returns, kelly_weights, orders, wealth
+from domain.portfolio import (
+    correlate_samples, horizon_returns, kelly_weights, market_world_returns, mix_worlds, orders, wealth,
+)
 from infrastructure.config_io import build_simulation_config
 from infrastructure.market_data import FX_TICKER
 
@@ -84,6 +86,8 @@ class Params:
     rf: float = 0.0315   # Bund 3 J. (Bundesbank-Zinsstruktur 13.11.2026); App lädt tagesaktuell
     horizon_years: int = 3
     seed: int = 42
+    p_market: float = 0.3   # Szenario-Mischung: Wahrscheinlichkeit „Markt hat recht“ (0 = Modell voll glauben)
+    erp: float = 0.05       # Marktrendite in der Markt-Welt = rf + erp p. a.
 
 
 @dataclass
@@ -93,6 +97,7 @@ class Result:
     wealth_ziel: dict
     corr: pd.DataFrame
     warnings: list[str] = field(default_factory=list)
+    wealth_samples: dict = field(default_factory=dict)   # {"Ist": array, "Ziel": array} in EUR (Stichprobe)
 
 
 def _eur_closes(closes: pd.DataFrame, ticker: str, ccy: str) -> pd.Series:
@@ -135,8 +140,18 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
     n = min(len(v["samples"]) for v in valuations)           # Samples sind iid → kürzen ok
     V = np.column_stack([v["samples"][:n] for v in valuations])
     V = correlate_samples(V, corr.values, seed=p.seed)
-    R = horizon_returns(V, px_local)                         # Wert und Kurs in gleicher Währung
+    R_model = horizon_returns(V, px_local)                   # Wert und Kurs in gleicher Währung
     rf_h = (1 + p.rf) ** p.horizon_years - 1
+
+    # Szenario-Mischung: Welt „Markt hat recht“ (Kurs fair, Marktrendite rf + ERP, Volatilität aus der
+    # Kurshistorie) mit Wahrscheinlichkeit p_market je Gruppe; Titel einer Gruppe wechseln gemeinsam.
+    sigma = (rets.std() * np.sqrt(52)).reindex(names).fillna(0.30).clip(0.10, 1.0).to_numpy()
+    groups = [str(pos.get("gruppe") or "").strip() or pos["firma"] for pos in positions]
+    if p.p_market > 0:
+        R_mkt = market_world_returns(n, sigma, corr.values, p.rf, p.erp, p.horizon_years, seed=p.seed + 1)
+        R, _ = mix_worlds(R_model, R_mkt, p.p_market, groups, seed=p.seed + 2)
+    else:
+        R = R_model
 
     shares = np.array([float(pos.get("stueck") or 0) for pos in positions])
     total = cash_eur + float(shares @ px_eur)
@@ -181,7 +196,10 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
         "Wert P50 €": [v["p50_neu"] * f for v, f in zip(valuations, to_eur)],
         "Kurs lokal": [f"{px:.2f} {v['waehrung']}" for v, px in zip(valuations, px_local)],
         "Upside P50": [v["p50_neu"] / px - 1 for v, px in zip(valuations, px_local)],
-        "P(Wert>Kurs)": (R > 0).mean(axis=0),
+        "P(Wert>Kurs)": (R_model > 0).mean(axis=0),
+        "E[R] 3J (Mix)": R.mean(axis=0),
+        "Vola p. a.": sigma,
+        "Gruppe": groups,
         "Ist-Gewicht": w_ist,
         "Ziel-Gewicht": w,
         "Δ Gewicht": w - w_ist,
@@ -198,9 +216,11 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
         "Order €": cash_order,
     }
 
-    def stats(weights):
-        W = wealth(R, weights, rf_h) * total
-        return {"p5": float(np.percentile(W, 5)), "p50": float(np.median(W)),
-                "p95": float(np.percentile(W, 95)), "start": total}
+    W = {"Ist": wealth(R, w_ist, rf_h) * total, "Ziel": wealth(R, w, rf_h) * total}
 
-    return Result(table, stats(w_ist), stats(w), corr, warnings)
+    def stats(arr):
+        return {"p5": float(np.percentile(arr, 5)), "p50": float(np.median(arr)),
+                "p95": float(np.percentile(arr, 95)), "mean": float(arr.mean()), "start": total}
+
+    sample = {k: v[:: max(1, len(v) // 5000)] for k, v in W.items()}   # für Diagramme
+    return Result(table, stats(W["Ist"]), stats(W["Ziel"]), corr, warnings, sample)

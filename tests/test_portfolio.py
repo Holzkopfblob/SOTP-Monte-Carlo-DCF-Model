@@ -3,7 +3,8 @@ import numpy as np
 import pytest
 
 from domain.portfolio import (
-    correlate_samples, horizon_returns, kelly_weights, nearest_corr, orders, wealth,
+    correlate_samples, horizon_returns, kelly_weights, market_world_returns, mix_worlds, nearest_corr,
+    orders, wealth,
 )
 
 
@@ -84,6 +85,35 @@ def test_nearest_corr_repairs_non_psd():
     bad = np.array([[1, 0.9, -0.9], [0.9, 1, 0.9], [-0.9, 0.9, 1.0]])
     c = nearest_corr(bad)
     assert np.linalg.eigvalsh(c).min() > -1e-10 and np.allclose(np.diag(c), 1)
+
+
+def test_market_world_mean_matches_rf_plus_erp():
+    R = market_world_returns(200_000, np.array([0.25, 0.40]), np.eye(2), rf=0.03, erp=0.05, horizon=3, seed=1)
+    assert R.mean(axis=0) == pytest.approx(np.full(2, 1.08 ** 3 - 1), abs=0.01)
+    assert np.log1p(R[:, 1]).std() == pytest.approx(0.40 * np.sqrt(3), rel=0.02)
+
+
+def test_mix_worlds_extremes_and_shared_groups():
+    rng = np.random.default_rng(2)
+    Rm, Rk = rng.normal(1.0, 0.1, (20_000, 3)), rng.normal(0.2, 0.1, (20_000, 3))
+    assert np.array_equal(mix_worlds(Rm, Rk, 0.0, ["a", "b", "c"])[0], Rm)
+    assert np.array_equal(mix_worlds(Rm, Rk, 1.0, ["a", "b", "c"])[0], Rk)
+    R, mask = mix_worlds(Rm, Rk, 0.3, ["auto", "auto", "x"], seed=3)
+    assert np.array_equal(mask[:, 0], mask[:, 1])                 # gleiche Gruppe ⇒ gemeinsam
+    assert not np.array_equal(mask[:, 0], mask[:, 2])             # andere Gruppe ⇒ unabhängig
+    assert mask.mean() == pytest.approx(0.3, abs=0.01)
+
+
+def test_mixture_penalises_large_model_market_gap_under_kelly():
+    # Zwei Titel mit gleicher Markt-Welt; A hat moderates, B riesiges Modell-Potenzial.
+    rng = np.random.default_rng(4)
+    n = 40_000
+    Rmod = np.column_stack([rng.normal(0.35, 0.05, n), rng.normal(1.80, 0.10, n)])
+    Rmkt = market_world_returns(n, np.array([0.25, 0.25]), np.eye(2), 0.03, 0.05, 3, seed=5)
+    R, _ = mix_worlds(Rmod, Rmkt, 0.3, ["A", "B"], seed=6)
+    w = kelly_weights(R, rf_h=1.03 ** 3 - 1, fraction=0.5, max_w=1.0)
+    w_full_trust = kelly_weights(Rmod, rf_h=1.03 ** 3 - 1, fraction=0.5, max_w=1.0)
+    assert w[1] < w_full_trust[1]                                   # B verliert Gewicht durch die Mischung
 
 
 def test_wealth_cash_earns_rf():
