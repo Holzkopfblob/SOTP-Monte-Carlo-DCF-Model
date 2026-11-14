@@ -1,0 +1,180 @@
+"""
+Portfolio-Service: Depot laden/speichern, Bewertungen finden und neu simulieren,
+Zielgewichte und Orders berechnen.
+
+depot.json (liegt außerhalb des Repos, z. B. in 05_PRIVAT/Finanzen):
+  {"bewertungen_ordner": "...", "cash_eur": 5000,
+   "positionen": [{"firma": "Rheinmetall AG", "ticker": "RHM.DE", "stueck": 3, "datei": ""}]}
+``datei`` leer = neueste Bewertung der Firma im Ordner.
+"""
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from datetime import date
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from application.simulation_service import SimulationService
+from domain.portfolio import correlate_samples, horizon_returns, kelly_weights, orders, wealth
+from infrastructure.config_io import build_simulation_config
+from infrastructure.market_data import FX_TICKER
+
+SUPPORTED_CCY = {"EUR", "USD"}  # ponytail: nur EUR/USD; weitere Währungen = weiteres FX-Paar laden
+REPRO_TOL = 0.005               # Neulauf-P50 darf 0,5 % vom gespeicherten abweichen
+STALE_DAYS = 30
+
+
+def load_depot(path: str | Path) -> dict:
+    p = Path(path)
+    if not p.exists():
+        return {"bewertungen_ordner": str(p.parent / "SOTP-Monte-Carlo-DCF_Bewertungen"),
+                "cash_eur": 0.0, "positionen": []}
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+def save_depot(path: str | Path, depot: dict) -> None:
+    Path(path).write_text(json.dumps(depot, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def find_valuations(folder: str | Path) -> dict[str, list[Path]]:
+    """Firma → Bewertungsdateien, älteste zuerst (stichtag, dann saved_at)."""
+    out: dict[str, list[tuple[tuple[str, str], Path]]] = {}
+    for f in Path(folder).glob("*.json"):
+        try:
+            cfg = json.loads(f.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        meta = cfg.get("metadata") or {}
+        if not meta.get("company") or not cfg.get("ergebnis"):
+            continue
+        key = (str(meta.get("stichtag", "")), str(cfg.get("saved_at", "")))
+        out.setdefault(meta["company"], []).append((key, f))
+    return {c: [f for _, f in sorted(v)] for c, v in out.items()}
+
+
+def simulate_valuation(path: str | Path) -> dict:
+    """Bewertung per gespeichertem Seed neu simulieren (Samples je Aktie)."""
+    cfg = json.loads(Path(path).read_text(encoding="utf-8"))
+    meta = cfg.get("metadata") or {}
+    samples = SimulationService.run_simulation(build_simulation_config(cfg)).price_per_share
+    stored = ((cfg.get("ergebnis") or {}).get("preis_je_aktie") or {}).get("p50")
+    return {
+        "samples": np.asarray(samples, float),
+        "p50_neu": float(np.median(samples)),
+        "p50_gespeichert": stored,
+        "waehrung": meta.get("report_currency", "EUR"),
+        "stichtag": meta.get("stichtag", ""),
+        "kurs_recherche": meta.get("kurs_bei_recherche"),
+        "stand": meta.get("stand", ""),
+    }
+
+
+@dataclass
+class Params:
+    fraction: float = 0.5
+    max_w: float = 0.2
+    min_cash: float = 0.1
+    min_order_eur: float = 500.0
+    allow_short: bool = False
+    rf: float = 0.025
+    horizon_years: int = 3
+    seed: int = 42
+
+
+@dataclass
+class Result:
+    table: pd.DataFrame
+    wealth_ist: dict
+    wealth_ziel: dict
+    corr: pd.DataFrame
+    warnings: list[str] = field(default_factory=list)
+
+
+def _eur_closes(closes: pd.DataFrame, ticker: str, ccy: str) -> pd.Series:
+    s = closes[ticker]
+    if ccy == "USD":
+        s = s / closes[FX_TICKER].ffill()
+    return s
+
+
+def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFrame,
+              cash_eur: float, p: Params, today: date | None = None) -> Result:
+    """positions[i] (firma, ticker, stueck) gehört zu valuations[i] (simulate_valuation)."""
+    today = today or date.today()
+    warnings: list[str] = []
+    names = [pos["firma"] for pos in positions]
+
+    eur = {}
+    for pos, val in zip(positions, valuations):
+        if val["waehrung"] not in SUPPORTED_CCY:
+            raise ValueError(f"{pos['firma']}: Währung {val['waehrung']} nicht unterstützt")
+        eur[pos["firma"]] = _eur_closes(closes, pos["ticker"], val["waehrung"])
+    eur_df = pd.DataFrame(eur)
+    fx_now = float(closes[FX_TICKER].dropna().iloc[-1])
+
+    px_local = np.array([float(closes[pos["ticker"]].dropna().iloc[-1]) for pos in positions])
+    to_eur = np.array([1 / fx_now if v["waehrung"] == "USD" else 1.0 for v in valuations])
+    px_eur = px_local * to_eur
+
+    # Korrelation: Spearman auf Wochen-Log-Renditen in EUR (Tagesdaten unterschätzen sie
+    # wegen versetzter Börsenschlüsse US/EU), paarweise → kürzere Historie (SPCX) möglich
+    rets = np.log(eur_df.resample("W-FRI").last()).diff()
+    corr = rets.corr(method="spearman", min_periods=20).fillna(0.0)
+    np.fill_diagonal(corr.values, 1.0)
+    for name in names:
+        n_obs = int(rets[name].count())
+        if n_obs < 52 * 3 * 0.9:
+            warnings.append(f"{name}: nur {n_obs} Wochen Kurshistorie für die Korrelation"
+                            + (" (zu kurz, Korrelation 0 angenommen)." if n_obs < 20 else "."))
+
+    n = min(len(v["samples"]) for v in valuations)           # Samples sind iid → kürzen ok
+    V = np.column_stack([v["samples"][:n] for v in valuations])
+    V = correlate_samples(V, corr.values, seed=p.seed)
+    R = horizon_returns(V, px_local)                         # Wert und Kurs in gleicher Währung
+    rf_h = (1 + p.rf) ** p.horizon_years - 1
+    w = kelly_weights(R, rf_h, p.fraction, p.max_w, p.min_cash, p.allow_short)
+
+    shares = np.array([float(pos.get("stueck") or 0) for pos in positions])
+    total = cash_eur + float(shares @ px_eur)
+    w_ist = shares * px_eur / total if total > 0 else np.zeros(len(names))
+    delta, target = orders(shares, px_eur, cash_eur, w, p.min_order_eur)
+
+    for name, val, px in zip(names, valuations, px_local):
+        stored = val["p50_gespeichert"]
+        if stored and abs(val["p50_neu"] / stored - 1) > REPRO_TOL:
+            warnings.append(f"{name}: Neulauf-P50 {val['p50_neu']:.2f} weicht vom gespeicherten "
+                            f"{stored:.2f} ab (Engine geändert?).")
+        if val["kurs_recherche"] and not 0.5 < px / val["kurs_recherche"] < 2:
+            warnings.append(f"{name}: Kurs {px:.2f} passt nicht zum Recherchekurs "
+                            f"{val['kurs_recherche']:.2f} – Ticker/Währung prüfen.")
+        try:
+            age = (today - date.fromisoformat(val["stichtag"])).days
+            if age > STALE_DAYS:
+                warnings.append(f"{name}: Bewertung ist {age} Tage alt.")
+        except ValueError:
+            warnings.append(f"{name}: Stichtag fehlt.")
+
+    table = pd.DataFrame({
+        "Firma": names,
+        "Stand": [v["stand"] for v in valuations],
+        "Kurs": px_local,
+        "Wert P50": [v["p50_neu"] for v in valuations],
+        "Upside P50": [v["p50_neu"] / px - 1 for v, px in zip(valuations, px_local)],
+        "P(Wert>Kurs)": (R > 0).mean(axis=0),
+        "Ist-Gewicht": w_ist,
+        "Ziel-Gewicht": w,
+        "Δ Gewicht": w - w_ist,
+        "Order Stück": delta.astype(int),
+        "Order €": delta * px_eur,
+        "Ziel Stück": target.astype(int),
+    })
+
+    def stats(weights):
+        W = wealth(R, weights, rf_h) * total
+        return {"p5": float(np.percentile(W, 5)), "p50": float(np.median(W)),
+                "p95": float(np.percentile(W, 95)), "start": total}
+
+    return Result(table, stats(w_ist), stats(w), corr, warnings)

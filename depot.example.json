@@ -1,0 +1,8 @@
+{
+  "bewertungen_ordner": "C:/Pfad/zu/SOTP-Bewertungen",
+  "cash_eur": 5000,
+  "positionen": [
+    {"firma": "Rheinmetall AG", "ticker": "RHM.DE", "stueck": 2, "datei": ""},
+    {"firma": "NVIDIA Corporation", "ticker": "NVDA", "stueck": 0, "datei": ""}
+  ]
+}
