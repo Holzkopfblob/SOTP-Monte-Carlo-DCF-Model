@@ -220,7 +220,9 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
 
     # Szenario-Mischung: Welt „Markt hat recht“ (Kurs fair, Marktrendite rf + ERP, Volatilität aus der
     # Kurshistorie) mit Wahrscheinlichkeit p_market je Gruppe; Titel einer Gruppe wechseln gemeinsam.
-    groups = [str(pos.get("gruppe") or "").strip() or pos["firma"] for pos in positions]
+    # Gruppe leer ⇒ Branche (Gruppengrenze greift auch bei neu eingetragenen Bewertungen), sonst eigene Gruppe
+    groups = [str(pos.get("gruppe") or "").strip() or str(pos.get("sektor") or "").strip() or pos["firma"]
+              for pos in positions]
     if p.p_market > 0 and not faktor:
         R_mkt = market_world_returns(n, sigma, corr.values, p.rf, p.erp, p.horizon_years, seed=p.seed + 1)
         R, _ = mix_worlds(R_model, R_mkt, p.p_market, groups, seed=p.seed + 2, rho=p.rho_world)

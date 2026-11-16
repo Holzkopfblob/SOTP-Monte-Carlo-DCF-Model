@@ -154,3 +154,13 @@ def test_rate_shock_hits_levered_titles_together_and_helps_net_cash(monkeypatch)
     from domain.factor_model import _rng
     zins = _rng(Params().seed, "zins").standard_normal(len(lr))
     assert np.corrcoef(lr[:, 0], zins)[0, 1] < -0.99                              # Zinsanstieg schadet Verschuldeten
+
+
+def test_empty_group_falls_back_to_sector():
+    """Ohne Gruppe greift die Gruppengrenze über die Branche: B und C gleiche Branche ⇒ zusammen ≤ group_cap."""
+    positions, valuations, closes = _setup()
+    positions[1]["sektor"] = positions[2]["sektor"] = "Telko"
+    res = rebalance(positions, valuations, closes, cash_eur=1100.0, p=Params(group_cap=0.2, min_order_eur=0.0),
+                    today=date(2026, 11, 14))
+    t = res.table.set_index("Firma")
+    assert t.loc[["B", "C"], "Ziel-Gewicht"].sum() <= 0.2 + 1e-6 and (t.loc[["B", "C"], "Gruppe"] == "Telko").all()

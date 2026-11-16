@@ -92,7 +92,7 @@ def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[di
             "stueck": st.column_config.NumberColumn("Stück", min_value=0.0, step=0.000001, format="%.6f", default=0.0),
             "einstand_eur": st.column_config.NumberColumn("Einstand €/Stück", min_value=0.0, format="%.2f"),
             "kaufdatum": st.column_config.TextColumn("Kaufdatum"),
-            "gruppe": st.column_config.TextColumn("Gruppe", help="z. B. Auto; leer = eigene Gruppe"),
+            "gruppe": st.column_config.TextColumn("Gruppe", help="z. B. Auto; leer = Branche"),
             "sektor": st.column_config.SelectboxColumn(
                 "Branche", options=_SEKTOREN,
                 help="Für die Faktor-Szenarien: Basisrate und gemeinsamer Branchenschock. Leer = ohne Branchenfaktor."),
