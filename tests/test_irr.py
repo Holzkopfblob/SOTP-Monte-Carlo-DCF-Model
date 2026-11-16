@@ -78,3 +78,17 @@ def test_summary_fields_and_edge_flags():
     # Preis weit über jedem endlichen Wert ⇒ Rendite = Untergrenze (größtes ewiges Wachstum + 0,01 pp)
     g = r.segment_cashflows["A"].tv_g
     assert np.allclose(implied_irr(r, 1e9), g + 1e-4, atol=1e-9)
+
+
+def test_hold_returns_median_surprise_one_and_leverage():
+    from domain.irr import hold_returns
+    r = _results()
+    px = float(np.median(r.price_per_share))
+    h = hold_returns(r, px, k_d=0.03, h=10)
+    S = (h["R"] + 1) / (1 + h["irr_ek"]) ** 10
+    assert np.mean(S > 1) == pytest.approx(0.5, abs=0.01)        # S > 1 ⇔ r_i > r̄ (Wert monoton in r)
+    assert h["d_e"] == pytest.approx((800.0 - 0.4 * 150.0) / (px * 50.0))   # Fremdanteil Tochterschulden raus
+    assert h["irr_ek"] == pytest.approx(h["irr"] + h["d_e"] * (h["irr"] - 0.03))
+    assert h["irr_ek"] > h["irr"] > 0.03                          # Hebel bei r̄ > k_d erhöht die EK-Rendite
+    assert hold_returns(r, px, k_d=h["irr"], h=10)["irr_ek"] == pytest.approx(h["irr"])   # k_d = r̄ ⇒ neutral
+    assert h["am_rand"] == 0.0

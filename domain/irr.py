@@ -68,3 +68,33 @@ def irr_summary(results, price: float, rf: float) -> dict:
     return {"preis": float(price), "rf": float(rf), "p5": float(p5), "p50": float(p50), "p95": float(p95),
             "mittel": float(np.mean(r)), "vorsprung_p50": float(p50 - rf),
             "p_ueber_rf": float(np.mean(r > rf)), "anteil_am_rand": float(np.mean(r >= R_MAX - 1e-6))}
+
+
+RAND_MAX_ANTEIL = 0.05   # mehr Samples am Rand ⇒ Bridge > Börsenwert, IRR nicht aussagekräftig (VW/MBG 11/2026)
+
+
+def debt_like(results) -> float:
+    """Median der schuldenähnlichen Bridge-Posten (Netto, negativ = Nettovermögen) für den Hebel D/E."""
+    b = results.bridge_samples
+    return float(np.median(b["nettoschulden"] + b["minderheiten"] + b["pensionen"]
+                           - b["nicht_operativ"] - b["beteiligungen"]))
+
+
+def hold_returns(results, price: float, k_d: float, h: int) -> dict:
+    """Rendite über *h* Jahre für „kaufen und halten“ (v3 Phase 4), je Sample (Zeilen bleiben gemeinsame Welten):
+        R_i = (1 + r_E)^h · S_i − 1
+    r̄ = Median der Unternehmens-IRR (Zins, zu dem der Kurs die mittlere Erwartung bezahlt), r_E = r̄ + D/E·(r̄ − k_d)
+    die Eigenkapital-Rendite bei Hebel D/E zum Markt (k_d = Fremdkapitalkosten nach Steuer), S_i = Eigenkapitalwert
+    des Szenarios i bei r̄ / Marktwert: die Überraschung in den Cashflows (Median 1, beschränkte Haftung ⇒ ≥ 0).
+    Rendite kommt aus dem Kurs, Risiko aus den Cashflows – kein WACC-Urteil.
+    # ponytail: Kursschwankung auf dem Weg fehlt bewusst (steckt größtenteils schon in S); Zwischenrisiko erst, wenn
+    # Verkäufe vor h erzwungen werden können."""
+    r = implied_irr(results, price)
+    r_bar = float(np.median(r))
+    aktien = results.bridge_samples["aktien"]
+    d_e = debt_like(results) / (price * float(np.median(aktien)))
+    r_e = max(r_bar + d_e * (r_bar - k_d), -0.99)
+    S = np.maximum(equity_at(results, np.full(len(r), r_bar)), 0.0) / (price * aktien)
+    return {"R": (1 + r_e) ** h * S - 1, "irr": r_bar, "irr_ek": r_e, "d_e": d_e,
+            "irr_p5": float(np.percentile(r, 5)), "irr_p95": float(np.percentile(r, 95)),
+            "am_rand": float(np.mean(r >= R_MAX - 1e-6))}

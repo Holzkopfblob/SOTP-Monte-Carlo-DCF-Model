@@ -19,6 +19,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from domain.irr import RAND_MAX_ANTEIL, hold_returns
 from domain.portfolio import (
     correlate_samples, factor_tilt, horizon_returns, kelly_weights, market_world_returns, mix_worlds, orders, wealth,
 )
@@ -80,7 +81,8 @@ def simulate_valuation(path: str | Path, shocks: dict | None = None, n: int | No
     sim_cfg = build_simulation_config(cfg)
     if n:
         sim_cfg.n_simulations = n
-    samples = MonteCarloEngine(sim_cfg, shocks).run().price_per_share
+    res = MonteCarloEngine(sim_cfg, shocks).run()
+    samples = res.price_per_share
     stored = ((cfg.get("ergebnis") or {}).get("preis_je_aktie") or {}).get("p50")
     return {
         "samples": np.asarray(samples, float),
@@ -91,6 +93,7 @@ def simulate_valuation(path: str | Path, shocks: dict | None = None, n: int | No
         "kurs_recherche": meta.get("kurs_bei_recherche"),
         "stand": meta.get("stand", ""),
         **ev_inputs(sim_cfg),
+        **({"results": res} if shocks is not None else {}),   # Faktor-Modus: IRR braucht die Cashflow-Pfade
     }
 
 
@@ -109,6 +112,7 @@ class Params:
     erp: float = 0.05       # Marktrendite in der Markt-Welt = rf + erp p. a.
     factor_shrink: float = 0.0  # Gegenprobe 16.11.: Faktor ist Telko-/Auto-Effekt, kein allgemeiner Stil ⇒ aus. Anteil des Value-Stils, der aus den Werten herausgenommen wird (0 = Modell voll, 1 = ganz)
     faktor_szenarien: bool = False  # v3 Phase 3: gemeinsame Cashflow-Schocks (Seite ruft dann simulate_universe)
+    k_d: float = 0.035      # Fremdkapitalkosten nach Steuer für die Eigenkapital-IRR (≈ (rf + 1,5 pp) · 0,75)
     rho_world: float = 0.4  # Kopplung „Markt hat recht“ über Gruppen; 0,4 ≈ R² der Lücke auf das Marktmultiple
                             # (Querschnitt 16.11.2026, Documents/KALIBRIERUNG-2026-11/querschnitt.py)
 
@@ -121,6 +125,7 @@ class Result:
     corr: pd.DataFrame
     warnings: list[str] = field(default_factory=list)
     wealth_samples: dict = field(default_factory=dict)   # {"Ist": array, "Ziel": array} in EUR (Stichprobe)
+    steuer: dict = field(default_factory=dict)           # Verlusttopf vorher/Gewinne/nachher (EUR)
 
 
 def _eur_closes(closes: pd.DataFrame, ticker: str, ccy: str) -> pd.Series:
@@ -131,7 +136,7 @@ def _eur_closes(closes: pd.DataFrame, ticker: str, ccy: str) -> pd.Series:
 
 
 def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFrame,
-              cash_eur: float, p: Params, today: date | None = None) -> Result:
+              cash_eur: float, p: Params, today: date | None = None, verlusttopf_eur: float = 0.0) -> Result:
     """positions[i] (firma, ticker, stueck) gehört zu valuations[i] (simulate_valuation)."""
     today = today or date.today()
     warnings: list[str] = []
@@ -170,12 +175,25 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
     tilt = np.ones(len(names)) if faktor else factor_tilt(ev_ebitda, p.factor_shrink)
     if not faktor:
         V = correlate_samples(V, corr.values, seed=p.seed) * tilt
-    R_model = horizon_returns(V, px_local)                   # Wert und Kurs in gleicher Währung
+    p_wert = (V > px_local).mean(axis=0)
     rf_h = (1 + p.rf) ** p.horizon_years - 1
+    sigma = (rets.std() * np.sqrt(52)).reindex(names).fillna(0.30).clip(0.10, 1.0).to_numpy()
+    rand = np.zeros(len(names), bool)
+    if faktor:
+        # v3 Phase 4: Halte-Rendite aus der impliziten Rendite zum Kurs (domain/irr.hold_returns) statt Wert/Kurs − 1
+        hr = [hold_returns(v["results"], px, p.k_d, p.horizon_years) for v, px in zip(valuations, px_local)]
+        R_model = np.column_stack([x["R"][:n] for x in hr])
+        rand = np.array([x["am_rand"] > RAND_MAX_ANTEIL for x in hr])
+        if rand.any():   # Bridge > Börsenwert: IRR unbrauchbar ⇒ Marktrendite mit Kursvola, Gewicht eingefroren
+            R_mkt = market_world_returns(n, sigma, corr.values, p.rf, p.erp, p.horizon_years, seed=p.seed + 1)
+            R_model[:, rand] = R_mkt[:, rand]
+            warnings.append("IRR nicht aussagekräftig (Bridge-Posten größer als der Börsenwert, Bewertung prüfen), "
+                            "Gewicht bleibt: " + ", ".join(np.array(names)[rand]) + ".")
+    else:
+        R_model = horizon_returns(V, px_local)               # Wert und Kurs in gleicher Währung
 
     # Szenario-Mischung: Welt „Markt hat recht“ (Kurs fair, Marktrendite rf + ERP, Volatilität aus der
     # Kurshistorie) mit Wahrscheinlichkeit p_market je Gruppe; Titel einer Gruppe wechseln gemeinsam.
-    sigma = (rets.std() * np.sqrt(52)).reindex(names).fillna(0.30).clip(0.10, 1.0).to_numpy()
     groups = [str(pos.get("gruppe") or "").strip() or pos["firma"] for pos in positions]
     if p.p_market > 0 and not faktor:
         R_mkt = market_world_returns(n, sigma, corr.values, p.rf, p.erp, p.horizon_years, seed=p.seed + 1)
@@ -191,7 +209,8 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
     # einfrieren und das tatsächlich verfügbare Geld neu verteilen, bis jede Order ausführbar ist.
     lo = np.full(len(names), -p.max_w if p.allow_short else 0.0)
     hi = np.full(len(names), p.max_w)
-    frozen = np.zeros(len(names), bool)
+    frozen = rand.copy()
+    lo[frozen] = hi[frozen] = w_ist[frozen]
     named = {g for g in groups if groups.count(g) > 1}
     caps = [([i for i, g in enumerate(groups) if g == name], p.group_cap) for name in sorted(named)]
     for _ in range(len(names) + 1):
@@ -202,9 +221,9 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
             break
         frozen |= new
         lo[frozen] = hi[frozen] = w_ist[frozen]
-    if frozen.any():
+    if (frozen & ~rand).any():
         warnings.append("Wegen der Mindestorder unverändert gelassen und neu verteilt: "
-                        + ", ".join(np.array(names)[frozen]) + ".")
+                        + ", ".join(np.array(names)[frozen & ~rand]) + ".")
 
     for name, val, px in zip(names, valuations, px_local):
         stored = val["p50_gespeichert"]
@@ -230,8 +249,10 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
         "Upside P50": [v["p50_neu"] / px - 1 for v, px in zip(valuations, px_local)],
         "EV/EBITDA": ev_ebitda,
         "Faktor ×": tilt,
-        "P(Wert>Kurs)": (R_model > 0).mean(axis=0),
-        "E[R] 3J (Mix)": R.mean(axis=0),
+        "P(Wert>Kurs)": p_wert,
+        **{col: np.where(rand, np.nan, [x[k] for x in hr]) if faktor else np.nan       # am Rand: IRR ohne Aussage
+           for col, k in (("IRR P50", "irr"), ("IRR EK", "irr_ek"), ("D/E", "d_e"))},
+        "E[R] Horizont": R.mean(axis=0),
         "Vola p. a.": sigma,
         "Gruppe": groups,
         "Ist-Gewicht": w_ist,
@@ -250,6 +271,22 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
         "Order €": cash_order,
     }
 
+    # Steuer (Aktienverlusttopf): Veräußerungsgewinne der Verkäufe verbrauchen den Topf, Verluste füllen ihn.
+    # Dividenden verrechnet der Aktienverlusttopf nicht. ponytail: Wert des Steueraufschubs fehlt, solange der Topf
+    # die Gewinne deckt (Depot ≪ Topf); nötig, sobald Gewinne den Topf erreichen.
+    einstand = np.array([float(pos.get("einstand_eur") or np.nan) for pos in positions])
+    gewinn = np.where(delta < 0, (px_eur - einstand) * -delta, 0.0)
+    table.insert(table.columns.get_loc("Order €") + 1, "Gewinn Verkauf €",
+                 np.r_[np.where(delta < 0, gewinn, np.nan), np.nan])
+    g_sum = float(np.nansum(gewinn))
+    steuer = {"topf_vorher": verlusttopf_eur, "gewinne": g_sum, "topf_nachher": verlusttopf_eur - g_sum}
+    if np.isnan(gewinn[delta < 0]).any():
+        warnings.append("Einstand fehlt bei Verkäufen: " + ", ".join(np.array(names)[(delta < 0) & np.isnan(einstand)])
+                        + " – Topf-Verbrauch unvollständig.")
+    if g_sum > verlusttopf_eur:
+        warnings.append(f"Verkaufsgewinne {g_sum:,.0f} € übersteigen den Verlusttopf {verlusttopf_eur:,.0f} € – "
+                        f"≈ {0.26375 * (g_sum - verlusttopf_eur):,.0f} € Steuer (KapESt + Soli).")
+
     W = {"Ist": wealth(R, w_ist, rf_h) * total, "Ziel": wealth(R, w, rf_h) * total}
 
     def stats(arr):
@@ -257,4 +294,4 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
                 "p95": float(np.percentile(arr, 95)), "mean": float(arr.mean()), "start": total}
 
     sample = {k: v[:: max(1, len(v) // 5000)] for k, v in W.items()}   # für Diagramme
-    return Result(table, stats(W["Ist"]), stats(W["Ziel"]), corr, warnings, sample)
+    return Result(table, stats(W["Ist"]), stats(W["Ziel"]), corr, warnings, sample, steuer)

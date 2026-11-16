@@ -47,11 +47,42 @@ def test_factor_scenarios_keep_rows_aligned(monkeypatch):
     import application.portfolio_service as ps
     positions, valuations, closes = _setup()
     for v in valuations:
-        v.update(schock={}, p50_gespeichert=v["p50_neu"] * 0.5)
+        v.update(schock={}, results=v["samples"], p50_gespeichert=v["p50_neu"] * 0.5)
 
     def boom(*a, **k):
         raise AssertionError("Altpfad im Faktor-Modus")
     monkeypatch.setattr(ps, "correlate_samples", boom)
     monkeypatch.setattr(ps, "mix_worlds", boom)
+    _fake_irr(monkeypatch, {})
     res = rebalance(positions, valuations, closes, cash_eur=1100.0, p=Params(p_market=0.3), today=date(2026, 11, 14))
     assert not any("Neulauf" in w for w in res.warnings)
+    assert res.table.set_index("Firma").loc["B", "IRR P50"] == 0.12
+
+
+def _fake_irr(monkeypatch, rand: dict):
+    """hold_returns ohne Engine: Rendite aus den Wert-Samples, IRR 12 %, *rand* = {Kurs: Anteil am Rand}."""
+    import application.portfolio_service as ps
+
+    def fake(results, price, k_d, h):
+        return {"R": results / price - 1, "irr": 0.12, "irr_ek": 0.12, "d_e": 0.0, "irr_p5": 0.1, "irr_p95": 0.14,
+                "am_rand": rand.get(round(price), 0.0)}
+    monkeypatch.setattr(ps, "hold_returns", fake)
+
+
+def test_irr_at_edge_is_frozen_and_sales_use_the_loss_pot(monkeypatch):
+    """Faktor-Modus: Titel mit IRR am Rand (Bridge > Börsenwert) bleibt auf Ist-Gewicht; Verkaufsgewinne gegen den
+    Aktienverlusttopf, Warnung erst, wenn sie ihn übersteigen."""
+    positions, valuations, closes = _setup()
+    positions[1]["stueck"], positions[0]["einstand_eur"] = 20.0, 60.0     # B gehalten; A mit Gewinn verkaufen
+    for v in valuations:
+        v.update(schock={}, results=v["samples"])
+    _fake_irr(monkeypatch, {50: 0.5})                                     # B (Kurs 50) am Rand
+    p = Params(min_order_eur=10.0)
+    res = rebalance(positions, valuations, closes, cash_eur=0.0, p=p, today=date(2026, 11, 14), verlusttopf_eur=100.0)
+    t = res.table.set_index("Firma")
+    assert t.loc["B", "Ziel-Gewicht"] == t.loc["B", "Ist-Gewicht"] and t.loc["B", "Order Stück"] == 0
+    assert any("Bridge" in w and "B" in w for w in res.warnings)
+    assert t.loc["A", "Order Stück"] < 0                                  # A überbewertet ⇒ Verkauf
+    gain = (100.0 - 60.0) * -t.loc["A", "Order Stück"]
+    assert t.loc["A", "Gewinn Verkauf €"] == gain and res.steuer["topf_nachher"] == 100.0 - gain
+    assert any("übersteigen den Verlusttopf" in w for w in res.warnings) == (gain > 100.0)

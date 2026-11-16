@@ -103,12 +103,14 @@ def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[di
          "sektor": r.sektor if isinstance(r.sektor, str) else ""}
         for r in edited.itertuples() if r.firma and isinstance(r.ticker, str) and r.ticker.strip()
     ]
-    c2.markdown("&nbsp;")
-    if c2.button("💾 Depot speichern", width="stretch"):
-        save_depot(path, {"bewertungen_ordner": folder, "cash_eur": cash, "positionen": positions})
+    topf = c2.number_input("Aktienverlusttopf (EUR)", min_value=0.0, value=float(depot.get("verlusttopf_eur", 0.0)),
+                           step=100.0, help="Verrechnet Gewinne aus Aktienverkäufen, keine Dividenden (Stand Bank).")
+    if c1.button("💾 Depot speichern", width="stretch"):
+        save_depot(path, {"bewertungen_ordner": folder, "cash_eur": cash, "verlusttopf_eur": topf,
+                          "positionen": positions})
         st.session_state.pf_depot = load_depot(path)
         st.toast(f"Gespeichert: {path}", icon="✅")
-    return positions, cash, folder
+    return positions, cash, folder, topf
 
 
 def _settings() -> Params:
@@ -141,10 +143,12 @@ def _settings() -> Params:
         faktor = st.toggle("Faktor-Szenarien (v3)", False,
                            help="Alle Bewertungen in denselben n Welten: Umsatz- und Margenschocks aus Makro, Branche und "
                                 "Firma, Breite aus den SEC-Basisraten. Ersetzt Kurs-Korrelation, „Markt hat recht“ (p, ρ) "
-                                "und s. Erster Lauf lädt die SEC-Daten aus dem Cache (~1 Min.).")
+                                "und s. Rendite = implizite Rendite (IRR) zum Kurs über 10 J. statt Wert/Kurs. "
+                                "Erster Lauf lädt die SEC-Daten aus dem Cache (~1 Min.).")
     return Params(fraction=fraction, max_w=max_w, min_cash=min_cash, min_order_eur=min_order,
                   allow_short=allow_short, rf=rf, p_market=p_market, erp=erp, group_cap=group_cap,
-                  rho_world=rho_world, factor_shrink=factor_shrink, faktor_szenarien=faktor)
+                  rho_world=rho_world, factor_shrink=factor_shrink, faktor_szenarien=faktor,
+                  horizon_years=10 if faktor else 3)   # v3: ewig halten ⇒ 10 J. auf IRR-Basis
 
 
 def _kpis(res, n_buy: int, n_sell: int, turnover: float, horizon: int) -> None:
@@ -169,10 +173,10 @@ def _order_card(row: pd.Series, buy: bool) -> None:
                    unsafe_allow_html=True)
         st.caption(f"{abs(row['Order Stück']):.6g} Stück zu {_eur(row['Kurs €'], 2)} · Gewicht "
                    f"{_pct(row['Ist-Gewicht'])} → **{_pct(row['Ziel-Gewicht'])}** · Modell "
-                   f"{_pct(row['Upside P50'], True)}, mit Mischung {_pct(row['E[R] 3J (Mix)'], True)} in 3 J.")
+                   f"{_pct(row['Upside P50'], True)}, erwartet {_pct(row['E[R] Horizont'], True)} über den Horizont")
 
 
-def _orders_tab(t: pd.DataFrame) -> None:
+def _orders_tab(t: pd.DataFrame, steuer: dict) -> None:
     o = t[(t["Firma"] != _CASH) & (t["Order €"].abs() > 0.5)]
     if o.empty:
         st.success("Keine Orders nötig – das Depot liegt innerhalb der Mindestorder am Ziel.", icon="✅")
@@ -194,13 +198,16 @@ def _orders_tab(t: pd.DataFrame) -> None:
     cash_row = t[t["Firma"] == _CASH].iloc[0]
     st.caption(f"Cash: {_pct(cash_row['Ist-Gewicht'])} → {_pct(cash_row['Ziel-Gewicht'])} "
                f"({_eur(cash_row['Order €'])} durch die Orders). Orders in Bruchstücken, Käufe überziehen das Konto nie.")
+    if steuer.get("gewinne"):
+        st.caption(f"Aktienverlusttopf: {_eur(steuer['topf_vorher'])} − Verkaufsgewinne {_eur(steuer['gewinne'])} "
+                   f"= {_eur(steuer['topf_nachher'])}.")
 
 
 def _valuations_table(t: pd.DataFrame, ages: dict) -> None:
     v = t[t["Firma"] != _CASH].copy()
     v["Alter (Tage)"] = v["Firma"].map(ages)
     v = v[["Firma", "Stand", "Alter (Tage)", "Kurs €", "Wert P50 €", "Upside P50", "EV/EBITDA", "Faktor ×", "P(Wert>Kurs)",
-           "E[R] 3J (Mix)", "Vola p. a.", "Gruppe", "Ist-Gewicht", "Ziel-Gewicht"]]
+           "IRR P50", "IRR EK", "D/E", "E[R] Horizont", "Vola p. a.", "Gruppe", "Ist-Gewicht", "Ziel-Gewicht"]]
     st.dataframe(
         v, hide_index=True, width="stretch",
         column_config={
@@ -211,7 +218,12 @@ def _valuations_table(t: pd.DataFrame, ages: dict) -> None:
             "Faktor ×": st.column_config.NumberColumn("Value-Korrektur", format="×%.2f",
                                                       help="Multiplikator auf den Modellwert (Regler s)."),
             "P(Wert>Kurs)": st.column_config.ProgressColumn("P(Wert > Kurs, korrigiert)", min_value=0.0, max_value=1.0, format="percent"),
-            "E[R] 3J (Mix)": st.column_config.NumberColumn("Erwartet 3 J. (Mix)", format="percent"),
+            "IRR P50": st.column_config.NumberColumn("IRR (Unternehmen)", format="percent",
+                                                     help="Implizite Rendite der Cashflows zum Kurs, Median (Faktor-Modus)."),
+            "IRR EK": st.column_config.NumberColumn("IRR Eigenkapital", format="percent",
+                                                    help="Mit Hebel D/E zum Markt: r + D/E · (r − Fremdkapitalkosten)."),
+            "D/E": st.column_config.NumberColumn("Hebel D/E", format="%.2f"),
+            "E[R] Horizont": st.column_config.NumberColumn("Erwartet (Horizont)", format="percent"),
             "Vola p. a.": st.column_config.NumberColumn(format="percent"),
             "Ist-Gewicht": st.column_config.NumberColumn(format="percent"),
             "Ziel-Gewicht": st.column_config.ProgressColumn("Ziel", min_value=0.0, max_value=0.5, format="percent"),
@@ -240,13 +252,13 @@ def render_portfolio(container) -> None:
 
         tabs = st.tabs(["📋 Orders", "⚖️ Allokation", "🔎 Bewertungen", "🎲 Risiko", "✏️ Depot"])
         with tabs[4]:
-            positions, cash, folder = _depot_tab(depot, path, vals, files)
+            positions, cash, folder, topf = _depot_tab(depot, path, vals, files)
         if not vals:
             st.warning("Keine Bewertungen im Ordner gefunden – Ordner im Reiter „Depot“ prüfen.")
             return
 
         p = _settings()
-        sig = hashlib.sha1(json.dumps([positions, cash, folder, p.__dict__], sort_keys=True, default=str)
+        sig = hashlib.sha1(json.dumps([positions, cash, folder, topf, p.__dict__], sort_keys=True, default=str)
                            .encode()).hexdigest()
         res_state = st.session_state.get("pf_result")
         stale = res_state is not None and res_state["sig"] != sig
@@ -278,7 +290,7 @@ def render_portfolio(container) -> None:
                         except ValueError:
                             ages[pos["firma"]] = None
                     closes = _closes(tuple(sorted({q["ticker"] for q in positions})))
-                    res = rebalance(positions, valuations, closes, cash, p)
+                    res = rebalance(positions, valuations, closes, cash, p, verlusttopf_eur=topf)
                 except (ValueError, KeyError) as e:
                     s.update(label="Fehler", state="error")
                     st.error(str(e))
@@ -304,16 +316,18 @@ def render_portfolio(container) -> None:
                     st.markdown(f"- {w}")
 
         with tabs[0]:
-            _orders_tab(t)
+            _orders_tab(t, res.steuer)
         with tabs[1]:
             st.plotly_chart(allocation_chart(t), width="stretch", config={"displayModeBar": False})
             st.caption("Ziel nach Fractional Kelly (CRRA) auf der Szenario-Mischung; Grenzen: max. Gewicht je Titel, "
                        "kein Hebel. Titel, deren Order an der Mindestorder scheitert, bleiben auf dem Ist-Gewicht.")
         with tabs[2]:
             st.plotly_chart(upside_chart(t), width="stretch", config={"displayModeBar": False})
+            raute = ("aus der IRR zum Kurs (Eigenkapital) und den Cashflow-Szenarien" if pr.faktor_szenarien else
+                     f"nach Mischung mit p = {_pct(pr.p_market)} „Markt hat recht“ (Marktrendite "
+                     f"{_pct(pr.rf + pr.erp)} p. a.)")
             st.caption(f"Balken: Modell-Potenzial (Wert P50 / Kurs − 1). Raute: erwartete Rendite in {pr.horizon_years} "
-                       f"Jahren nach Mischung mit p = {_pct(pr.p_market)} „Markt hat recht“ (Marktrendite "
-                       f"{_pct(pr.rf + pr.erp)} p. a.).")
+                       f"Jahren {raute}.")
             _valuations_table(t, ages)
         with tabs[3]:
             st.plotly_chart(wealth_chart(res.wealth_samples, res.wealth_ist, res.wealth_ziel, pr.horizon_years),

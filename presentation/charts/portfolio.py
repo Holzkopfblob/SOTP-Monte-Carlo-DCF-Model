@@ -85,9 +85,9 @@ def upside_chart(t: pd.DataFrame) -> go.Figure:
                 marker=dict(color=[POS if v >= 0 else NEG for v in d["Upside P50"]], cornerradius=4),
                 text=[f"{v:+.0%}" for v in d["Upside P50"]], textposition="outside", cliponaxis=False,
                 textfont=dict(color=MUTED, size=12), hovertemplate="%{y}<br>Modell: %{x:+.0%}<extra></extra>")
-    fig.add_scatter(y=names, x=d["E[R] 3J (Mix)"], mode="markers", name="Erwartet mit Mischung (3 J.)",
+    fig.add_scatter(y=names, x=d["E[R] Horizont"], mode="markers", name="Erwartet über den Horizont",
                     marker=dict(symbol="diamond", size=10, color="#1f2633", line=dict(color="white", width=2)),
-                    hovertemplate="%{y}<br>Mischung: %{x:+.0%}<extra></extra>")
+                    hovertemplate="%{y}<br>Erwartet: %{x:+.0%}<extra></extra>")
     fig.add_vline(x=0, line=dict(color="#c3c9d3", width=1))
     fig.update_layout(legend=dict(orientation="h", y=1.08, x=0, title=None), bargap=0.4)
     fig.update_xaxes(tickformat="+.0%", title=None)
