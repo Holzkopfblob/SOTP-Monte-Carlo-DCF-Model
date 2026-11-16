@@ -37,9 +37,13 @@ from domain.valuation_metrics import (
 class MonteCarloEngine:
     """Runs the full SOTP Monte-Carlo DCF simulation."""
 
-    def __init__(self, config: SimulationConfig) -> None:
+    def __init__(self, config: SimulationConfig, shocks: dict | None = None) -> None:
+        """*shocks*: optional cash-flow shocks of the factor model for the whole firm
+        ({"g", "m": (n, T_max), "m_phi": float}, domain/factor_model.draw_shocks), applied to every
+        segment (sliced to its forecast years).  Drawn outside, so ``self.rng`` streams stay unchanged."""
         self.config = config
         self.rng = np.random.default_rng(config.random_seed)
+        self.shocks = shocks
 
     # ------------------------------------------------------------------
     # Public API
@@ -161,6 +165,7 @@ class MonteCarloEngine:
                 mid_year_convention=self.config.mid_year_convention,
                 decompose=True,
                 terminal_params=terminals or None,
+                **self._segment_shocks(seg.forecast_years, n),
             )
             segment_evs[seg.name] = detail.ev
             self._cashflows[seg.name] = detail
@@ -203,6 +208,14 @@ class MonteCarloEngine:
 
         return (segment_evs, segment_tv_ev, segment_roic, segment_reinvest,
                 segment_ep, segment_pvd, input_samples)
+
+    def _segment_shocks(self, T: int, n: int) -> dict:
+        if self.shocks is None:
+            return {}
+        g, m = self.shocks["g"], self.shocks["m"]
+        if g.shape[0] != n or g.shape[1] < T:
+            raise ValueError(f"Schocks {g.shape} passen nicht zu n = {n}, T = {T}")
+        return {"g_shock": g[:, :T], "m_shock": m[:, :T], "m_phi": self.shocks["m_phi"]}
 
     def _compute_equity_bridge(self, segment_evs, input_samples, n):
         """Aggregate segment EVs through the corporate bridge to equity."""

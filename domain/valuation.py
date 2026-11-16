@@ -28,6 +28,8 @@ def compute_fcff_vectors(
     growth_mode: RevenueGrowthMode = RevenueGrowthMode.CONSTANT,
     terminal_growth: np.ndarray | None = None,
     fade_speed: float = 0.5,
+    g_shock: np.ndarray | None = None,
+    m_shock: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Compute the full FCFF schedule for a single segment.
@@ -51,6 +53,9 @@ def compute_fcff_vectors(
         Terminal growth rate – used as the long-run target in FADE mode.
     fade_speed : float
         λ parameter controlling how fast g converges (higher = faster).
+    g_shock, m_shock : (n, T) arrays, optional
+        Cash-flow shocks of the factor model (domain/factor_model.py): log-growth shocks
+        (revenue_t ×= exp(Σ_{k≤t} s_k)) and additive EBITDA-margin shocks.  None = unchanged.
 
     Returns
     -------
@@ -87,8 +92,13 @@ def compute_fcff_vectors(
             years[None, :],
         )
 
+    if g_shock is not None:
+        revenue = revenue * np.exp(np.cumsum(g_shock, axis=1))
+
     # Broadcast each margin / ratio parameter (supports 1-D and 2-D)
     em   = _bcast(ebitda_margin)          # (n, T)
+    if m_shock is not None:
+        em = em + m_shock
     da_r = _bcast(da_pct_revenue)         # (n, T)
     tx_r = _bcast(tax_rate)               # (n, T)
     cx_r = _bcast(capex_pct_revenue)      # (n, T)
@@ -190,6 +200,9 @@ def compute_segment_ev(
     mid_year_convention: bool = True,
     decompose: bool = False,
     terminal_params: dict[str, np.ndarray] | None = None,
+    g_shock: np.ndarray | None = None,
+    m_shock: np.ndarray | None = None,
+    m_phi: float = 1.0,
 ) -> "np.ndarray | SegmentEVDetail":
     """
     Full DCF valuation for a single segment.
@@ -209,6 +222,10 @@ def compute_segment_ev(
     decompose : bool
         If True, return a :class:`SegmentEVDetail` with ``pv_fcff`` and
         ``pv_tv`` split out.  Default False keeps backward compatibility.
+    g_shock, m_shock, m_phi :
+        Factor-model shocks (see ``compute_fcff_vectors``).  The margin shock of year T decays
+        with persistence *m_phi* after the forecast; the TV carries its PV-equivalent constant share
+        φ·r'/(1 + r' − φ) with r' = WACC − g (φ = 1 ⇒ fully, φ = 0 ⇒ not at all).
 
     Returns
     -------
@@ -223,7 +240,15 @@ def compute_segment_ev(
         growth_mode=growth_mode,
         terminal_growth=terminal_growth,
         fade_speed=fade_speed,
+        g_shock=g_shock,
+        m_shock=m_shock,
     )
+
+    # Share of the year-T margin shock that is NOT carried into the terminal value
+    tv_cut = 0.0
+    if m_shock is not None:
+        r_ = np.maximum(wacc - terminal_growth, 1e-4)
+        tv_cut = (1.0 - m_phi * r_ / (1.0 + r_ - m_phi)) * m_shock[:, -1]   # (n,) margin points
 
     years = np.arange(1, forecast_years + 1, dtype=np.float64)
     # Mid-year convention: discount FCFFs at t−0.5 (standard practice)
@@ -244,20 +269,25 @@ def compute_segment_ev(
             capex_pct_revenue, nwc_pct_delta_revenue,
         )))
         params = {k: terminal_params.get(k, _last(v)) for k, v in year_t.items()}
+        if m_shock is not None:
+            params["ebitda_margin"] = params["ebitda_margin"] + m_shock[:, -1] - tv_cut
         fcff_next = steady_state_fcff(revenue[:, -1], terminal_growth, params)
         tv = fcff_next / np.maximum(wacc - terminal_growth, 1e-4)
         tv_num, tv_abs = fcff_next, None
     else:
+        cut = tv_cut * revenue[:, -1]                                      # EBITDA not carried
+        tax_t = tax_rate[:, -1] if tax_rate.ndim == 2 else tax_rate
+        fcff_t = fcff[:, -1] - cut * (1.0 - tax_t)
         tv = compute_terminal_value(
             terminal_method,
-            fcff[:, -1],
-            ebitda[:, -1],
+            fcff_t,
+            ebitda[:, -1] - cut,
             wacc,
             terminal_growth,
             exit_multiple,
         )
         gordon = terminal_method == TerminalValueMethod.GORDON_GROWTH
-        tv_num = fcff[:, -1] * (1.0 + terminal_growth) if gordon else None
+        tv_num = fcff_t * (1.0 + terminal_growth) if gordon else None
         tv_abs = None if gordon else tv
     # Terminal value is always discounted at end of year T
     pv_tv = tv / np.power(1.0 + wacc, float(forecast_years))   # (n,)

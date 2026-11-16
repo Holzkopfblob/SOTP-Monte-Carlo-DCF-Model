@@ -39,3 +39,19 @@ def test_suppressed_sell_is_frozen_and_cash_goes_to_best_buy():
     bought = t.loc[["B", "C"], "Order €"]
     assert (bought > 0).sum() >= 1 and bought.max() >= 1000.0          # Cash wird investiert, nicht liegen gelassen
     assert any("Mindestorder" in w for w in res.warnings)
+
+
+def test_factor_scenarios_keep_rows_aligned(monkeypatch):
+    """Bewertungen aus simulate_universe (Schlüssel „schock“): Zeilen sind gemeinsame Welten ⇒ kein Umsortieren,
+    keine Markt-Welt, kein Repro-Hinweis (Neulauf mit Schocks weicht vom gespeicherten P50 ab)."""
+    import application.portfolio_service as ps
+    positions, valuations, closes = _setup()
+    for v in valuations:
+        v.update(schock={}, p50_gespeichert=v["p50_neu"] * 0.5)
+
+    def boom(*a, **k):
+        raise AssertionError("Altpfad im Faktor-Modus")
+    monkeypatch.setattr(ps, "correlate_samples", boom)
+    monkeypatch.setattr(ps, "mix_worlds", boom)
+    res = rebalance(positions, valuations, closes, cash_eur=1100.0, p=Params(p_market=0.3), today=date(2026, 11, 14))
+    assert not any("Neulauf" in w for w in res.warnings)

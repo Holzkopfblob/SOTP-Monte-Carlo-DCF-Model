@@ -19,16 +19,24 @@ import streamlit as st
 from application.portfolio_service import (
     Params, find_valuations, load_depot, rebalance, save_depot, simulate_valuation,
 )
+from domain.base_rates import SEKTOREN
 from infrastructure.market_data import fetch_bund_3y, fetch_closes
 from presentation.charts.portfolio import allocation_chart, corr_heatmap, upside_chart, wealth_chart
 
 _NEWEST = "(neueste)"
+_SEKTOREN = ["", *sorted({n for *_, n in SEKTOREN if n != "Finanz"} | {"Sonstige"})]
 _CASH = "Cash (EUR)"
 
 
 @st.cache_data(show_spinner=False)
 def _simulate(path: str, mtime: float) -> dict:  # mtime nur als Cache-Schlüssel
     return simulate_valuation(path)
+
+
+@st.cache_data(show_spinner=False)
+def _simulate_universe(items: tuple, mtimes: tuple) -> list[dict]:  # mtimes nur als Cache-Schlüssel
+    from application.universe_simulation import simulate_universe
+    return simulate_universe(list(items))
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
@@ -64,7 +72,7 @@ def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[di
     st.markdown("##### Positionen")
     st.caption("Stück 0 = Beobachtung. Titel derselben **Gruppe** wechseln in der Szenario-Mischung gemeinsam "
                "in die Welt „Markt hat recht“ (gemeinsamer Modellfehler, z. B. alle Autobauer).")
-    cols = ["firma", "ticker", "stueck", "einstand_eur", "kaufdatum", "gruppe", "datei"]
+    cols = ["firma", "ticker", "stueck", "einstand_eur", "kaufdatum", "gruppe", "sektor", "datei"]
     df = pd.DataFrame(depot.get("positionen") or [], columns=cols)
     df["datei"] = df["datei"].fillna("").replace("", _NEWEST)
     df["gruppe"] = df["gruppe"].fillna("")
@@ -77,6 +85,9 @@ def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[di
             "einstand_eur": st.column_config.NumberColumn("Einstand €/Stück", min_value=0.0, format="%.2f"),
             "kaufdatum": st.column_config.TextColumn("Kaufdatum"),
             "gruppe": st.column_config.TextColumn("Gruppe", help="z. B. Auto; leer = eigene Gruppe"),
+            "sektor": st.column_config.SelectboxColumn(
+                "Branche", options=_SEKTOREN,
+                help="Für die Faktor-Szenarien: Basisrate und gemeinsamer Branchenschock. Leer = ohne Branchenfaktor."),
             "datei": st.column_config.SelectboxColumn("Bewertung", options=[_NEWEST, *sorted(files)], default=_NEWEST),
         },
     )
@@ -88,7 +99,8 @@ def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[di
          "datei": "" if r.datei in (None, _NEWEST) else r.datei,
          "einstand_eur": None if pd.isna(r.einstand_eur) else float(r.einstand_eur),
          "kaufdatum": r.kaufdatum if isinstance(r.kaufdatum, str) else "",
-         "gruppe": r.gruppe.strip() if isinstance(r.gruppe, str) else ""}
+         "gruppe": r.gruppe.strip() if isinstance(r.gruppe, str) else "",
+         "sektor": r.sektor if isinstance(r.sektor, str) else ""}
         for r in edited.itertuples() if r.firma and isinstance(r.ticker, str) and r.ticker.strip()
     ]
     c2.markdown("&nbsp;")
@@ -126,9 +138,13 @@ def _settings() -> Params:
                               help="Wie stark „Markt hat recht“ alle Titel zugleich trifft. 0 = je Gruppe unabhängig, "
                                    "1 = ein Schalter für alle. 0,4: Die Lücke Modell/Markt hängt zu ~40 % am "
                                    "Marktmultiple (Value-Stil des Modells, Querschnitt 16.11.2026).")
+        faktor = st.toggle("Faktor-Szenarien (v3)", False,
+                           help="Alle Bewertungen in denselben n Welten: Umsatz- und Margenschocks aus Makro, Branche und "
+                                "Firma, Breite aus den SEC-Basisraten. Ersetzt Kurs-Korrelation, „Markt hat recht“ (p, ρ) "
+                                "und s. Erster Lauf lädt die SEC-Daten aus dem Cache (~1 Min.).")
     return Params(fraction=fraction, max_w=max_w, min_cash=min_cash, min_order_eur=min_order,
                   allow_short=allow_short, rf=rf, p_market=p_market, erp=erp, group_cap=group_cap,
-                  rho_world=rho_world, factor_shrink=factor_shrink)
+                  rho_world=rho_world, factor_shrink=factor_shrink, faktor_szenarien=faktor)
 
 
 def _kpis(res, n_buy: int, n_sell: int, turnover: float, horizon: int) -> None:
@@ -239,7 +255,9 @@ def render_portfolio(container) -> None:
         if stale:
             c2.warning("Eingaben geändert – Ergebnis unten ist veraltet.", icon="⚠️")
         elif res_state:
-            c2.caption(f"Berechnet mit p = {_pct(p.p_market)}, ρ {str(p.rho_world).replace('.', ',')}, s {str(p.factor_shrink).replace('.', ',')}, Kelly {p.fraction:g}, max. {_pct(p.max_w)} je Titel, "
+            welt = ("Faktor-Szenarien (Basisraten)" if p.faktor_szenarien else
+                    f"p = {_pct(p.p_market)}, ρ {str(p.rho_world).replace('.', ',')}, s {str(p.factor_shrink).replace('.', ',')}")
+            c2.caption(f"Berechnet mit {welt}, Kelly {p.fraction:g}, max. {_pct(p.max_w)} je Titel, "
                        f"{_pct(p.group_cap)} je Gruppe, "
                        f"Cash-Zins {_pct(p.rf)}. Beträge in EUR, USD zum aktuellen Kurs.")
 
@@ -247,11 +265,16 @@ def render_portfolio(container) -> None:
             with st.status("Bewertungen neu simulieren, Kurse laden, optimieren …", expanded=False) as s:
                 try:
                     valuations, ages = [], {}
-                    for pos in positions:
-                        f = files[pos["datei"]] if pos["datei"] else vals[pos["firma"]][-1]
-                        valuations.append(_simulate(str(f), f.stat().st_mtime))
+                    paths = [files[pos["datei"]] if pos["datei"] else vals[pos["firma"]][-1] for pos in positions]
+                    if p.faktor_szenarien:
+                        valuations = _simulate_universe(
+                            tuple((q["firma"], str(f), q.get("sektor") or None) for q, f in zip(positions, paths)),
+                            tuple(f.stat().st_mtime for f in paths))
+                    else:
+                        valuations = [_simulate(str(f), f.stat().st_mtime) for f in paths]
+                    for pos, val in zip(positions, valuations):
                         try:
-                            ages[pos["firma"]] = (date.today() - date.fromisoformat(valuations[-1]["stichtag"])).days
+                            ages[pos["firma"]] = (date.today() - date.fromisoformat(val["stichtag"])).days
                         except ValueError:
                             ages[pos["firma"]] = None
                     closes = _closes(tuple(sorted({q["ticker"] for q in positions})))

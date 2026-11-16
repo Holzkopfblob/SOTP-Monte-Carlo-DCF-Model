@@ -19,11 +19,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from application.simulation_service import SimulationService
 from domain.portfolio import (
     correlate_samples, factor_tilt, horizon_returns, kelly_weights, market_world_returns, mix_worlds, orders, wealth,
 )
 from infrastructure.config_io import build_simulation_config
+from infrastructure.monte_carlo_engine import MonteCarloEngine
 from infrastructure.market_data import FX_TICKER
 
 SUPPORTED_CCY = {"EUR", "USD"}  # ponytail: nur EUR/USD; weitere Währungen = weiteres FX-Paar laden
@@ -72,12 +72,15 @@ def ev_inputs(sim_cfg) -> dict:
     }
 
 
-def simulate_valuation(path: str | Path) -> dict:
-    """Bewertung per gespeichertem Seed neu simulieren (Samples je Aktie)."""
+def simulate_valuation(path: str | Path, shocks: dict | None = None, n: int | None = None) -> dict:
+    """Bewertung per gespeichertem Seed neu simulieren (Samples je Aktie). *shocks*/*n*: gemeinsame
+    Faktor-Szenarien (application/universe_simulation.py)."""
     cfg = json.loads(Path(path).read_text(encoding="utf-8"))
     meta = cfg.get("metadata") or {}
     sim_cfg = build_simulation_config(cfg)
-    samples = SimulationService.run_simulation(sim_cfg).price_per_share
+    if n:
+        sim_cfg.n_simulations = n
+    samples = MonteCarloEngine(sim_cfg, shocks).run().price_per_share
     stored = ((cfg.get("ergebnis") or {}).get("preis_je_aktie") or {}).get("p50")
     return {
         "samples": np.asarray(samples, float),
@@ -105,6 +108,7 @@ class Params:
     p_market: float = 0.3   # Szenario-Mischung: Wahrscheinlichkeit „Markt hat recht“ (0 = Modell voll glauben)
     erp: float = 0.05       # Marktrendite in der Markt-Welt = rf + erp p. a.
     factor_shrink: float = 0.0  # Gegenprobe 16.11.: Faktor ist Telko-/Auto-Effekt, kein allgemeiner Stil ⇒ aus. Anteil des Value-Stils, der aus den Werten herausgenommen wird (0 = Modell voll, 1 = ganz)
+    faktor_szenarien: bool = False  # v3 Phase 3: gemeinsame Cashflow-Schocks (Seite ruft dann simulate_universe)
     rho_world: float = 0.4  # Kopplung „Markt hat recht“ über Gruppen; 0,4 ≈ R² der Lücke auf das Marktmultiple
                             # (Querschnitt 16.11.2026, Documents/KALIBRIERUNG-2026-11/querschnitt.py)
 
@@ -156,13 +160,16 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
             warnings.append(f"{name}: nur {n_obs} Wochen Kurshistorie für die Korrelation"
                             + (" (zu kurz, Korrelation 0 angenommen)." if n_obs < 20 else "."))
 
+    # Faktor-Szenarien (alle Bewertungen aus simulate_universe): Zeilen sind schon gemeinsame Welten ⇒ nichts
+    # umsortieren, keine Kurs-Korrelation, keine Markt-Welt und keine Value-Korrektur obendrauf (Altpfad bis Abnahme).
+    faktor = all("schock" in v for v in valuations)
     n = min(len(v["samples"]) for v in valuations)           # Samples sind iid → kürzen ok
     V = np.column_stack([v["samples"][:n] for v in valuations])
-    V = correlate_samples(V, corr.values, seed=p.seed)
     ev_ebitda = np.array([(px * v["aktien"] + v["schulden"]) / v["ebitda"] if v.get("ebitda") else np.nan
                           for v, px in zip(valuations, px_local)])
-    tilt = factor_tilt(ev_ebitda, p.factor_shrink)
-    V = V * tilt
+    tilt = np.ones(len(names)) if faktor else factor_tilt(ev_ebitda, p.factor_shrink)
+    if not faktor:
+        V = correlate_samples(V, corr.values, seed=p.seed) * tilt
     R_model = horizon_returns(V, px_local)                   # Wert und Kurs in gleicher Währung
     rf_h = (1 + p.rf) ** p.horizon_years - 1
 
@@ -170,7 +177,7 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
     # Kurshistorie) mit Wahrscheinlichkeit p_market je Gruppe; Titel einer Gruppe wechseln gemeinsam.
     sigma = (rets.std() * np.sqrt(52)).reindex(names).fillna(0.30).clip(0.10, 1.0).to_numpy()
     groups = [str(pos.get("gruppe") or "").strip() or pos["firma"] for pos in positions]
-    if p.p_market > 0:
+    if p.p_market > 0 and not faktor:
         R_mkt = market_world_returns(n, sigma, corr.values, p.rf, p.erp, p.horizon_years, seed=p.seed + 1)
         R, _ = mix_worlds(R_model, R_mkt, p.p_market, groups, seed=p.seed + 2, rho=p.rho_world)
     else:
@@ -201,7 +208,7 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
 
     for name, val, px in zip(names, valuations, px_local):
         stored = val["p50_gespeichert"]
-        if stored and abs(val["p50_neu"] / stored - 1) > REPRO_TOL:
+        if stored and not faktor and abs(val["p50_neu"] / stored - 1) > REPRO_TOL:
             warnings.append(f"{name}: Neulauf-P50 {val['p50_neu']:.2f} weicht vom gespeicherten "
                             f"{stored:.2f} ab (Engine geändert?).")
         if val["kurs_recherche"] and not 0.5 < px / val["kurs_recherche"] < 2:
