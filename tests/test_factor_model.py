@@ -83,3 +83,20 @@ def test_engine_applies_firm_shocks_to_every_segment():
         assert np.allclose(r.ebitda / r.revenue, 0.35)
     with pytest.raises(ValueError):
         MonteCarloEngine(cfg, {"g": np.zeros((500, 5)), "m": np.zeros((500, 5)), "m_phi": 1.0}).run()
+
+
+def test_shock_params_take_both_moments_from_the_same_cohort():
+    """5-J.-Horizont hat zu wenige große Firmen ⇒ Größe fällt; der 1-J.-Horizont muss dieselbe Kohorte nutzen,
+    obwohl er für große Firmen allein genug Fälle hätte (sonst σ_1 eng, σ_5 breit ⇒ φ zu hoch)."""
+    from application.universe_simulation import shock_params
+    rng = np.random.default_rng(0)
+    def o(n_gross, n_klein):
+        return pd.DataFrame({"sektor": "Telko", "groesse": [2] * n_gross + [0] * n_klein, "g_start": 1, "m_start": 2,
+                             "cagr": np.r_[rng.normal(0.02, 0.03, n_gross), rng.normal(0.02, 0.15, n_klein)],
+                             "dm": np.r_[rng.normal(0, 0.01, n_gross), rng.normal(0, 0.05, n_klein)]})
+    ob = {1: o(500, 500), 5: o(50, 500), 4: o(50, 500)}
+    cfg = SimulationConfig(n_simulations=10, segments=[SegmentConfig(name="A", base_revenue=20_000.0,
+                           revenue_growth=D(fixed_value=0.02), ebitda_margin=D(fixed_value=0.35))])
+    f = shock_params("X", cfg, "Telko", "USD", ob=ob, common=COMMON)
+    assert f["bedingungen"]["g"] == {}            # 50 große Telkos < 100 ⇒ alles gelockert (Branche vor Größe)
+    assert f["g"]["sigma"] > 0.045                                        # 1-J.-σ aus der gemischten Kohorte

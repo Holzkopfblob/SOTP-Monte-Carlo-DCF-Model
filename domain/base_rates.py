@@ -59,11 +59,11 @@ def outcomes(panel: pd.DataFrame, h: int) -> pd.DataFrame:
     return o[o.sektor != "Finanz"]       # EBITDA/Umsatz ist bei Banken/Versicherern nicht sinnvoll
 
 
-def conditional(o: pd.DataFrame, wert: str, min_n: int = 200, **bed) -> tuple[np.ndarray, dict]:
+def conditional(o: pd.DataFrame, wert: str, min_n: int = 200, lockerung=LOCKERUNG, **bed) -> tuple[np.ndarray, dict]:
     """Ergebnisse *wert* ('cagr' oder 'dm') für die Bedingungen *bed* (sektor, groesse, g_start, m_start).
-    Bei < min_n Fällen wird in der Reihenfolge LOCKERUNG gelockert. Rückgabe: Werte, genutzte Bedingungen."""
+    Bei < min_n Fällen wird in der Reihenfolge *lockerung* gelockert. Rückgabe: Werte, genutzte Bedingungen."""
     bed = {k: v for k, v in bed.items() if v is not None}
-    for drop in [None, *LOCKERUNG]:
+    for drop in [None, *lockerung]:
         if drop:
             bed.pop(drop, None)
         m = np.ones(len(o), bool)

@@ -39,17 +39,29 @@ def start_conditions(sim_cfg, sektor: str | None, ccy: str) -> dict:
             "g_start": int(bucket([g], G_EDGES)[0]), "m_start": int(bucket([m], M_EDGES)[0])}
 
 
+MIN_N_SCHOCK = 100   # IQR ist ab ~100 Fällen stabil; kleiner als bei Check 12, damit die Größenklasse öfter bleibt
+# Für die Schockbreite zählt die Größe mehr als die Branche (Panel: σ 0,17 / 0,11 / 0,08 je Größenklasse) ⇒ Branche
+# vor Größe lockern (Check 12 behält LOCKERUNG, dort geht es um die Lage im Branchenvergleich).
+LOCKERUNG_SCHOCK = ["g_start", "m_start", "sektor", "groesse"]
+
+
+def _cohort(o, col: str, h: int, bed: dict) -> tuple[np.ndarray, np.ndarray, dict]:
+    """Beide Momente aus derselben Kohorte: erst den langen Horizont (weniger Fälle) lockern, dann den 1-J.-Horizont
+    mit genau diesen Bedingungen. Sonst stammen σ_1 und σ_h aus verschiedenen Gruppen und φ (ihr Verhältnis) kippt."""
+    xh, used = conditional(o(h), col, min_n=MIN_N_SCHOCK, lockerung=LOCKERUNG_SCHOCK, **bed)
+    x1, _ = conditional(o(1), col, min_n=0, **used)
+    return x1, xh, used
+
+
 def shock_params(name: str, sim_cfg, sektor: str | None, ccy: str, ob: dict | None = None,
                  common: dict | None = None) -> dict:
     """Schock-Parameter einer Firma; *ob*/*common* nur für Tests ohne SEC-Daten."""
     bed = start_conditions(sim_cfg, sektor, ccy)
     o = (lambda h: ob[h]) if ob else _outcomes
-    g1 = np.log1p(conditional(o(1), "cagr", **bed)[0])
-    gh = H_GROWTH * np.log1p(conditional(o(H_GROWTH), "cagr", **bed)[0])
-    m1 = conditional(o(1), "dm", **bed)[0]
-    mh = conditional(o(H_MARGIN), "dm", **bed)[0]
-    return firm_params(name, sektor or OHNE_BRANCHE, g1, gh, H_GROWTH, m1, mh, H_MARGIN, common or _common()) \
-        | {"bedingungen": bed}
+    g1, gh, used_g = _cohort(o, "cagr", H_GROWTH, bed)
+    m1, mh, used_m = _cohort(o, "dm", H_MARGIN, bed)
+    return firm_params(name, sektor or OHNE_BRANCHE, np.log1p(g1), H_GROWTH * np.log1p(gh), H_GROWTH,
+                       m1, mh, H_MARGIN, common or _common()) | {"bedingungen": {"g": used_g, "m": used_m}}
 
 
 def simulate_universe(items: list[tuple[str, str | Path, str | None]], n: int = 20_000, seed: int = 0,
