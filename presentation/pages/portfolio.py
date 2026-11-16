@@ -20,7 +20,7 @@ from application.portfolio_service import (
     Params, find_valuations, load_depot, rebalance, save_depot, simulate_valuation,
 )
 from domain.base_rates import SEKTOREN
-from infrastructure.market_data import fetch_bund_3y, fetch_closes
+from infrastructure.market_data import fetch_bund_3y, fetch_closes, fetch_treasury_3y
 from presentation.charts.portfolio import allocation_chart, corr_heatmap, upside_chart, wealth_chart
 
 _NEWEST = "(neueste)"
@@ -45,6 +45,14 @@ def _bund_3y() -> tuple[float, str]:
         return fetch_bund_3y()
     except Exception:  # offline / API geändert → letzter geprüfter Wert
         return 0.0315, "Fallback 13.11.2026"
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _treasury_3y() -> tuple[float, str]:
+    try:
+        return fetch_treasury_3y()
+    except Exception:  # offline / API geändert → letzter geprüfter Wert
+        return 0.049, "Fallback 12.11.2026"
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -115,6 +123,7 @@ def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[di
 
 def _settings() -> Params:
     rf_default, rf_day = _bund_3y()
+    usd_default, usd_day = _treasury_3y()
     with st.expander("⚙️ Annahmen der Optimierung", expanded=False):
         a, b, c = st.columns(3)
         p_market = a.slider("„Markt hat recht“ (p)", 0.0, 0.9, 0.3, 0.05,
@@ -126,6 +135,9 @@ def _settings() -> Params:
         erp = d.number_input("Risikoprämie Markt-Welt p. a.", 0.0, 0.1, 0.05, 0.005, format="%.3f")
         rf = e.number_input("Cash-Zins p. a. (Bund 3 J.)", 0.0, 0.1, rf_default, 0.0025, format="%.4f",
                             help=f"Bundesbank-Zinsstruktur 3 Jahre, Stand {rf_day}.")
+        rf_usd = e.number_input("US-Zins p. a. (Treasury 3 J.)", 0.0, 0.1, usd_default, 0.0025, format="%.4f",
+                                help=f"FRED DGS3, Stand {usd_day}. Faktor-Modus: USD-Renditen per Zinsparität in EUR, "
+                                     "Fremdkapitalkosten je Währung.")
         min_order = f.number_input("Mindestorder (EUR)", 0.0, value=100.0, step=50.0)
         g, h, i = st.columns(3)
         min_cash = g.slider("Mindest-Cash", 0.0, 0.5, 0.0, 0.01, help="0 = Cash-Quote bestimmt der Optimizer.")
@@ -148,7 +160,7 @@ def _settings() -> Params:
     return Params(fraction=fraction, max_w=max_w, min_cash=min_cash, min_order_eur=min_order,
                   allow_short=allow_short, rf=rf, p_market=p_market, erp=erp, group_cap=group_cap,
                   rho_world=rho_world, factor_shrink=factor_shrink, faktor_szenarien=faktor,
-                  horizon_years=10 if faktor else 3)   # v3: ewig halten ⇒ 10 J. auf IRR-Basis
+                  horizon_years=10 if faktor else 3, rf_usd=rf_usd)   # v3: ewig halten ⇒ 10 J. auf IRR-Basis
 
 
 def _kpis(res, n_buy: int, n_sell: int, turnover: float, horizon: int) -> None:

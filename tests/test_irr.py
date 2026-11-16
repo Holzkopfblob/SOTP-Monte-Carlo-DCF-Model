@@ -92,3 +92,14 @@ def test_hold_returns_median_surprise_one_and_leverage():
     assert h["irr_ek"] > h["irr"] > 0.03                          # Hebel bei r̄ > k_d erhöht die EK-Rendite
     assert hold_returns(r, px, k_d=h["irr"], h=10)["irr_ek"] == pytest.approx(h["irr"])   # k_d = r̄ ⇒ neutral
     assert h["am_rand"] == 0.0
+
+
+def test_minorities_and_stakes_do_not_lever():
+    from domain.irr import debt_like
+    r = _results()
+    base = debt_like(r)
+    n = len(r.price_per_share)
+    for k in ("minderheiten", "beteiligungen", "nicht_operativ"):
+        r.bridge_samples[k] = np.full(n, 500.0)
+    r.bridge_samples["pensionen"] = np.full(n, 100.0)
+    assert debt_like(r) == pytest.approx(base + 100.0)

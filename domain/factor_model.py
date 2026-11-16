@@ -118,3 +118,12 @@ def draw_shocks(firms: list[dict], n: int, T: int, seed: int = 0, scale: float =
             res[k] = _ar(scale * p["sigma"] * z, p["phi"])
         out.append(res)
     return out
+
+
+def center_drift(g: np.ndarray, model_cagr: float, target_cagr: float, lam: float, h: int) -> np.ndarray:
+    """Zentrum des Umsatzpfads um *lam* (0…1) Richtung Basisrate schieben: konstante Log-Drift in den ersten *h* Jahren,
+    sodass die h-J.-CAGR des Medians von model_cagr auf (1+m)^(1−λ)·(1+z)^λ − 1 rückt. Das Niveau bleibt danach
+    verschoben (Schock-Pfade sind kumuliert). Innensicht und Außensicht gemischt statt nur verbreitert."""
+    out = g.copy()
+    out[:, :h] += lam * (np.log1p(target_cagr) - np.log1p(model_cagr))
+    return out

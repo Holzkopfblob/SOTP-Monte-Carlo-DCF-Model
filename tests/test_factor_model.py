@@ -100,3 +100,16 @@ def test_shock_params_take_both_moments_from_the_same_cohort():
     f = shock_params("X", cfg, "Telko", "USD", ob=ob, common=COMMON)
     assert f["bedingungen"]["g"] == {}            # 50 große Telkos < 100 ⇒ alles gelockert (Branche vor Größe)
     assert f["g"]["sigma"] > 0.045                                        # 1-J.-σ aus der gemischten Kohorte
+
+
+def test_center_drift_moves_the_median_path_to_the_base_rate():
+    from domain.factor_model import center_drift
+    seg = SegmentConfig(name="A", base_revenue=100.0, forecast_years=7, revenue_growth=D(fixed_value=0.30))
+    cfg = SimulationConfig(n_simulations=50, random_seed=1, segments=[seg])
+    g0 = np.zeros((50, 7))
+    assert np.array_equal(center_drift(g0, 0.30, 0.10, 0.0, 5), g0)
+    for lam, want in ((1.0, 0.10), (0.5, np.sqrt(1.3 * 1.1) - 1)):
+        sh = {"g": center_drift(g0, 0.30, 0.10, lam, 5), "m": np.zeros((50, 7)), "m_phi": 1.0}
+        rev = MonteCarloEngine(cfg, sh).run().segment_cashflows["A"].revenue
+        assert np.allclose((rev[:, 4] / 100.0) ** (1 / 5) - 1, want)          # 5-J.-CAGR auf dem Ziel
+        assert np.allclose(rev[:, 6] / rev[:, 5], 1.3)                         # danach wieder Analystenwachstum

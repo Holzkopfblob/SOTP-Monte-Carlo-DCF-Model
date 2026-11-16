@@ -19,6 +19,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from application.universe_simulation import OHNE_BRANCHE
+from domain.factor_model import _rng
 from domain.irr import RAND_MAX_ANTEIL, hold_returns
 from domain.portfolio import (
     correlate_samples, factor_tilt, horizon_returns, kelly_weights, market_world_returns, mix_worlds, orders, wealth,
@@ -112,7 +114,12 @@ class Params:
     erp: float = 0.05       # Marktrendite in der Markt-Welt = rf + erp p. a.
     factor_shrink: float = 0.0  # Gegenprobe 16.11.: Faktor ist Telko-/Auto-Effekt, kein allgemeiner Stil ⇒ aus. Anteil des Value-Stils, der aus den Werten herausgenommen wird (0 = Modell voll, 1 = ganz)
     faktor_szenarien: bool = False  # v3 Phase 3: gemeinsame Cashflow-Schocks (Seite ruft dann simulate_universe)
-    k_d: float = 0.035      # Fremdkapitalkosten nach Steuer für die Eigenkapital-IRR (≈ (rf + 1,5 pp) · 0,75)
+    rf_usd: float = 0.049   # US-Treasury 3 J. (FRED DGS3, 12.11.2026); App lädt tagesaktuell
+    kd_spread: float = 0.015  # Fremdkapitalkosten nach Steuer = (rf der Berichtswährung + Spread) · 0,75
+    # Gemeinsamer Modellfehler der IRR je Branche (p. a., Standardabw.), Faktor-Modus. 0,033 = Streuung der Branchen-
+    # Mittel der IRR-EK im Depot 16.11.2026 (6 Branchen, Documents/KALIBRIERUNG-2026-11/phase4_depot.py).
+    # ponytail: in-sample aus 6 Branchen; echte Quelle ist der Querschnitt der Schnellbewertung (Phase 5).
+    tau_branche: float = 0.033
     rho_world: float = 0.4  # Kopplung „Markt hat recht“ über Gruppen; 0,4 ≈ R² der Lücke auf das Marktmultiple
                             # (Querschnitt 16.11.2026, Documents/KALIBRIERUNG-2026-11/querschnitt.py)
 
@@ -181,8 +188,22 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
     rand = np.zeros(len(names), bool)
     if faktor:
         # v3 Phase 4: Halte-Rendite aus der impliziten Rendite zum Kurs (domain/irr.hold_returns) statt Wert/Kurs − 1
-        hr = [hold_returns(v["results"], px, p.k_d, p.horizon_years) for v, px in zip(valuations, px_local)]
-        R_model = np.column_stack([x["R"][:n] for x in hr])
+        rf_ccy = np.array([p.rf_usd if v["waehrung"] == "USD" else p.rf for v in valuations])
+        hr = [hold_returns(v["results"], px, (r + p.kd_spread) * 0.75, p.horizon_years)
+              for v, px, r in zip(valuations, px_local, rf_ccy)]
+        # USD-Rendite in EUR: gedeckte Zinsparität (erwartete Abwertung des USD = Zinsdifferenz), sonst bekäme jeder
+        # USD-Titel die Zinsdifferenz geschenkt
+        parity = ((1 + p.rf) / (1 + rf_ccy)) ** p.horizon_years
+        R_model = (1 + np.column_stack([x["R"][:n] for x in hr])) * parity - 1
+        if p.tau_branche > 0:
+            # Alle Titel einer Branche liegen in derselben Zeile gemeinsam daneben: IRR-EK + b, b ~ N(0, τ²) je Branche
+            # (ohne Branche: eigener Strom je Firma). Verkettet über den Horizont wie die IRR selbst.
+            keys = [v["schock"].get("sektor") or OHNE_BRANCHE for v in valuations]
+            keys = [k if k != OHNE_BRANCHE else f"firma|{nm}" for k, nm in zip(keys, names)]
+            b = {k: p.tau_branche * _rng(p.seed, f"bias|{k}").standard_normal(n) for k in set(keys)}
+            r_e = np.array([x["irr_ek"] for x in hr])
+            R_model = (1 + R_model) * np.column_stack(
+                [np.maximum((1 + r + b[k]) / (1 + r), 0.0) ** p.horizon_years for r, k in zip(r_e, keys)]) - 1
         rand = np.array([x["am_rand"] > RAND_MAX_ANTEIL for x in hr])
         if rand.any():   # Bridge > Börsenwert: IRR unbrauchbar ⇒ Marktrendite mit Kursvola, Gewicht eingefroren
             R_mkt = market_world_returns(n, sigma, corr.values, p.rf, p.erp, p.horizon_years, seed=p.seed + 1)

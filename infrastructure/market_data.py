@@ -32,3 +32,17 @@ def fetch_bund_3y() -> tuple[float, str]:
         last = r.read().decode("utf-8-sig").strip().splitlines()[-1]
     day, value = last.split(";")[:2]
     return float(value.replace(",", ".")) / 100, day
+
+
+TREASURY_3Y_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS3&cosd={start}"
+
+
+def fetch_treasury_3y() -> tuple[float, str]:
+    """Rendite US-Treasury 3 J. (FRED DGS3, Prozent; Feiertage leer) als Dezimalzahl und Datum."""
+    from datetime import date, timedelta
+    from urllib.request import urlopen
+
+    with urlopen(TREASURY_3Y_URL.format(start=date.today() - timedelta(days=30)), timeout=15) as r:
+        rows = [ln.split(",") for ln in r.read().decode("utf-8-sig").strip().splitlines()[1:]]
+    day, value = [x for x in rows if x[1].strip()][-1]
+    return float(value) / 100, day

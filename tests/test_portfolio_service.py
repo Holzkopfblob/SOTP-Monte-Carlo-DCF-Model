@@ -3,6 +3,7 @@ from datetime import date
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from application.portfolio_service import Params, rebalance
 
@@ -86,3 +87,47 @@ def test_irr_at_edge_is_frozen_and_sales_use_the_loss_pot(monkeypatch):
     gain = (100.0 - 60.0) * -t.loc["A", "Order Stück"]
     assert t.loc["A", "Gewinn Verkauf €"] == gain and res.steuer["topf_nachher"] == 100.0 - gain
     assert any("übersteigen den Verlusttopf" in w for w in res.warnings) == (gain > 100.0)
+
+
+def test_usd_hold_returns_are_converted_by_interest_parity(monkeypatch):
+    import application.portfolio_service as ps
+    positions, valuations, closes = _setup()
+    valuations[1]["waehrung"] = "USD"
+    for v in valuations:
+        v.update(schock={}, results=v["samples"])
+    seen = {}
+
+    def fake(results, price, k_d, h):
+        seen[round(price)] = k_d
+        return {"R": results / price - 1, "irr": 0.1, "irr_ek": 0.1, "d_e": 0.0, "irr_p5": 0.1, "irr_p95": 0.1,
+                "am_rand": 0.0}
+    monkeypatch.setattr(ps, "hold_returns", fake)
+
+    def er(rf_usd):
+        p = Params(rf=0.03, rf_usd=rf_usd, horizon_years=10)
+        res = rebalance(positions, valuations, closes, cash_eur=1000.0, p=p, today=date(2026, 11, 14))
+        return res.table.set_index("Firma")["E[R] Horizont"]
+    same, high = er(0.03), er(0.05)
+    assert high["A"] == same["A"]                                        # EUR-Titel unberührt
+    assert 1 + high["B"] == pytest.approx((1 + same["B"]) * (1.03 / 1.05) ** 10)
+    assert seen[50] == pytest.approx((0.05 + 0.015) * 0.75) and seen[100] == pytest.approx((0.03 + 0.015) * 0.75)
+
+
+def test_sector_bias_is_shared_within_a_sector(monkeypatch):
+    """τ > 0: Titel derselben Branche bekommen in jeder Zeile denselben IRR-Fehler, andere Branchen einen eigenen."""
+    positions, valuations, closes = _setup()
+    for v, s in zip(valuations, ("Telko", "Telko", "Auto")):
+        v.update(schock={"sektor": s}, results=np.full(len(v["samples"]), v["p50_neu"]))   # ohne Cashflow-Streuung
+    _fake_irr(monkeypatch, {})
+    import application.portfolio_service as ps
+    seen = {}
+    real = ps.kelly_weights
+
+    def spy(R, *a, **k):
+        seen["R"] = R
+        return real(R, *a, **k)
+    monkeypatch.setattr(ps, "kelly_weights", spy)
+    rebalance(positions, valuations, closes, 1000.0, Params(tau_branche=0.03, horizon_years=10), date(2026, 11, 14))
+    lr = np.log1p(seen["R"])
+    assert np.corrcoef(lr[:, 0], lr[:, 1])[0, 1] > 0.99 and abs(np.corrcoef(lr[:, 0], lr[:, 2])[0, 1]) < 0.05
+    assert np.std(lr[:, 0]) == pytest.approx(10 * 0.03 / 1.12, rel=0.05)     # τ über 10 J. verkettet

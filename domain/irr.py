@@ -74,10 +74,11 @@ RAND_MAX_ANTEIL = 0.05   # mehr Samples am Rand ⇒ Bridge > Börsenwert, IRR ni
 
 
 def debt_like(results) -> float:
-    """Median der schuldenähnlichen Bridge-Posten (Netto, negativ = Nettovermögen) für den Hebel D/E."""
+    """Median der Posten, die zum Fremdkapitalzins laufen (Nettoschulden, Pensionen; negativ = Nettokasse), für D/E.
+    Minderheiten, Beteiligungen und nicht-operatives Vermögen wachsen mit dem Geschäft (Rendite ≈ r̄) und hebeln
+    nicht: aus r̄·EV = r_E·E + k_d·D + r̄·M folgt r_E = r̄ + (r̄ − k_d)·D/E nur mit D ohne M."""
     b = results.bridge_samples
-    return float(np.median(b["nettoschulden"] + b["minderheiten"] + b["pensionen"]
-                           - b["nicht_operativ"] - b["beteiligungen"]))
+    return float(np.median(b["nettoschulden"] + b["pensionen"]))
 
 
 def hold_returns(results, price: float, k_d: float, h: int) -> dict:
