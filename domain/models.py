@@ -258,11 +258,14 @@ class SegmentEVDetail:
     pv_tv:   np.ndarray   # (n,)
     # Bausteine für die implizite Rendite (domain/irr.py): EV(r) für beliebiges r neu rechnen.
     fcff:    np.ndarray | None = None   # (n, T)
+    revenue: np.ndarray | None = None   # (n, T) Umsatzpfad (Basisraten-Vergleich)
+    ebitda:  np.ndarray | None = None   # (n, T)
     tv_num:  np.ndarray | None = None   # Gordon: Zähler, TV = tv_num / (r − tv_g)
     tv_g:    np.ndarray | None = None   # Gordon: ewiges Wachstum
     tv_abs:  np.ndarray | None = None   # Exit-Multiple: TV unabhängig von r
     forecast_years: int = 0
     mid_year: bool = True
+    base_revenue: float = 0.0
 
 
 # ---------------------------------------------------------------------------

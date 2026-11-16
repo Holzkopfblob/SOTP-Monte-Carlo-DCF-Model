@@ -268,11 +268,14 @@ def compute_segment_ev(
             pv_fcff=pv_fcff,
             pv_tv=pv_tv,
             fcff=fcff,
+            revenue=revenue,
+            ebitda=ebitda,
             tv_num=tv_num,
             tv_g=np.broadcast_to(terminal_growth, pv_fcff.shape) if tv_num is not None else None,
             tv_abs=tv_abs,
             forecast_years=forecast_years,
             mid_year=mid_year_convention,
+            base_revenue=float(base_revenue),
         )
     return pv_fcff + pv_tv
 
