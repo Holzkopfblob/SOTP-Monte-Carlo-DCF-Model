@@ -131,3 +131,26 @@ def test_sector_bias_is_shared_within_a_sector(monkeypatch):
     lr = np.log1p(seen["R"])
     assert np.corrcoef(lr[:, 0], lr[:, 1])[0, 1] > 0.99 and abs(np.corrcoef(lr[:, 0], lr[:, 2])[0, 1]) < 0.05
     assert np.std(lr[:, 0]) == pytest.approx(10 * 0.03 / 1.12, rel=0.05)     # τ über 10 J. verkettet
+
+
+def test_rate_shock_hits_levered_titles_together_and_helps_net_cash(monkeypatch):
+    import application.portfolio_service as ps
+    positions, valuations, closes = _setup()
+    for v in valuations:
+        v.update(schock={}, results=np.full(len(v["samples"]), v["p50_neu"]))
+    lev = {100: 1.0, 50: 2.0, 80: -0.5}                                  # A, B verschuldet; C Nettokasse
+
+    def fake(results, price, k_d, h):
+        return {"R": results / price - 1, "irr": 0.1, "irr_ek": 0.1, "d_e": lev[round(price)], "irr_p5": 0.1,
+                "irr_p95": 0.1, "am_rand": 0.0}
+    monkeypatch.setattr(ps, "hold_returns", fake)
+    seen, real = {}, ps.kelly_weights
+    monkeypatch.setattr(ps, "kelly_weights", lambda R, *a, **k: seen.setdefault("R", R) is R and real(R, *a, **k))
+    rebalance(positions, valuations, closes, 1000.0, Params(tau_branche=0.0, sigma_zins=0.02, horizon_years=10),
+              date(2026, 11, 14))
+    lr = np.log1p(seen["R"])
+    assert np.corrcoef(lr[:, 0], lr[:, 1])[0, 1] > 0.99 and np.corrcoef(lr[:, 0], lr[:, 2])[0, 1] < -0.99
+    assert np.std(lr[:, 1]) == pytest.approx(2 * np.std(lr[:, 0]), rel=0.05)   # doppelter Hebel, doppelter Schaden
+    from domain.factor_model import _rng
+    zins = _rng(Params().seed, "zins").standard_normal(len(lr))
+    assert np.corrcoef(lr[:, 0], zins)[0, 1] < -0.99                              # Zinsanstieg schadet Verschuldeten

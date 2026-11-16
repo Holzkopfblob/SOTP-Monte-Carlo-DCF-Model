@@ -120,6 +120,9 @@ class Params:
     # Mittel der IRR-EK im Depot 16.11.2026 (6 Branchen, Documents/KALIBRIERUNG-2026-11/phase4_depot.py).
     # ponytail: in-sample aus 6 Branchen; echte Quelle ist der Querschnitt der Schnellbewertung (Phase 5).
     tau_branche: float = 0.033
+    # Gemeinsamer Zinsschock auf die Fremdkapitalkosten (vor Steuer, Standardabw.): Änderung des 3-J.-Zinses über 5 J.
+    # (≈ mittlerer Refinanzierungszeitpunkt bei 10 J. Halten), FRED DGS3 1985–2026: 2,1 pp (robust ebenso).
+    sigma_zins: float = 0.021
     rho_world: float = 0.4  # Kopplung „Markt hat recht“ über Gruppen; 0,4 ≈ R² der Lücke auf das Marktmultiple
                             # (Querschnitt 16.11.2026, Documents/KALIBRIERUNG-2026-11/querschnitt.py)
 
@@ -195,15 +198,17 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
         # USD-Titel die Zinsdifferenz geschenkt
         parity = ((1 + p.rf) / (1 + rf_ccy)) ** p.horizon_years
         R_model = (1 + np.column_stack([x["R"][:n] for x in hr])) * parity - 1
-        if p.tau_branche > 0:
-            # Alle Titel einer Branche liegen in derselben Zeile gemeinsam daneben: IRR-EK + b, b ~ N(0, τ²) je Branche
-            # (ohne Branche: eigener Strom je Firma). Verkettet über den Horizont wie die IRR selbst.
-            keys = [v["schock"].get("sektor") or OHNE_BRANCHE for v in valuations]
-            keys = [k if k != OHNE_BRANCHE else f"firma|{nm}" for k, nm in zip(keys, names)]
-            b = {k: p.tau_branche * _rng(p.seed, f"bias|{k}").standard_normal(n) for k in set(keys)}
-            r_e = np.array([x["irr_ek"] for x in hr])
-            R_model = (1 + R_model) * np.column_stack(
-                [np.maximum((1 + r + b[k]) / (1 + r), 0.0) ** p.horizon_years for r, k in zip(r_e, keys)]) - 1
+        # Gemeinsame Fehler auf die IRR-EK je Zeile, verkettet über den Horizont wie die IRR selbst:
+        #  Branche: alle Titel einer Branche liegen gemeinsam daneben, b ~ N(0, τ²) (ohne Branche: eigener Strom).
+        #  Zins: ein Schock Δ für alle; teurere Refinanzierung kostet Verschuldete −D/E·0,75·Δ, Nettokasse gewinnt.
+        # ponytail: ein Zinsfaktor für EUR und USD, Cash-Zins im Optimierer bleibt fest (wäre bei Zinsanstieg Absicherung).
+        keys = [v["schock"].get("sektor") or OHNE_BRANCHE for v in valuations]
+        keys = [k if k != OHNE_BRANCHE else f"firma|{nm}" for k, nm in zip(keys, names)]
+        b = {k: p.tau_branche * _rng(p.seed, f"bias|{k}").standard_normal(n) for k in set(keys)}
+        dz = 0.75 * p.sigma_zins * _rng(p.seed, "zins").standard_normal(n)
+        R_model = (1 + R_model) * np.column_stack(
+            [np.maximum((1 + x["irr_ek"] + b[k] - x["d_e"] * dz) / (1 + x["irr_ek"]), 0.0) ** p.horizon_years
+             for x, k in zip(hr, keys)]) - 1
         rand = np.array([x["am_rand"] > RAND_MAX_ANTEIL for x in hr])
         if rand.any():   # Bridge > Börsenwert: IRR unbrauchbar ⇒ Marktrendite mit Kursvola, Gewicht eingefroren
             R_mkt = market_world_returns(n, sigma, corr.values, p.rf, p.erp, p.horizon_years, seed=p.seed + 1)
