@@ -246,6 +246,7 @@ def compute_segment_ev(
         params = {k: terminal_params.get(k, _last(v)) for k, v in year_t.items()}
         fcff_next = steady_state_fcff(revenue[:, -1], terminal_growth, params)
         tv = fcff_next / np.maximum(wacc - terminal_growth, 1e-4)
+        tv_num, tv_abs = fcff_next, None
     else:
         tv = compute_terminal_value(
             terminal_method,
@@ -255,6 +256,9 @@ def compute_segment_ev(
             terminal_growth,
             exit_multiple,
         )
+        gordon = terminal_method == TerminalValueMethod.GORDON_GROWTH
+        tv_num = fcff[:, -1] * (1.0 + terminal_growth) if gordon else None
+        tv_abs = None if gordon else tv
     # Terminal value is always discounted at end of year T
     pv_tv = tv / np.power(1.0 + wacc, float(forecast_years))   # (n,)
 
@@ -263,6 +267,12 @@ def compute_segment_ev(
             ev=pv_fcff + pv_tv,
             pv_fcff=pv_fcff,
             pv_tv=pv_tv,
+            fcff=fcff,
+            tv_num=tv_num,
+            tv_g=np.broadcast_to(terminal_growth, pv_fcff.shape) if tv_num is not None else None,
+            tv_abs=tv_abs,
+            forecast_years=forecast_years,
+            mid_year=mid_year_convention,
         )
     return pv_fcff + pv_tv
 

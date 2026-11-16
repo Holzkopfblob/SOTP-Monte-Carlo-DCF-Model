@@ -48,6 +48,7 @@ class MonteCarloEngine:
     def run(self) -> SimulationResults:
         """Execute the simulation and return structured results."""
         n = self.config.n_simulations
+        self._cashflows, self._bridge_samples = {}, {}
 
         # Phase 1: Sample & compute segment EVs
         segment_evs, segment_tv_ev, segment_roic, segment_reinvest, \
@@ -88,6 +89,8 @@ class MonteCarloEngine:
             base_subsidiary_minorities=bridge_bases["base_subsidiary_minorities"],
             segment_ownership=bridge_bases["segment_ownership"],
             price_per_share=price_per_share,
+            segment_cashflows=self._cashflows,
+            bridge_samples=self._bridge_samples,
             n_simulations=n,
             convergence_indices=conv_idx,
             convergence_means=conv_mean,
@@ -160,6 +163,7 @@ class MonteCarloEngine:
                 terminal_params=terminals or None,
             )
             segment_evs[seg.name] = detail.ev
+            self._cashflows[seg.name] = detail
             segment_tv_ev[seg.name] = tv_ev_ratio(detail.pv_tv, detail.ev)
 
             # Year-1 values for steady-state approximation
@@ -272,6 +276,11 @@ class MonteCarloEngine:
             + non_op_arr + associates_arr
         )
         price_per_share = equity_values / shares_arr
+        self._bridge_samples = {
+            "holdingkosten": np.broadcast_to(corp_costs_arr, (n,)),
+            "nettoschulden": net_debt_arr - outside_nd, "minderheiten": minority_arr, "pensionen": pension_arr,
+            "nicht_operativ": non_op_arr, "beteiligungen": associates_arr, "aktien": shares_arr,
+        }
 
         base_seg = {k: float(np.mean(v)) for k, v in segment_evs.items()}
 

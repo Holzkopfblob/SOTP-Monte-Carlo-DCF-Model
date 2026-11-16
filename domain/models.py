@@ -256,6 +256,13 @@ class SegmentEVDetail:
     ev:      np.ndarray   # (n,) = pv_fcff + pv_tv
     pv_fcff: np.ndarray   # (n,)
     pv_tv:   np.ndarray   # (n,)
+    # Bausteine für die implizite Rendite (domain/irr.py): EV(r) für beliebiges r neu rechnen.
+    fcff:    np.ndarray | None = None   # (n, T)
+    tv_num:  np.ndarray | None = None   # Gordon: Zähler, TV = tv_num / (r − tv_g)
+    tv_g:    np.ndarray | None = None   # Gordon: ewiges Wachstum
+    tv_abs:  np.ndarray | None = None   # Exit-Multiple: TV unabhängig von r
+    forecast_years: int = 0
+    mid_year: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -324,3 +331,7 @@ class SimulationResults:
     equity_var_5: float = 0.0
     equity_cvar_5: float = 0.0
     equity_tail_ratio: float = 0.0
+
+    # ── v3: Bausteine der impliziten Rendite (IRR) ───────────────────
+    segment_cashflows: dict[str, "SegmentEVDetail"] = field(default_factory=dict)
+    bridge_samples: dict[str, np.ndarray] = field(default_factory=dict)   # je Sample, siehe Engine

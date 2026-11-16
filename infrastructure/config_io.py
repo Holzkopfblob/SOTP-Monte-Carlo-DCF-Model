@@ -14,6 +14,8 @@ import re
 from datetime import datetime
 
 import numpy as np
+
+from domain.irr import irr_summary
 from domain.models import INTRA_PARAM_LABELS, CorporateBridgeConfig, DistributionType
 
 
@@ -188,7 +190,8 @@ def collect_config(state: dict) -> dict:
     # these inputs (fingerprint set by the simulation step).
     results = state.get("results")
     if results is not None and state.get(RESULTS_FINGERPRINT_KEY) == _fingerprint(ui_state):
-        cfg["ergebnis"] = summarize_results(results)
+        meta = (state.get(_PASSTHROUGH_STATE_KEY) or {}).get("metadata") or {}
+        cfg["ergebnis"] = summarize_results(results, meta.get("kurs_bei_recherche"))
         # Scenario / reverse-DCF results only if computed from these inputs and definitions.
         scen = state.get(SCENARIO_RESULTS_KEY) or {}
         defs = (state.get(_PASSTHROUGH_STATE_KEY) or {}).get("szenarien")
@@ -313,8 +316,9 @@ def ui_fingerprint(state: dict) -> str:
     return _fingerprint(collect_config(without_results)["ui_state"])
 
 
-def summarize_results(results) -> dict:
-    """Compact P5/P50/P95 + mean summary, small enough to live in the JSON."""
+def summarize_results(results, kurs: float | None = None, rf: float = 0.0) -> dict:
+    """Compact P5/P50/P95 + mean summary, small enough to live in the JSON.
+    With *kurs* (price per share at research), adds the implied return (IRR, v3) per scenario."""
     def stats(arr) -> dict:
         p5, p50, p95 = np.percentile(arr, [5, 50, 95])
         return {"mean": float(np.mean(arr)), "p5": float(p5),
@@ -324,6 +328,7 @@ def summarize_results(results) -> dict:
         "enterprise_value": stats(results.total_ev),
         "equity_value": stats(results.equity_values),
         "preis_je_aktie": stats(results.price_per_share),
+        **({"irr": irr_summary(results, kurs, rf)} if kurs and results.segment_cashflows else {}),
     }
 
 
