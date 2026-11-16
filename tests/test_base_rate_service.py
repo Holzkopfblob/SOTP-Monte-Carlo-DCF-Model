@@ -31,3 +31,14 @@ def test_compare_against_synthetic_base_rates():
     assert w["bedingungen"] == {"sektor": "Telko", "groesse": 1, "g_start": 1, "m_start": 2}
     assert w["perzentil_modell_median"] == pytest.approx(0.58, abs=0.03)    # 4 % in N(3 %, 5 %)
     assert w["breite_basis_zu_modell"] > 5                                  # Modell viel enger als die Außensicht
+
+
+def test_check_12_flags_position_and_width():
+    from domain.checks import OK, WARN, base_rate_checks
+    cmp = {"wachstum_5j": {"perzentil_modell_median": 0.97, "breite_basis_zu_modell": 2.0,
+                           "basis": {"n": 400}, "bedingungen": {"sektor": "Telko"}},
+           "marge_4j": {"perzentil_modell_median": 0.5, "breite_basis_zu_modell": 12.0,
+                        "basis": {"n": 400}, "bedingungen": {}}}
+    st = {c.name: c.status for c in base_rate_checks(cmp)}
+    assert st == {"Basisrate Lage · Umsatz-CAGR 5 J.": WARN, "Basisrate Breite · Umsatz-CAGR 5 J.": OK,
+                  "Basisrate Lage · Margenänderung J1→J5": OK, "Basisrate Breite · Margenänderung J1→J5": WARN}

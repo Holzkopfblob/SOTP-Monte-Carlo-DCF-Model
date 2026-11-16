@@ -144,3 +144,27 @@ def result_checks(config, results, metadata: dict | None = None,
         out.append(Check("11", "Jahr-1-FCFF vs. Ist", INFO,
                          f"Modell {model:,.0f} (Segmente anteilig − Holdingkosten). Ist-Wert eintragen, um zu vergleichen"))
     return out
+
+
+# ── Check 12 (v3): Innensicht gegen Außensicht (Basisraten) ──────────────────────────────────
+BASE_PCTL_WARN = (0.10, 0.90)   # Modell-Median außerhalb ⇒ nur wenige ähnliche Firmen haben das geschafft
+BASE_WIDTH_WARN = 3.0           # Basisrate > 3× breiter als das Modell ⇒ Bänder zu eng
+
+
+def base_rate_checks(cmp: dict) -> list[Check]:
+    """Check 12 aus application.base_rate_service.compare(): Lage und Breite gegen die Basisrate."""
+    out = []
+    for key, label in (("wachstum_5j", "Umsatz-CAGR 5 J."), ("marge_4j", "Margenänderung J1→J5")):
+        c = cmp.get(key)
+        if not c:
+            continue
+        p, w = c["perzentil_modell_median"], c["breite_basis_zu_modell"]
+        lo, hi = BASE_PCTL_WARN
+        bed = ", ".join(f"{k}={v}" for k, v in c["bedingungen"].items()) or "ohne Bedingung"
+        out.append(Check("12", f"Basisrate Lage · {label}", OK if lo <= p <= hi else WARN,
+                         f"Modell-Median auf Perzentil {p:.0%} der Basisrate (n {c['basis']['n']}, {bed})"
+                         + ("" if lo <= p <= hi else "; nur wenige ähnliche Firmen haben das erreicht ⇒ begründen")))
+        out.append(Check("12", f"Basisrate Breite · {label}", OK if w <= BASE_WIDTH_WARN else WARN,
+                         f"Basisrate P5–P95 {w:.1f}× so breit wie das Modell"
+                         + ("" if w <= BASE_WIDTH_WARN else " ⇒ Bänder zu eng (ehrliche Unsicherheit, v3 Phase 3)")))
+    return out

@@ -51,6 +51,16 @@ STRIKTE AUSGABEREGELN (VERPFLICHTEND):
     automatische Abrufe, die Primärquelle beim Nutzer anfordern (Download)
     oder auf andere Primärkanäle ausweichen (SEC EDGAR, Pressemitteilungs-
     server, Bundesanzeiger) – nie Browser-Kopfzeilen fälschen.
+18. Außensicht vor Innensicht (v3, Check 12): Ordne die Firma einer Branche
+    zu ("sektor" in metadata, Namen wie in domain/base_rates.py, z. B.
+    "Telko", "Software/IT", "Industrie"). Die App vergleicht Umsatz-CAGR 5 J.
+    und Margenänderung mit den SEC-Basisraten ähnlicher Firmen. Liegt der
+    Modell-Median außerhalb Perzentil 10–90, begründe das mit Evidenz
+    (Auftragsbestand, Guidance, Kapazität). Die Breite der Basisrate ist der
+    Maßstab für ehrliche Bänder; Abweichung davon nennen.
+19. Leitgröße ist die implizite Rendite (IRR) der Cashflows zum Kurs, nicht
+    die Lücke zum Wert bei CAPM-WACC: Berichte IRR P5/P50/P95 (steht im
+    JSON-Ergebnis unter "irr") neben dem Reverse DCF.
 
 
 ╔═══════════════════════════════════════════════════════════════════════╗
@@ -952,7 +962,8 @@ VORLAGE (ein Segment vollständig; weitere Segmente analog mit i = 1, 2, …):
     "stichtag": "2026-01-15",
     "kurs_bei_recherche": 100.0,
     "basis_periode": "LTM Q4/24–Q3/25",
-    "bilanzstichtag": "2025-09-30"
+    "bilanzstichtag": "2025-09-30",
+    "sektor": "Industrie"
   },
   "ui_state": {
     "setup": {

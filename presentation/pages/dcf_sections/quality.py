@@ -34,10 +34,46 @@ def render_checks_section(results, config) -> None:
     else:
         meta.pop("ist_fcff_jahr1", None)
     rows = result_checks(config, results, meta, ist_fcff=ist or None)
+    rows += _base_rate_rows(results, config, meta)
     st.dataframe(
         [{"Check": c.id, "Status": c.status, "Prüfung": c.name, "Detail": c.detail} for c in rows],
         hide_index=True, width="stretch",
     )
+
+
+    kurs = meta.get("kurs_bei_recherche")
+    if kurs and results.segment_cashflows:
+        from domain.irr import irr_summary
+        s = irr_summary(results, float(kurs), 0.0)
+        st.caption(f"📈 Implizite Rendite der Cashflows zum Kurs {float(kurs):,.2f} (v3): P5 {s['p5']:.1%} · "
+                   f"**P50 {s['p50']:.1%}** · P95 {s['p95']:.1%}"
+                   + (f" · {s['anteil_am_rand']:.0%} der Szenarien ≥ 100 % (Bridge > Börsenwert?)"
+                      if s["anteil_am_rand"] > 0 else ""))
+
+
+def _base_rate_rows(results, config, meta) -> list:
+    """Check 12: Branche wählen (gespeichert in metadata.sektor), Vergleich mit den SEC-Basisraten auf Wunsch."""
+    from domain.base_rates import SEKTOREN
+    names = ["—"] + sorted({n for *_, n in SEKTOREN if n != "Finanz"} | {"Sonstige"})
+    cur = meta.get("sektor") if meta.get("sektor") in names else "—"
+    a, b = st.columns([2, 1])
+    sek = a.selectbox("Branche für die Basisraten (Check 12)", names, index=names.index(cur), key="chk_sektor")
+    if sek == "—":
+        meta.pop("sektor", None)
+        return []
+    meta["sektor"] = sek
+    b.markdown("&nbsp;")
+    if not b.toggle("Basisraten prüfen", key="chk_base", help="Lädt beim ersten Mal die SEC-Daten (Cache, ~1 Min.)."):
+        return []
+    try:
+        from application.base_rate_service import compare
+        from domain.checks import base_rate_checks
+        usd = 1.105 if meta.get("report_currency", "EUR") == "EUR" else 1.0   # ponytail: fester Kurs, Größenklassen grob
+        umsatz = sum(s.base_revenue for s in config.segments) * 1e6 * usd
+        return base_rate_checks(compare(results, sek, umsatz))
+    except Exception as e:  # offline / SEC nicht erreichbar
+        st.warning(f"Basisraten nicht verfügbar: {e}")
+        return []
 
 
 def render_tv_ev_section(results) -> None:
