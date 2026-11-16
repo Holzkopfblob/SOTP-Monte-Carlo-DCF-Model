@@ -59,16 +59,25 @@ def find_valuations(folder: str | Path) -> dict[str, list[Path]]:
     return {c: [f for _, f in sorted(v)] for c, v in out.items()}
 
 
+def ev_inputs(sim_cfg) -> dict:
+    """Für die Faktor-Korrektur: EBITDA Jahr 0 (Mitte, anteilig über die Quote) und Schulden (Bridge-Mitte +
+    anteilige Tochterschulden). EV/EBITDA zum Markt = (Kurs × aktien + schulden) / ebitda. Dieselbe Definition
+    nutzt der Querschnitt (Documents/KALIBRIERUNG-2026-11/querschnitt.py), der die Steigung schätzt."""
+    segs = sim_cfg.segments
+    return {
+        "ebitda": sum(sg.base_revenue * sg.ebitda_margin.representative_value() * sg.ownership_share for sg in segs),
+        "schulden": sim_cfg.corporate_bridge.net_debt
+                    + sum(sg.subsidiary_net_debt.representative_value() * sg.ownership_share for sg in segs),
+        "aktien": sim_cfg.corporate_bridge.shares_outstanding,
+    }
+
+
 def simulate_valuation(path: str | Path) -> dict:
     """Bewertung per gespeichertem Seed neu simulieren (Samples je Aktie)."""
     cfg = json.loads(Path(path).read_text(encoding="utf-8"))
     meta = cfg.get("metadata") or {}
     sim_cfg = build_simulation_config(cfg)
     samples = SimulationService.run_simulation(sim_cfg).price_per_share
-    # Für die Faktor-Korrektur: EBITDA Jahr 0 (Mitte, anteilig) und Bridge-Mitte; EV = Kurs × Aktien + diese Schulden
-    br = sim_cfg.corporate_bridge
-    ebitda = sum(sg.base_revenue * sg.ebitda_margin.representative_value() * sg.ownership_share for sg in sim_cfg.segments)
-    debt = br.net_debt + sum(sg.subsidiary_net_debt.representative_value() * sg.ownership_share for sg in sim_cfg.segments)
     stored = ((cfg.get("ergebnis") or {}).get("preis_je_aktie") or {}).get("p50")
     return {
         "samples": np.asarray(samples, float),
@@ -78,7 +87,7 @@ def simulate_valuation(path: str | Path) -> dict:
         "stichtag": meta.get("stichtag", ""),
         "kurs_recherche": meta.get("kurs_bei_recherche"),
         "stand": meta.get("stand", ""),
-        "ebitda": ebitda, "schulden": debt, "aktien": br.shares_outstanding,
+        **ev_inputs(sim_cfg),
     }
 
 
