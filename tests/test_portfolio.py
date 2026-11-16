@@ -159,3 +159,12 @@ def test_orders_whole_shares_and_min_order():
     assert delta.tolist() == [0.0]                 # 1 Stück = 100 € < 150 €
     delta, target = orders(np.array([3.991219]), np.array([250.0]), 0.0, np.array([0.0]))
     assert delta.tolist() == [-3.991219] and target.tolist() == [0.0]   # Bruchstücke ganz verkaufen
+
+
+def test_mix_worlds_rho_couples_groups_and_keeps_p():
+    Rm, Rk = np.ones((40_000, 3)), np.zeros((40_000, 3))
+    for rho, lo, hi in ((0.0, -0.02, 0.02), (0.4, 0.15, 0.35), (1.0, 0.999, 1.0)):
+        _, mask = mix_worlds(Rm, Rk, 0.3, ["a", "b", "c"], seed=7, rho=rho)
+        assert mask.mean() == pytest.approx(0.3, abs=0.01)               # p je Titel unverändert
+        c = np.corrcoef(mask[:, 0], mask[:, 1])[0, 1]
+        assert lo <= c <= hi, (rho, c)                                    # Kopplung wächst mit ρ

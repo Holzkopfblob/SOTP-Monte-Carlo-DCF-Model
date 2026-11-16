@@ -89,6 +89,8 @@ class Params:
     group_cap: float = 0.20  # max. Summe |Gewicht| je benannter Gruppe (z. B. „Auto“)
     p_market: float = 0.3   # Szenario-Mischung: Wahrscheinlichkeit „Markt hat recht“ (0 = Modell voll glauben)
     erp: float = 0.05       # Marktrendite in der Markt-Welt = rf + erp p. a.
+    rho_world: float = 0.4  # Kopplung „Markt hat recht“ über Gruppen; 0,4 ≈ R² der Lücke auf das Marktmultiple
+                            # (Querschnitt 16.11.2026, Documents/KALIBRIERUNG-2026-11/querschnitt.py)
 
 
 @dataclass
@@ -150,7 +152,7 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
     groups = [str(pos.get("gruppe") or "").strip() or pos["firma"] for pos in positions]
     if p.p_market > 0:
         R_mkt = market_world_returns(n, sigma, corr.values, p.rf, p.erp, p.horizon_years, seed=p.seed + 1)
-        R, _ = mix_worlds(R_model, R_mkt, p.p_market, groups, seed=p.seed + 2)
+        R, _ = mix_worlds(R_model, R_mkt, p.p_market, groups, seed=p.seed + 2, rho=p.rho_world)
     else:
         R = R_model
 

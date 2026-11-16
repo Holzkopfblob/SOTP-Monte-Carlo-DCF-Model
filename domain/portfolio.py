@@ -54,13 +54,18 @@ def market_world_returns(n: int, sigma: np.ndarray, corr: np.ndarray, rf: float,
 
 
 def mix_worlds(R_model: np.ndarray, R_market: np.ndarray, p_market: float,
-               groups: list[str], seed: int = 11) -> tuple[np.ndarray, np.ndarray]:
+               groups: list[str], seed: int = 11, rho: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
     """Szenario-Mischung: je Sample und Gruppe mit Wahrscheinlichkeit *p_market* die Markt-Welt,
     sonst die Modell-Welt. Titel derselben Gruppe wechseln gemeinsam (gemeinsamer Modellfehler,
-    z. B. alle Autobauer). Rückgabe: gemischte Renditen und Maske (True = Markt-Welt)."""
+    z. B. alle Autobauer). *rho* koppelt die Gruppen über einen gemeinsamen Faktor (Gauß-Copula):
+    0 = unabhängig, 1 = ein Schalter für alle (Stilfehler des Modells, Querschnitt 16.11.2026).
+    p_market bleibt je Gruppe exakt. Rückgabe: gemischte Renditen und Maske (True = Markt-Welt)."""
+    from scipy.stats import norm
     n, k = R_model.shape
     labels = sorted(set(groups))
-    draws = np.random.default_rng(seed).random((n, len(labels))) < p_market
+    rng = np.random.default_rng(seed)
+    z = np.sqrt(rho) * rng.standard_normal((n, 1)) + np.sqrt(1 - rho) * rng.standard_normal((n, len(labels)))
+    draws = z < norm.ppf(p_market) if 0 < p_market < 1 else np.full((n, len(labels)), p_market >= 1)
     col = [labels.index(g) for g in groups]
     mask = draws[:, col]
     return np.where(mask, R_market, R_model), mask
