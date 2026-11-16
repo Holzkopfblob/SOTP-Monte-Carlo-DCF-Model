@@ -94,7 +94,7 @@ def simulate_valuation(path: str | Path) -> dict:
 @dataclass
 class Params:
     fraction: float = 0.5
-    max_w: float = 0.15
+    max_w: float = 0.35  # Notbremse (v3-Plan): Positionsgröße soll aus den Verteilungen kommen
     min_cash: float = 0.0   # Cash = Optimizer-Ergebnis; >0 nur als Untergrenze
     min_order_eur: float = 100.0
     allow_short: bool = False
@@ -104,7 +104,7 @@ class Params:
     group_cap: float = 0.20  # max. Summe |Gewicht| je benannter Gruppe (z. B. „Auto“)
     p_market: float = 0.3   # Szenario-Mischung: Wahrscheinlichkeit „Markt hat recht“ (0 = Modell voll glauben)
     erp: float = 0.05       # Marktrendite in der Markt-Welt = rf + erp p. a.
-    factor_shrink: float = 0.5  # Anteil des Value-Stils, der aus den Werten herausgenommen wird (0 = Modell voll, 1 = ganz)
+    factor_shrink: float = 0.0  # Gegenprobe 16.11.: Faktor ist Telko-/Auto-Effekt, kein allgemeiner Stil ⇒ aus. Anteil des Value-Stils, der aus den Werten herausgenommen wird (0 = Modell voll, 1 = ganz)
     rho_world: float = 0.4  # Kopplung „Markt hat recht“ über Gruppen; 0,4 ≈ R² der Lücke auf das Marktmultiple
                             # (Querschnitt 16.11.2026, Documents/KALIBRIERUNG-2026-11/querschnitt.py)
 

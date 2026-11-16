@@ -107,7 +107,7 @@ def _settings() -> Params:
                             help="Szenario-Mischung: In diesem Anteil der Szenarien ist der Kurs fair und die Aktie "
                                  "verdient nur ihre Marktrendite (Zins + Risikoprämie). 0 = Modell voll glauben.")
         fraction = b.slider("Kelly-Faktor", 0.1, 1.0, 0.5, 0.05, help="½ = halbes Kelly (CRRA γ = 2).")
-        max_w = c.slider("Max. Gewicht je Titel", 0.05, 0.5, 0.15, 0.01)
+        max_w = c.slider("Max. Gewicht je Titel (Notbremse)", 0.05, 1.0, 0.35, 0.01)
         d, e, f = st.columns(3)
         erp = d.number_input("Risikoprämie Markt-Welt p. a.", 0.0, 0.1, 0.05, 0.005, format="%.3f")
         rf = e.number_input("Cash-Zins p. a. (Bund 3 J.)", 0.0, 0.1, rf_default, 0.0025, format="%.4f",
@@ -118,7 +118,7 @@ def _settings() -> Params:
         allow_short = h.toggle("Short erlauben", False, help="Brutto Σ|Gewicht| ≤ 1 − Mindest-Cash (kein Hebel).")
         group_cap = i.slider("Max. Gewicht je Gruppe", 0.05, 1.0, 0.20, 0.01,
                              help="Summe aller Titel einer benannten Gruppe (Spalte „Gruppe“ im Depot), z. B. Auto.")
-        factor_shrink = st.slider("Value-Stil herausnehmen (s)", 0.0, 1.0, 0.5, 0.05,
+        factor_shrink = st.slider("Value-Stil herausnehmen (s)", 0.0, 1.0, 0.0, 0.05,
                                   help="Das Modell hält Firmen mit niedrigem EV/EBITDA systematisch für billiger "
                                        "(Querschnitt 16.11.2026). s = 0: Modell voll glauben, s = 1: diesen Anteil "
                                        "der Lücke ganz herausnehmen, nur die firmenspezifische Überzeugung bleibt.")
