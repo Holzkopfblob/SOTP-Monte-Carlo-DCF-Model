@@ -71,6 +71,23 @@ def mix_worlds(R_model: np.ndarray, R_market: np.ndarray, p_market: float,
     return np.where(mask, R_market, R_model), mask
 
 
+# Value-Stil des Modells (Querschnitt 16.11.2026, Documents/KALIBRIERUNG-2026-11/querschnitt.py):
+# ln(P50/Kurs) ≈ a − 0,6 · ln(EV/EBITDA zum Markt), Rangkorrelation ≈ −0,6 (n = 16, ohne Ausreißer p < 0,05).
+FACTOR_SLOPE = -0.6
+FACTOR_CENTER = 10.0            # EV/EBITDA; Mittel des Querschnitts (begrenzt) ≈ 9,8×
+FACTOR_CLIP = (3.0, 30.0)       # Auto-Multiples (Finanzsparte in der Bridge) sonst verzerrt
+
+
+def factor_tilt(ev_ebitda: np.ndarray, s: float) -> np.ndarray:
+    """Multiplikator auf die Wert-Samples, der den Anteil *s* (0…1) der vom Marktmultiple erklärten
+    Lücke herausnimmt: Wert × exp(−s · Steigung · (ln Multiple − ln Mitte)). Niedriges Multiple ⇒ < 1.
+    Ungültiges Multiple (≤ 0, NaN) ⇒ 1 (keine Korrektur)."""
+    m = np.asarray(ev_ebitda, float)
+    ok = np.isfinite(m) & (m > 0)
+    x = np.log(np.clip(np.where(ok, m, FACTOR_CENTER), *FACTOR_CLIP)) - np.log(FACTOR_CENTER)
+    return np.where(ok, np.exp(-s * FACTOR_SLOPE * x), 1.0)
+
+
 def wealth(R: np.ndarray, w: np.ndarray, rf_h: float) -> np.ndarray:
     """Endvermögen je Sample für Startvermögen 1; Cash (1 − Σw) verzinst mit rf_h."""
     return 1.0 + rf_h + (R - rf_h) @ w

@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from domain.portfolio import (
-    correlate_samples, horizon_returns, kelly_weights, market_world_returns, mix_worlds, nearest_corr,
+    correlate_samples, factor_tilt, horizon_returns, kelly_weights, market_world_returns, mix_worlds, nearest_corr,
     orders, wealth,
 )
 
@@ -168,3 +168,13 @@ def test_mix_worlds_rho_couples_groups_and_keeps_p():
         assert mask.mean() == pytest.approx(0.3, abs=0.01)               # p je Titel unverändert
         c = np.corrcoef(mask[:, 0], mask[:, 1])[0, 1]
         assert lo <= c <= hi, (rho, c)                                    # Kopplung wächst mit ρ
+
+
+def test_factor_tilt_cuts_low_multiples_and_respects_s_and_clip():
+    t = factor_tilt(np.array([5.0, 10.0, 20.0, 0.3, np.nan, -4.0]), 0.5)
+    assert t[1] == pytest.approx(1.0)                                     # Mitte ⇒ keine Korrektur
+    assert t[0] == pytest.approx(np.exp(0.3 * np.log(0.5)))               # 5× ⇒ ×0,81
+    assert t[2] == pytest.approx(1 / t[0])                                # symmetrisch in ln
+    assert t[3] == pytest.approx(np.exp(0.3 * np.log(0.3)))               # auf 3× begrenzt
+    assert t[4] == t[5] == 1.0                                            # ungültig ⇒ unverändert
+    assert np.allclose(factor_tilt(np.array([5.0, 20.0]), 0.0), 1.0)      # s = 0 ⇒ Modell voll

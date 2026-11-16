@@ -21,7 +21,7 @@ import pandas as pd
 
 from application.simulation_service import SimulationService
 from domain.portfolio import (
-    correlate_samples, horizon_returns, kelly_weights, market_world_returns, mix_worlds, orders, wealth,
+    correlate_samples, factor_tilt, horizon_returns, kelly_weights, market_world_returns, mix_worlds, orders, wealth,
 )
 from infrastructure.config_io import build_simulation_config
 from infrastructure.market_data import FX_TICKER
@@ -63,7 +63,12 @@ def simulate_valuation(path: str | Path) -> dict:
     """Bewertung per gespeichertem Seed neu simulieren (Samples je Aktie)."""
     cfg = json.loads(Path(path).read_text(encoding="utf-8"))
     meta = cfg.get("metadata") or {}
-    samples = SimulationService.run_simulation(build_simulation_config(cfg)).price_per_share
+    sim_cfg = build_simulation_config(cfg)
+    samples = SimulationService.run_simulation(sim_cfg).price_per_share
+    # Für die Faktor-Korrektur: EBITDA Jahr 0 (Mitte, anteilig) und Bridge-Mitte; EV = Kurs × Aktien + diese Schulden
+    br = sim_cfg.corporate_bridge
+    ebitda = sum(sg.base_revenue * sg.ebitda_margin.representative_value() * sg.ownership_share for sg in sim_cfg.segments)
+    debt = br.net_debt + sum(sg.subsidiary_net_debt.representative_value() * sg.ownership_share for sg in sim_cfg.segments)
     stored = ((cfg.get("ergebnis") or {}).get("preis_je_aktie") or {}).get("p50")
     return {
         "samples": np.asarray(samples, float),
@@ -73,6 +78,7 @@ def simulate_valuation(path: str | Path) -> dict:
         "stichtag": meta.get("stichtag", ""),
         "kurs_recherche": meta.get("kurs_bei_recherche"),
         "stand": meta.get("stand", ""),
+        "ebitda": ebitda, "schulden": debt, "aktien": br.shares_outstanding,
     }
 
 
@@ -89,6 +95,7 @@ class Params:
     group_cap: float = 0.20  # max. Summe |Gewicht| je benannter Gruppe (z. B. „Auto“)
     p_market: float = 0.3   # Szenario-Mischung: Wahrscheinlichkeit „Markt hat recht“ (0 = Modell voll glauben)
     erp: float = 0.05       # Marktrendite in der Markt-Welt = rf + erp p. a.
+    factor_shrink: float = 0.5  # Anteil des Value-Stils, der aus den Werten herausgenommen wird (0 = Modell voll, 1 = ganz)
     rho_world: float = 0.4  # Kopplung „Markt hat recht“ über Gruppen; 0,4 ≈ R² der Lücke auf das Marktmultiple
                             # (Querschnitt 16.11.2026, Documents/KALIBRIERUNG-2026-11/querschnitt.py)
 
@@ -143,6 +150,10 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
     n = min(len(v["samples"]) for v in valuations)           # Samples sind iid → kürzen ok
     V = np.column_stack([v["samples"][:n] for v in valuations])
     V = correlate_samples(V, corr.values, seed=p.seed)
+    ev_ebitda = np.array([(px * v["aktien"] + v["schulden"]) / v["ebitda"] if v.get("ebitda") else np.nan
+                          for v, px in zip(valuations, px_local)])
+    tilt = factor_tilt(ev_ebitda, p.factor_shrink)
+    V = V * tilt
     R_model = horizon_returns(V, px_local)                   # Wert und Kurs in gleicher Währung
     rf_h = (1 + p.rf) ** p.horizon_years - 1
 
@@ -201,6 +212,8 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
         "Wert P50 €": [v["p50_neu"] * f for v, f in zip(valuations, to_eur)],
         "Kurs lokal": [f"{px:.2f} {v['waehrung']}" for v, px in zip(valuations, px_local)],
         "Upside P50": [v["p50_neu"] / px - 1 for v, px in zip(valuations, px_local)],
+        "EV/EBITDA": ev_ebitda,
+        "Faktor ×": tilt,
         "P(Wert>Kurs)": (R_model > 0).mean(axis=0),
         "E[R] 3J (Mix)": R.mean(axis=0),
         "Vola p. a.": sigma,

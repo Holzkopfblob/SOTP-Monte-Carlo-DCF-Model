@@ -118,13 +118,17 @@ def _settings() -> Params:
         allow_short = h.toggle("Short erlauben", False, help="Brutto Σ|Gewicht| ≤ 1 − Mindest-Cash (kein Hebel).")
         group_cap = i.slider("Max. Gewicht je Gruppe", 0.05, 1.0, 0.20, 0.01,
                              help="Summe aller Titel einer benannten Gruppe (Spalte „Gruppe“ im Depot), z. B. Auto.")
+        factor_shrink = st.slider("Value-Stil herausnehmen (s)", 0.0, 1.0, 0.5, 0.05,
+                                  help="Das Modell hält Firmen mit niedrigem EV/EBITDA systematisch für billiger "
+                                       "(Querschnitt 16.11.2026). s = 0: Modell voll glauben, s = 1: diesen Anteil "
+                                       "der Lücke ganz herausnehmen, nur die firmenspezifische Überzeugung bleibt.")
         rho_world = st.slider("Gemeinsamer Modellfehler (ρ)", 0.0, 1.0, 0.4, 0.05,
                               help="Wie stark „Markt hat recht“ alle Titel zugleich trifft. 0 = je Gruppe unabhängig, "
                                    "1 = ein Schalter für alle. 0,4: Die Lücke Modell/Markt hängt zu ~40 % am "
                                    "Marktmultiple (Value-Stil des Modells, Querschnitt 16.11.2026).")
     return Params(fraction=fraction, max_w=max_w, min_cash=min_cash, min_order_eur=min_order,
                   allow_short=allow_short, rf=rf, p_market=p_market, erp=erp, group_cap=group_cap,
-                  rho_world=rho_world)
+                  rho_world=rho_world, factor_shrink=factor_shrink)
 
 
 def _kpis(res, n_buy: int, n_sell: int, turnover: float, horizon: int) -> None:
@@ -179,7 +183,7 @@ def _orders_tab(t: pd.DataFrame) -> None:
 def _valuations_table(t: pd.DataFrame, ages: dict) -> None:
     v = t[t["Firma"] != _CASH].copy()
     v["Alter (Tage)"] = v["Firma"].map(ages)
-    v = v[["Firma", "Stand", "Alter (Tage)", "Kurs €", "Wert P50 €", "Upside P50", "P(Wert>Kurs)",
+    v = v[["Firma", "Stand", "Alter (Tage)", "Kurs €", "Wert P50 €", "Upside P50", "EV/EBITDA", "Faktor ×", "P(Wert>Kurs)",
            "E[R] 3J (Mix)", "Vola p. a.", "Gruppe", "Ist-Gewicht", "Ziel-Gewicht"]]
     st.dataframe(
         v, hide_index=True, width="stretch",
@@ -187,7 +191,10 @@ def _valuations_table(t: pd.DataFrame, ages: dict) -> None:
             "Kurs €": st.column_config.NumberColumn(format="%.2f €"),
             "Wert P50 €": st.column_config.NumberColumn(format="%.2f €"),
             "Upside P50": st.column_config.NumberColumn("Modell-Potenzial", format="percent"),
-            "P(Wert>Kurs)": st.column_config.ProgressColumn("P(Wert > Kurs)", min_value=0.0, max_value=1.0, format="percent"),
+            "EV/EBITDA": st.column_config.NumberColumn("EV/EBITDA (Markt)", format="%.1f×"),
+            "Faktor ×": st.column_config.NumberColumn("Value-Korrektur", format="×%.2f",
+                                                      help="Multiplikator auf den Modellwert (Regler s)."),
+            "P(Wert>Kurs)": st.column_config.ProgressColumn("P(Wert > Kurs, korrigiert)", min_value=0.0, max_value=1.0, format="percent"),
             "E[R] 3J (Mix)": st.column_config.NumberColumn("Erwartet 3 J. (Mix)", format="percent"),
             "Vola p. a.": st.column_config.NumberColumn(format="percent"),
             "Ist-Gewicht": st.column_config.NumberColumn(format="percent"),
@@ -232,7 +239,7 @@ def render_portfolio(container) -> None:
         if stale:
             c2.warning("Eingaben geändert – Ergebnis unten ist veraltet.", icon="⚠️")
         elif res_state:
-            c2.caption(f"Berechnet mit p = {_pct(p.p_market)}, ρ {str(p.rho_world).replace('.', ',')}, Kelly {p.fraction:g}, max. {_pct(p.max_w)} je Titel, "
+            c2.caption(f"Berechnet mit p = {_pct(p.p_market)}, ρ {str(p.rho_world).replace('.', ',')}, s {str(p.factor_shrink).replace('.', ',')}, Kelly {p.fraction:g}, max. {_pct(p.max_w)} je Titel, "
                        f"{_pct(p.group_cap)} je Gruppe, "
                        f"Cash-Zins {_pct(p.rf)}. Beträge in EUR, USD zum aktuellen Kurs.")
 
