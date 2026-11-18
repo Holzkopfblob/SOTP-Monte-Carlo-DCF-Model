@@ -306,6 +306,7 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
         **{col: np.where(rand, np.nan, [x[k] for x in hr]) if faktor else np.nan       # am Rand: IRR ohne Aussage
            for col, k in (("IRR P50", "irr"), ("IRR EK", "irr_ek"), ("D/E", "d_e"))},
         "E[R] Horizont": R.mean(axis=0),
+        "Rendite p. a.": edge + p.rf + p.erp,          # Median der Halte-Rendite, annualisiert (EUR)
         "Vorsprung p. a.": edge,
         "Vola p. a.": sigma,
         "Gruppe": groups,

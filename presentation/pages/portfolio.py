@@ -21,7 +21,7 @@ from application.portfolio_service import (
 )
 from domain.base_rates import SEKTOREN
 from infrastructure.market_data import fetch_bund_3y, fetch_closes, fetch_treasury_3y
-from presentation.charts.portfolio import allocation_chart, corr_heatmap, upside_chart, wealth_chart
+from presentation.charts.portfolio import allocation_chart, corr_heatmap, return_chart, upside_chart, wealth_chart
 
 _NEWEST = "(neueste)"
 _SEKTOREN = ["", *sorted({n for *_, n in SEKTOREN if n != "Finanz"} | {"Sonstige"})]
@@ -199,8 +199,9 @@ def _order_card(row: pd.Series, buy: bool) -> None:
         b.markdown(f"<div style='text-align:right;font-size:1.15rem;font-weight:600'>{_eur(abs(row['Order €']))}</div>",
                    unsafe_allow_html=True)
         st.caption(f"{abs(row['Order Stück']):.6g} Stück zu {_eur(row['Kurs €'], 2)} · Gewicht "
-                   f"{_pct(row['Ist-Gewicht'])} → **{_pct(row['Ziel-Gewicht'])}** · Modell "
-                   f"{_pct(row['Upside P50'], True)}, erwartet {_pct(row['E[R] Horizont'], True)} über den Horizont")
+                   f"{_pct(row['Ist-Gewicht'])} → **{_pct(row['Ziel-Gewicht'])}** · erwartet "
+                   f"{_pct(row['Rendite p. a.'])} p. a., Vorsprung {_pct(row['Vorsprung p. a.'], True)} · Modell "
+                   f"{_pct(row['Upside P50'], True)} zum fairen Wert")
 
 
 def _orders_tab(t: pd.DataFrame, steuer: dict) -> None:
@@ -242,7 +243,8 @@ def _valuations_table(t: pd.DataFrame, ages: dict) -> None:
     v = t[t["Firma"] != _CASH].copy()
     v["Alter (Tage)"] = v["Firma"].map(ages)
     v = v[["Firma", "Stand", "Alter (Tage)", "Kurs €", "Wert P50 €", "Upside P50", "EV/EBITDA", "Faktor ×", "P(Wert>Kurs)",
-           "IRR P50", "IRR EK", "D/E", "E[R] Horizont", "Vola p. a.", "Gruppe", "Ist-Gewicht", "Ziel-Gewicht"]]
+           "IRR P50", "IRR EK", "D/E", "Rendite p. a.", "Vorsprung p. a.", "E[R] Horizont", "Vola p. a.", "Gruppe",
+           "Ist-Gewicht", "Ziel-Gewicht"]]
     st.dataframe(
         v, hide_index=True, width="stretch",
         column_config={
@@ -258,7 +260,11 @@ def _valuations_table(t: pd.DataFrame, ages: dict) -> None:
             "IRR EK": st.column_config.NumberColumn("IRR Eigenkapital", format="percent",
                                                     help="Mit Hebel D/E zum Markt: r + D/E · (r − Fremdkapitalkosten)."),
             "D/E": st.column_config.NumberColumn("Hebel D/E", format="%.2f"),
-            "E[R] Horizont": st.column_config.NumberColumn("Erwartet (Horizont)", format="percent"),
+            "Rendite p. a.": st.column_config.NumberColumn("Rendite p. a.", format="percent",
+                                                           help="Median der Halte-Rendite pro Jahr (EUR)."),
+            "Vorsprung p. a.": st.column_config.NumberColumn("Vorsprung p. a.", format="percent",
+                                                             help="Rendite p. a. − (Zins + Risikoprämie). > 0 = unterbewertet."),
+            "E[R] Horizont": st.column_config.NumberColumn("Erwartet gesamt (Horizont, Mittel)", format="percent"),
             "Vola p. a.": st.column_config.NumberColumn(format="percent"),
             "Ist-Gewicht": st.column_config.NumberColumn(format="percent"),
             "Ziel-Gewicht": st.column_config.ProgressColumn("Ziel", min_value=0.0, max_value=0.5, format="percent"),
@@ -357,12 +363,17 @@ def render_portfolio(container) -> None:
             st.caption("Ziel nach Fractional Kelly (CRRA) auf der Szenario-Mischung; Grenzen: max. Gewicht je Titel, "
                        "kein Hebel. Titel, deren Order an der Mindestorder scheitert, bleiben auf dem Ist-Gewicht.")
         with tabs[2]:
-            st.plotly_chart(upside_chart(t), width="stretch", config={"displayModeBar": False})
-            raute = ("aus der IRR zum Kurs (Eigenkapital) und den Cashflow-Szenarien" if pr.faktor_szenarien else
-                     f"nach Mischung mit p = {_pct(pr.p_market)} „Markt hat recht“ (Marktrendite "
-                     f"{_pct(pr.rf + pr.erp)} p. a.)")
-            st.caption(f"Balken: Modell-Potenzial (Wert P50 / Kurs − 1). Raute: erwartete Rendite in {pr.horizon_years} "
-                       f"Jahren {raute}.")
+            if pr.faktor_szenarien:
+                st.plotly_chart(return_chart(t, pr.rf + pr.erp), width="stretch", config={"displayModeBar": False})
+                st.caption(f"Erwartete Rendite pro Jahr (Median über {pr.horizon_years} J., in EUR, aus der IRR zum Kurs "
+                           f"mit Hebel und Cashflow-Szenarien) gegen die Hürde Zins + Risikoprämie ({_pct(pr.rf + pr.erp)}). "
+                           "Blau = über der Hürde (unterbewertet), in Klammern der Vorsprung. Wie viel Gewicht ein Titel "
+                           "bekommt, hängt zusätzlich an Risiko, Korrelation und Gruppengrenze.")
+            else:
+                st.plotly_chart(upside_chart(t), width="stretch", config={"displayModeBar": False})
+                st.caption(f"Balken: Modell-Potenzial (Wert P50 / Kurs − 1). Raute: erwartete Rendite in "
+                           f"{pr.horizon_years} Jahren nach Mischung mit p = {_pct(pr.p_market)} „Markt hat recht“ "
+                           f"(Marktrendite {_pct(pr.rf + pr.erp)} p. a.).")
             _valuations_table(t, ages)
         with tabs[3]:
             st.plotly_chart(wealth_chart(res.wealth_samples, res.wealth_ist, res.wealth_ziel, pr.horizon_years),
