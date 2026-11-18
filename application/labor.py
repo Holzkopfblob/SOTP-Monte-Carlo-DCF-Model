@@ -129,3 +129,68 @@ def ergebnisse(panel: pd.DataFrame, lab: pd.DataFrame, t: int, h: int = 5) -> pd
     o = pd.DataFrame(out)
     o["tsr_roh"] = (o.float_ende + o.ausschuettung) / o.float_t - 1
     return o
+
+
+# ── Kalibrierung (Baustein 3 und 5) und Parameterdatei ─────────────────────────────────────────────────────────────
+
+Z90 = 1.645
+PARAMETER_DATEI = "labor_parameter.json"      # in <SOTP_DATA>; App und depot_run lesen sie (labor_parameter())
+GRENZEN = {"k_vorsprung": (0.0, 1.0), "sigma_idio_5j": (0.05, 0.5), "idio_exponent": (0.0, 1.0)}
+
+
+def abdeckung(d: pd.DataFrame, sigma: float, bias: float) -> float:
+    """Anteil der tatsächlichen Renditen im um σ verbreiterten P5–P95-Band der Rendite zum Kurs (bias abgezogen)."""
+    e = d.tsr_pa_vorsichtig - d.re_p50 - bias
+    lo = np.sqrt((d.re_p50 - d.re_p5) ** 2 + (Z90 * sigma) ** 2)
+    hi = np.sqrt((d.re_p95 - d.re_p50) ** 2 + (Z90 * sigma) ** 2)
+    return float(np.mean((e > -lo) & (e < hi)))
+
+
+def sigma_fuer(d: pd.DataFrame, bias: float, ziel: float = 0.90) -> float:
+    a, b = 0.0, 2.0
+    for _ in range(50):
+        m = (a + b) / 2
+        a, b = (m, b) if abdeckung(d, m, bias) < ziel else (a, m)
+    return (a + b) / 2
+
+
+def lad(x: np.ndarray, y: np.ndarray, it: int = 100) -> np.ndarray:
+    """Median-Regression y = a + k·x (IRLS); Rückgabe [a, k]."""
+    X = np.column_stack([np.ones(len(x)), x])
+    b = np.linalg.lstsq(X, y, rcond=None)[0]
+    for _ in range(it):
+        w = 1 / np.maximum(np.abs(y - X @ b), 1e-4)
+        b = np.linalg.lstsq(X * w[:, None] ** .5, y * w ** .5, rcond=None)[0]
+    return b
+
+
+def kalibriere(d3: pd.DataFrame, d5: pd.DataFrame) -> dict:
+    """Portfolio-Parameter aus den Labor-Fällen mit Ergebnis über 3 und 5 Jahre (labor_auswertung.faelle_mit_ergebnis):
+    k = Steigung der Median-Regression Überrendite (5 J.) auf Vorsprung; σ_x(5) und Exponent aus 90-%-Abdeckung."""
+    d3, d5 = (x[(x.am_rand <= 0.05) & x.tsr_pa_vorsichtig.notna()] for x in (d3, d5))
+    x5 = d5[d5.ueber_vorsichtig.notna()]
+    k = float(lad(x5.vorsprung.clip(*x5.vorsprung.quantile([.01, .99])).to_numpy(), x5.ueber_vorsichtig.to_numpy())[1])
+    s = {}
+    for h, d in ((3, d3), (5, d5)):
+        bias = float(np.median(d.tsr_pa_vorsichtig - d.re_p50))
+        s[h] = sigma_fuer(d, bias)
+    a = float(np.log(s[3] / s[5]) / np.log(5 / 3))
+    return {"k_vorsprung": round(k, 3), "sigma_idio_5j": round(s[5], 3), "idio_exponent": round(a, 2),
+            "n_faelle_5j": int(len(d5)), "jahrgaenge": sorted(int(t) for t in d5.t.unique())}
+
+
+def plausibel(p: dict) -> list[str]:
+    """Verstöße gegen die Grenzen (leer = übernehmen)."""
+    return [f"{k} {p[k]} außerhalb {lo}–{hi}" for k, (lo, hi) in GRENZEN.items() if not lo <= p[k] <= hi]
+
+
+def labor_parameter() -> dict:
+    """Aktuelle Labor-Parameter für Params (k_vorsprung, sigma_idio_5j, idio_exponent); ohne Datei leer ⇒ Standardwerte."""
+    import json
+
+    from infrastructure.sec_xbrl import data_dir
+    f = data_dir() / PARAMETER_DATEI
+    if not f.exists():
+        return {}
+    p = json.loads(f.read_text(encoding="utf-8"))
+    return {k: p[k] for k in GRENZEN if k in p}

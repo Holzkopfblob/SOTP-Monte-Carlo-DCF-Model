@@ -14,24 +14,10 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from application import labor  # noqa: E402
 from scripts.labor_auswertung import LERN, PRUEF, faelle_mit_ergebnis  # noqa: E402
 
-Z = 1.645
-
-
-def abdeckung(d, sigma, bias):
-    e = d.tsr_pa_vorsichtig - d.re_p50 - bias
-    lo = np.sqrt((d.re_p50 - d.re_p5) ** 2 + (Z * sigma) ** 2)
-    hi = np.sqrt((d.re_p95 - d.re_p50) ** 2 + (Z * sigma) ** 2)
-    return float(np.mean((e > -lo) & (e < hi)))
-
-
-def sigma_fuer(d, bias, ziel=0.90):
-    a, b = 0.0, 2.0
-    for _ in range(50):
-        m = (a + b) / 2
-        a, b = (m, b) if abdeckung(d, m, bias) < ziel else (a, m)
-    return (a + b) / 2
+abdeckung, sigma_fuer = labor.abdeckung, labor.sigma_fuer
 
 
 erg = {}

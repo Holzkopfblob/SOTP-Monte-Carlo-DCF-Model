@@ -22,12 +22,12 @@ VARIANTEN = {"vorsichtig": {"insolvenz": 0.0, "uebernahme": 1.0, "unbekannt": 0.
              "guenstig": {"insolvenz": 0.0, "uebernahme": 1.3, "unbekannt": 1.0}}
 
 
-def index_pa(h: int = H) -> dict[int, float]:
+def index_pa(h: int = H, jahre=range(2014, 2021)) -> dict[int, float]:
     """S&P 500 Total Return p. a. vom 30.06.t bis 30.06.t+h."""
     import yfinance as yf
     s = yf.download("^SP500TR", start="2014-01-01", progress=False, auto_adjust=True)["Close"].squeeze()
     at = lambda y: float(s[:f"{y}-06-30"].iloc[-1])         # noqa: E731
-    return {t: (at(t + h) / at(t)) ** (1 / h) - 1 for t in range(2014, 2021)}
+    return {t: (at(t + h) / at(t)) ** (1 / h) - 1 for t in jahre}
 
 
 def faelle_mit_ergebnis(h: int = H) -> pd.DataFrame:
@@ -39,7 +39,7 @@ def faelle_mit_ergebnis(h: int = H) -> pd.DataFrame:
     d = b.merge(o, on=["cik", "t"], how="inner")
     grund = abgang_grund(d.loc[d.abgang, "cik"].unique())
     d["grund"] = np.where(d.abgang, d.cik.map(grund).fillna("unbekannt"), "")
-    idx = index_pa(h)
+    idx = index_pa(h, sorted(b.t.unique()))
     d["index_pa"] = d.t.map(idx)
     for v, mult in VARIANTEN.items():
         m = np.where(d.abgang, d.grund.map(mult).fillna(mult["unbekannt"]), 1.0)

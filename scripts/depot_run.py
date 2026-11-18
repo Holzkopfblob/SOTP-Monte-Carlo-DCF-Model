@@ -16,7 +16,8 @@ import pandas as pd  # noqa: E402
 
 from application.portfolio_service import Params, find_valuations, load_depot, rebalance  # noqa: E402
 from application.universe_simulation import simulate_universe  # noqa: E402
-from infrastructure.market_data import fetch_bund_3y, fetch_closes, fetch_treasury_3y  # noqa: E402
+from application.labor import labor_parameter  # noqa: E402
+from infrastructure.market_data import fetch_bund_3y, fetch_closes, fetch_damodaran_erp, fetch_treasury_3y  # noqa: E402
 
 
 def main() -> None:
@@ -26,7 +27,7 @@ def main() -> None:
     ap.add_argument("--detail", type=float)
     ap.add_argument("--n", type=int, default=20_000)
     ap.add_argument("--min-order", type=float, default=Params.min_order_eur)
-    ap.add_argument("--erp", type=float, default=Params.erp)
+    ap.add_argument("--erp", type=float, default=None, help="Standard: Damodaran live (monatlich)")
     a = ap.parse_args()
 
     depot = load_depot(a.depot)
@@ -35,6 +36,10 @@ def main() -> None:
     folder = Path(depot["bewertungen_ordner"])
     files = [folder / p["datei"] if p.get("datei") else Path(vals[p["firma"]][-1]) for p in pos]
     rf, rf_usd = fetch_bund_3y()[0], fetch_treasury_3y()[0]
+    erp, erp_day, frisch = fetch_damodaran_erp()
+    erp = a.erp if a.erp is not None else erp
+    lp = labor_parameter()
+    print(f"ERP {erp:.2%} (Damodaran {erp_day}{'' if frisch else ', gespeichert'}); Labor-Parameter: {lp or 'Standard'}")
     closes = fetch_closes(sorted({p["ticker"] for p in pos}))
     v = simulate_universe([(p["firma"], f, p.get("sektor")) for p, f in zip(pos, files)], n=a.n, seed=0)
     print(f"rf EUR {rf:.4f}, USD {rf_usd:.4f}; {len(pos)} Titel; Bewertungen: "
@@ -42,7 +47,7 @@ def main() -> None:
 
     def run(k):
         p = Params(kappa=k, horizon_years=10, rf=rf, rf_usd=rf_usd, faktor_szenarien=True, min_order_eur=a.min_order,
-                   erp=a.erp)
+                   erp=erp, **lp)
         return rebalance(pos, v, closes, depot["cash_eur"], p, date.today(), depot.get("verlusttopf_eur", 0.0),
                          etf_stueck=depot.get("etf_stueck", 0.0))
 

@@ -89,12 +89,19 @@ LAB_CONCEPTS = {   # Kennzahl → (Tags in Vorrang, Periode, Taxonomie)
 }
 
 
-def build_lab_panel(years: range = range(2009, 2026)) -> pd.DataFrame:
+def _jahre() -> range:
+    """2009 bis zum laufenden Jahr (frühere Standardgrenze 2025 hätte neue Jahre nie geladen)."""
+    from datetime import date
+    return range(2009, date.today().year + 1)
+
+
+def build_lab_panel(years: range | None = None) -> pd.DataFrame:
     """Labor-Panel cik × Jahr mit den LAB_CONCEPTS (je Kennzahl gewinnt der erste Tag mit Wert); Nettoschulden =
     LongTermDebt (sonst lang + kurzfristiger Anteil) + kurzfristige Kredite − Kasse. Gecacht als labor_panel.parquet."""
     f = data_dir() / "labor_panel.parquet"
     if f.exists():
         return pd.read_parquet(f)
+    years = years or _jahre()
     parts = []
     for concept, (tags, period, tax) in LAB_CONCEPTS.items():
         for year in years:
@@ -105,6 +112,9 @@ def build_lab_panel(years: range = range(2009, 2026)) -> pd.DataFrame:
                 got = df if got is None else (pd.concat([got, df]) if len(df) else got)
             parts.append(got.assign(jahr=year, kennzahl=concept))
     long = pd.concat(parts, ignore_index=True)
+    long["val"] = pd.to_numeric(long["val"], errors="coerce").astype(float)
+    # Meldefehler der Firmen (z. B. Public Float 1,2·10¹⁶ USD in CY2026Q1I) verwerfen statt das Panel zu sprengen
+    long.loc[long["val"].abs() > 1e13, "val"] = float("nan")
     p = long.pivot_table(index=["cik", "jahr"], columns="kennzahl", values="val", aggfunc="first").reset_index()
     # ponytail: Schuldendefinition grob (ohne Leasing/Pensionen); Upgrade: OperatingLeaseLiability, Pensionsdefizit
     # Gesamttag (inkl. kurzfristiger Teile) zuerst, sonst lang + kurz; kurzfristige Kredite nur, wenn kein Kurz-Tag
@@ -124,8 +134,9 @@ def build_lab_panel(years: range = range(2009, 2026)) -> pd.DataFrame:
     return p
 
 
-def build_panel(years: range = range(2009, 2026)) -> pd.DataFrame:
+def build_panel(years: range | None = None) -> pd.DataFrame:
     """Jahres-Panel cik × Jahr mit umsatz, ebit, da, capex (USD). Je Kennzahl gewinnt der erste Tag mit Wert."""
+    years = years or _jahre()
     parts = []
     for concept, tags in CONCEPTS.items():
         for year in years:
@@ -136,6 +147,8 @@ def build_panel(years: range = range(2009, 2026)) -> pd.DataFrame:
                 got = df if got is None else (pd.concat([got, df]) if len(df) else got)
             parts.append(got.assign(jahr=year, kennzahl=concept))
     long = pd.concat(parts, ignore_index=True)
+    long["val"] = pd.to_numeric(long["val"], errors="coerce").astype(float)
+    long.loc[long["val"].abs() > 1e13, "val"] = float("nan")       # Meldefehler (> 10 Billionen USD)
     panel = long.pivot_table(index=["cik", "jahr"], columns="kennzahl", values="val", aggfunc="first").reset_index()
     names = long.drop_duplicates("cik", keep="last").set_index("cik")[["name", "loc"]]
     return panel.join(names, on="cik")

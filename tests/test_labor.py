@@ -32,3 +32,24 @@ def test_ergebnisse_ausschuettung_und_abgang():
     assert o.loc[1, "umsatz_cagr5"] == pytest.approx(0.05)
     # Firma 3: letzter Float 2016 ⇒ Abgang, nur Ausschüttung 2015 zählt
     assert o.loc[3, "abgang"] and o.loc[3, "ende_jahr"] == 2016 and o.loc[3, "tsr_roh"] == pytest.approx(0.005)
+
+
+def test_parameterdatei_und_plausibilitaet(tmp_path, monkeypatch):
+    import json
+
+    from application.labor import PARAMETER_DATEI, labor_parameter, plausibel
+    monkeypatch.setenv("SOTP_DATA", str(tmp_path))
+    assert labor_parameter() == {}                                   # ohne Datei ⇒ Params-Standard
+    ok = {"k_vorsprung": 0.14, "sigma_idio_5j": 0.20, "idio_exponent": 0.43}
+    assert plausibel(ok) == []
+    assert plausibel({**ok, "k_vorsprung": 1.4}) and plausibel({**ok, "sigma_idio_5j": 0.01})
+    (tmp_path / PARAMETER_DATEI).write_text(json.dumps({**ok, "stand": "2026-11-18", "n_faelle_5j": 6708}))
+    assert labor_parameter() == ok                                   # nur die Params-Felder
+
+
+def test_letzter_abgeschlossener_jahrgang():
+    from datetime import date
+
+    from scripts.labor_monat import letzter_jahrgang
+    assert letzter_jahrgang(date(2026, 11, 18)) == 2020             # 2021 braucht den Float 30.06.2026 (10-K ~2027)
+    assert letzter_jahrgang(date(2027, 3, 31)) == 2020 and letzter_jahrgang(date(2027, 4, 1)) == 2021

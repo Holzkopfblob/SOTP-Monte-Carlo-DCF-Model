@@ -20,7 +20,8 @@ from application.portfolio_service import (
     Params, find_valuations, load_depot, rebalance, save_depot, simulate_valuation,
 )
 from domain.base_rates import SEKTOREN
-from infrastructure.market_data import fetch_bund_3y, fetch_closes, fetch_treasury_3y
+from application.labor import labor_parameter
+from infrastructure.market_data import fetch_bund_3y, fetch_closes, fetch_damodaran_erp, fetch_treasury_3y
 from application.holdings_service import closed_positions, holdings
 from domain.ledger import TYPEN, apply_to_positions
 from presentation.charts.portfolio import (
@@ -49,6 +50,11 @@ def _bund_3y() -> tuple[float, str]:
         return fetch_bund_3y()
     except Exception:  # offline / API geändert → letzter geprüfter Wert
         return 0.0315, "Fallback 13.11.2026"
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _erp() -> tuple[float, str, bool]:
+    return fetch_damodaran_erp()      # fällt selbst auf den letzten gespeicherten Wert zurück
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -187,8 +193,12 @@ def _settings() -> Params:
         fraction = b.slider("Kelly-Faktor", 0.1, 1.0, 0.5, 0.05, help="½ = halbes Kelly (CRRA γ = 2).")
         max_w = c.slider("Max. Gewicht je Titel (Notbremse)", 0.05, 1.0, 0.35, 0.01)
         d, e, f = st.columns(3)
-        erp = d.number_input("Risikoprämie p. a. (ETF-Messlatte)", 0.0, 0.1, 0.0423, 0.0025, format="%.4f",
-                             help="Messlatte für alle Titel: erwartete Rendite des Weltmarkt-ETF = Zins + diese Prämie (Damodaran, implizit). "
+        erp_default, erp_day, erp_frisch = _erp()
+        if not erp_frisch:
+            st.warning(f"Damodaran-ERP nicht erreichbar – letzter Wert vom {erp_day}.")
+        erp = d.number_input("Risikoprämie p. a. (ETF-Messlatte)", 0.0, 0.1, erp_default, 0.0025, format="%.4f",
+                             help=f"Damodaran, implizite ERP vom {erp_day} (monatlich). "
+                                  "Messlatte für alle Titel: erwartete Rendite des Weltmarkt-ETF = Zins + diese Prämie. "
                                   "Kaufen nur, wenn die Rendite zum Kurs darüber liegt. Ohne Faktor-Modus "
                                   "zusätzlich die Rendite der Markt-Welt.")
         rf = e.number_input("Cash-Zins p. a. (Bund 3 J.)", 0.0, 0.1, rf_default, 0.0025, format="%.4f",
@@ -223,7 +233,8 @@ def _settings() -> Params:
     return Params(kappa=kappa, sparplan_monate=int(spar_m), fraction=fraction, max_w=max_w, min_cash=min_cash, min_order_eur=min_order,
                   allow_short=allow_short, rf=rf, p_market=p_market, erp=erp, group_cap=group_cap,
                   rho_world=rho_world, factor_shrink=factor_shrink, faktor_szenarien=faktor,
-                  horizon_years=10 if faktor else 3, rf_usd=rf_usd)   # v3: ewig halten ⇒ 10 J. auf IRR-Basis
+                  horizon_years=10 if faktor else 3, rf_usd=rf_usd,   # v3: ewig halten ⇒ 10 J. auf IRR-Basis
+                  **labor_parameter())                 # k, σ_x, Exponent aus dem monatlichen Labor-Lauf
 
 
 def _kpis(res, n_buy: int, n_sell: int, turnover: float, horizon: int) -> None:

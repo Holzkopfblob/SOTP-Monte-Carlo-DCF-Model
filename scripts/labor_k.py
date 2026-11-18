@@ -11,17 +11,8 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from application.labor import lad  # noqa: E402
 from infrastructure.sec_xbrl import data_dir  # noqa: E402
-
-
-def lad(x, y, it=100):
-    """Median-Regression y = a + k·x (IRLS)."""
-    X = np.column_stack([np.ones(len(x)), x])
-    b = np.linalg.lstsq(X, y, rcond=None)[0]
-    for _ in range(it):
-        w = 1 / np.maximum(np.abs(y - X @ b), 1e-4)
-        b = np.linalg.lstsq(X * w[:, None] ** .5, y * w ** .5, rcond=None)[0]
-    return b
 
 
 def ols(x, y):
