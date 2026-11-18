@@ -43,3 +43,21 @@ def test_bestand_gewinn_aktion_und_kandidaten(tmp_path):
 
 def test_ohne_ablage_leer(tmp_path):
     assert next_events(tmp_path) == {} and thesis("X", tmp_path) == ""
+
+
+def test_bestand_mit_transaktionsbuch_und_geschlossener_position(tmp_path):
+    from application.holdings_service import closed_positions
+    tx = [{"datum": "2026-11-01", "ticker": "A", "typ": "kauf", "stueck": 10, "kurs_eur": 10.0, "gebuehr_eur": 1.0},
+          {"datum": "2026-11-10", "ticker": "A", "typ": "dividende", "betrag_eur": 3.0},
+          {"datum": "2026-10-01", "ticker": "Z", "typ": "kauf", "stueck": 2, "kurs_eur": 50.0, "gebuehr_eur": 1.0},
+          {"datum": "2026-11-05", "ticker": "Z", "typ": "verkauf", "stueck": 2, "kurs_eur": 60.0, "gebuehr_eur": 1.0}]
+    pos = [{"firma": "A", "ticker": "A", "stueck": 10, "einstand_eur": 10.1, "kaufdatum": "2026-11-01"},
+           {"firma": "Zeta", "ticker": "Z", "stueck": 0, "einstand_eur": None, "kaufdatum": ""}]
+    t = _table().iloc[[0, 3]].reset_index(drop=True)
+    held, _, tot = holdings(t, pos, 0.0, today=date(2026, 11, 18), research=tmp_path, transaktionen=tx)
+    a = held.set_index("Firma").loc["A"]
+    assert a["Dividenden €"] == 3.0 and a["Gebühren €"] == 1.0
+    assert a["Ergebnis gesamt €"] == pytest.approx((12.0 - 10.1) * 10 + 3.0)
+    assert tot["realisiert"] == pytest.approx(2 * 60 - 1 - 101) and tot["dividenden"] == 3.0
+    c = closed_positions(pos, tx)
+    assert list(c["Firma"]) == ["Zeta"] and c.loc[0, "Ergebnis €"] == pytest.approx(18.0)

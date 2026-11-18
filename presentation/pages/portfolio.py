@@ -21,7 +21,8 @@ from application.portfolio_service import (
 )
 from domain.base_rates import SEKTOREN
 from infrastructure.market_data import fetch_bund_3y, fetch_closes, fetch_treasury_3y
-from application.holdings_service import holdings
+from application.holdings_service import closed_positions, holdings
+from domain.ledger import TYPEN, apply_to_positions
 from presentation.charts.portfolio import (
     allocation_chart, corr_heatmap, holdings_chart, return_chart, upside_chart, wealth_chart,
 )
@@ -79,7 +80,7 @@ def _short(name: str) -> str:
 
 # ── Bereiche ──────────────────────────────────────────────────────────────────────────────
 
-def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[dict], float, str]:
+def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[dict], float, str, float, list[dict]]:
     st.markdown("##### Positionen")
     st.caption("Stück 0 = Beobachtung. Titel derselben **Gruppe** wechseln in der Szenario-Mischung gemeinsam "
                "in die Welt „Markt hat recht“ (gemeinsamer Modellfehler, z. B. alle Autobauer).")
@@ -87,8 +88,12 @@ def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[di
     df = pd.DataFrame(depot.get("positionen") or [], columns=cols)
     df["datei"] = df["datei"].fillna("").replace("", _NEWEST)
     df["gruppe"] = df["gruppe"].fillna("")
+    ledger = bool(depot.get("transaktionen"))
+    if ledger:
+        st.caption("Stück, Einstand und Kaufdatum werden aus den **Transaktionen** unten berechnet (FIFO, inkl. Gebühren).")
     edited = st.data_editor(
         df, num_rows="dynamic", width="stretch", key="pf_editor", hide_index=True,
+        disabled=["stueck", "einstand_eur", "kaufdatum"] if ledger else False,
         column_config={
             "firma": st.column_config.SelectboxColumn("Firma", options=sorted(vals), required=True, width="large"),
             "ticker": st.column_config.TextColumn("Ticker (Yahoo)", required=True),
@@ -102,6 +107,41 @@ def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[di
             "datei": st.column_config.SelectboxColumn("Bewertung", options=[_NEWEST, *sorted(files)], default=_NEWEST),
         },
     )
+    st.markdown("##### Transaktionen")
+    st.caption("Jede Order, Dividende und Gebühr eine Zeile. Kurs = Preis je Stück in EUR (Ausführungskurs), "
+               "Gebühr = Ordergebühr (meist 1 €). Dividende oder Gebühr ohne Order: Betrag eintragen. "
+               "Veräußerungsgewinne nach FIFO wie die Bank (§ 20 Abs. 4 EStG).")
+    tx_cols = ["datum", "ticker", "typ", "stueck", "kurs_eur", "gebuehr_eur", "betrag_eur", "steuer_eur", "notiz"]
+    tx = pd.DataFrame(depot.get("transaktionen") or [], columns=tx_cols)
+    tx["datum"] = pd.to_datetime(tx["datum"], errors="coerce").dt.date
+    tx = tx.sort_values("datum", ascending=False, na_position="first").reset_index(drop=True)
+    tickers = sorted({str(r.ticker).strip() for r in edited.itertuples() if isinstance(r.ticker, str) and r.ticker.strip()})
+    tx_edit = st.data_editor(
+        tx, num_rows="dynamic", width="stretch", key="pf_tx_editor", hide_index=True,
+        column_config={
+            "datum": st.column_config.DateColumn("Datum", format="DD.MM.YYYY", required=True),
+            "ticker": st.column_config.SelectboxColumn("Ticker", options=tickers, required=True),
+            "typ": st.column_config.SelectboxColumn("Typ", options=list(TYPEN), required=True, default="kauf"),
+            "stueck": st.column_config.NumberColumn("Stück", min_value=0.0, step=0.000001, format="%.6f"),
+            "kurs_eur": st.column_config.NumberColumn("Kurs €/Stück", min_value=0.0, format="%.4f"),
+            "gebuehr_eur": st.column_config.NumberColumn("Gebühr €", min_value=0.0, format="%.2f", default=1.0),
+            "betrag_eur": st.column_config.NumberColumn("Betrag € (Dividende/Gebühr)", format="%.2f"),
+            "steuer_eur": st.column_config.NumberColumn("Steuer €", min_value=0.0, format="%.2f"),
+            "notiz": st.column_config.TextColumn("Notiz", width="large"),
+        },
+    )
+
+    def _num(v):
+        return None if v is None or pd.isna(v) else float(v)
+
+    transaktionen = [
+        {"datum": r.datum.isoformat() if hasattr(r.datum, "isoformat") else str(r.datum), "ticker": r.ticker,
+         "typ": r.typ, "stueck": _num(r.stueck), "kurs_eur": _num(r.kurs_eur), "gebuehr_eur": _num(r.gebuehr_eur),
+         "betrag_eur": _num(r.betrag_eur), "steuer_eur": _num(r.steuer_eur),
+         "notiz": r.notiz if isinstance(r.notiz, str) else ""}
+        for r in tx_edit.itertuples()
+        if isinstance(r.ticker, str) and r.typ in TYPEN and r.datum is not None and not pd.isna(r.datum)
+    ]
     c1, c2, c3 = st.columns([1, 1, 2])
     cash = c1.number_input("Cash (EUR)", min_value=0.0, value=float(depot.get("cash_eur", 0.0)), step=100.0)
     folder = c3.text_input("Bewertungen-Ordner", depot.get("bewertungen_ordner", ""), key="pf_folder")
@@ -114,14 +154,16 @@ def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[di
          "sektor": r.sektor if isinstance(r.sektor, str) else ""}
         for r in edited.itertuples() if r.firma and isinstance(r.ticker, str) and r.ticker.strip()
     ]
+    if transaktionen:
+        positions, _ = apply_to_positions(positions, transaktionen)
     topf = c2.number_input("Aktienverlusttopf (EUR)", min_value=0.0, value=float(depot.get("verlusttopf_eur", 0.0)),
                            step=100.0, help="Verrechnet Gewinne aus Aktienverkäufen, keine Dividenden (Stand Bank).")
     if c1.button("💾 Depot speichern", width="stretch"):
         save_depot(path, {"bewertungen_ordner": folder, "cash_eur": cash, "verlusttopf_eur": topf,
-                          "positionen": positions})
+                          "positionen": positions, "transaktionen": transaktionen})
         st.session_state.pf_depot = load_depot(path)
         st.toast(f"Gespeichert: {path}", icon="✅")
-    return positions, cash, folder, topf
+    return positions, cash, folder, topf, transaktionen
 
 
 def _settings() -> Params:
@@ -282,12 +324,17 @@ def _valuations_table(t: pd.DataFrame, ages: dict) -> None:
 
 # ── Seite ─────────────────────────────────────────────────────────────────────────────────
 
-def _bestand_tab(t: pd.DataFrame, positions: list[dict], cash: float, topf: float) -> None:
-    held, new, tot = holdings(t, positions, cash)
+def _bestand_tab(t: pd.DataFrame, positions: list[dict], cash: float, topf: float, transaktionen: list[dict]) -> None:
+    held, new, tot = holdings(t, positions, cash, transaktionen=transaktionen)
     k = st.columns(4)
     k[0].metric("Depot gesamt", _eur(tot["gesamt"]), f"davon Cash {_eur(tot['cash'])} "
                 f"({_pct(tot['cash'] / tot['gesamt']) if tot['gesamt'] else '–'})", delta_color="off", border=True)
-    if tot.get("einstand"):
+    if transaktionen and "ergebnis" in tot:
+        k[1].metric("Ergebnis gesamt", _eur(tot["ergebnis"]),
+                    f"offen {_eur(tot['gewinn'])} · realisiert {_eur(tot['realisiert'])} · Dividenden "
+                    f"{_eur(tot['dividenden'])}", delta_color="off", border=True,
+                    help=f"Vor Steuern. Gebühren stecken in Einstand und Erlösen (gesamt {_eur(tot['gebuehren'], 2)}).")
+    elif tot.get("einstand"):
         k[1].metric("Gewinn/Verlust seit Kauf", _eur(tot["gewinn"]), _pct(tot["gewinn_pct"], True), border=True)
     else:
         k[1].metric("Gewinn/Verlust seit Kauf", "–", "Einstand fehlt", delta_color="off", border=True)
@@ -309,6 +356,10 @@ def _bestand_tab(t: pd.DataFrame, positions: list[dict], cash: float, topf: floa
             "Gewinn €": st.column_config.NumberColumn(format="%+.0f €"),
             "Gewinn %": st.column_config.NumberColumn(format="percent"),
             "Haltedauer (Tage)": st.column_config.NumberColumn("Gehalten (Tage)", format="%d"),
+            "Realisiert €": st.column_config.NumberColumn(format="%+.2f €"),
+            "Dividenden €": st.column_config.NumberColumn(format="%.2f €"),
+            "Gebühren €": st.column_config.NumberColumn(format="%.2f €"),
+            "Ergebnis gesamt €": st.column_config.NumberColumn("Ergebnis gesamt", format="%+.2f €"),
             "Fairer Wert €": st.column_config.NumberColumn("Fairer Wert P50", format="%.2f €"),
             "Potenzial": st.column_config.NumberColumn("Zum fairen Wert", format="percent"),
             "Rendite p. a.": st.column_config.NumberColumn(format="percent"),
@@ -325,7 +376,17 @@ def _bestand_tab(t: pd.DataFrame, positions: list[dict], cash: float, topf: floa
         st.dataframe(new[["Firma", "Kurs €", "Fairer Wert €", "Rendite p. a.", "Beta", "Alpha p. a.", "Ziel-Gewicht",
                           "Aktion", "Nächster Termin", "These"]],
                      hide_index=True, width="stretch", column_config=cfg)
-    st.caption("Gewinn = (Kurs − Einstand) × Stück, ohne Dividenden und Gebühren. Aktion aus der Optimierung (Reiter "
+    closed = closed_positions(positions, transaktionen)
+    if not closed.empty:
+        st.markdown(f"##### Abgeschlossene Positionen · {_eur(closed['Ergebnis €'].sum(), 2)}")
+        money = {c: st.column_config.NumberColumn(format="%+.2f €" if c in ("Realisiert €", "Ergebnis €") else "%.2f €")
+                 for c in ["Investiert €", "Erlös €", "Realisiert €", "Dividenden €", "Ergebnis €"]}
+        st.dataframe(closed.drop(columns=["Ticker"]), hide_index=True, width="stretch",
+                     column_config={**money, "Ergebnis %": st.column_config.NumberColumn(format="percent")})
+    for w in tot.get("warnungen", []):
+        st.warning(w, icon="⚠️")
+    st.caption("Gewinn offen = (Kurs − Einstand inkl. Kaufgebühr) × Stück. Ergebnis gesamt = offen + realisiert (FIFO, "
+               "nach Gebühren) + Dividenden, vor Steuern. Aktion aus der Optimierung (Reiter "
                "„Orders“). Termine und These aus der Research-Ablage (SOTP-Research: termine.csv, Firmen/<Ticker>.md).")
 
 
@@ -349,13 +410,13 @@ def render_portfolio(container) -> None:
 
         tabs = st.tabs(["📊 Bestand", "📋 Orders", "⚖️ Allokation", "🔎 Bewertungen", "🎲 Risiko", "✏️ Depot"])
         with tabs[5]:
-            positions, cash, folder, topf = _depot_tab(depot, path, vals, files)
+            positions, cash, folder, topf, transaktionen = _depot_tab(depot, path, vals, files)
         if not vals:
             st.warning("Keine Bewertungen im Ordner gefunden – Ordner im Reiter „Depot“ prüfen.")
             return
 
         p = _settings()
-        sig = hashlib.sha1(json.dumps([positions, cash, folder, topf, p.__dict__], sort_keys=True, default=str)
+        sig = hashlib.sha1(json.dumps([positions, cash, folder, topf, transaktionen, p.__dict__], sort_keys=True, default=str)
                            .encode()).hexdigest()
         res_state = st.session_state.get("pf_result")
         stale = res_state is not None and res_state["sig"] != sig
@@ -415,7 +476,7 @@ def render_portfolio(container) -> None:
         with tabs[1]:
             _orders_tab(t, res.steuer)
         with tabs[0]:
-            _bestand_tab(t, positions, cash, topf)
+            _bestand_tab(t, positions, cash, topf, transaktionen)
         with tabs[2]:
             st.plotly_chart(allocation_chart(t), width="stretch", config={"displayModeBar": False})
             st.caption("Ziel nach Fractional Kelly (CRRA) auf der Szenario-Mischung; Grenzen: max. Gewicht je Titel, "

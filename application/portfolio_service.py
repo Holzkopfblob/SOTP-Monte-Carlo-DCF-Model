@@ -24,6 +24,7 @@ from domain.beta import (
     MARKET_TICKER, debt_beta, industry_asset_beta, ols_beta, relever, treynor_black_anchor, vasicek,
 )
 from domain.factor_model import _rng
+from domain.ledger import apply_to_positions
 from domain.irr import RAND_MAX_ANTEIL, hold_returns
 from domain.portfolio import (
     correlate_samples, factor_tilt, horizon_returns, kelly_weights, market_world_returns, mix_worlds, orders, wealth,
@@ -43,7 +44,10 @@ def load_depot(path: str | Path) -> dict:
     if not p.exists():
         return {"bewertungen_ordner": str(p.parent / "SOTP-Monte-Carlo-DCF_Bewertungen"),
                 "cash_eur": 0.0, "positionen": []}
-    return json.loads(p.read_text(encoding="utf-8"))
+    depot = json.loads(p.read_text(encoding="utf-8"))
+    if depot.get("transaktionen"):   # Bestand, Einstand und Kaufdatum kommen aus dem Transaktionsbuch (FIFO)
+        depot["positionen"], _ = apply_to_positions(depot.get("positionen") or [], depot["transaktionen"])
+    return depot
 
 
 def save_depot(path: str | Path, depot: dict) -> None:

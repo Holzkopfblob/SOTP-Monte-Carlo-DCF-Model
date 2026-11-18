@@ -14,6 +14,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from domain.ledger import book
+
 RESEARCH = Path(os.environ.get("SOTP_RESEARCH",
                                r"C:\Users\westphal\Documents\Holzkopf\05_PRIVAT\Finanzen\SOTP-Research"))
 CASH = "Cash (EUR)"
@@ -49,6 +51,14 @@ def thesis(ticker: str, research: Path = RESEARCH, max_len: int = 160) -> str:
     return first if len(first) <= max_len else first[: max_len - 1] + "…"
 
 
+def _ledger_cols(k, unrealisiert: float) -> dict:
+    """Realisiert, Dividenden, Gebühren und Gesamtergebnis (unrealisiert + realisiert + Dividenden) je Titel."""
+    if k is None:
+        return {"Realisiert €": np.nan, "Dividenden €": np.nan, "Gebühren €": np.nan, "Ergebnis gesamt €": np.nan}
+    return {"Realisiert €": k.realisiert, "Dividenden €": k.dividenden, "Gebühren €": k.gebuehren,
+            "Ergebnis gesamt €": unrealisiert + k.realisiert + k.dividenden}
+
+
 def _action(row: pd.Series) -> str:
     if row.get("Umsetzung") == "Sparplan":
         return f"Sparplan {row['Sparplan €/Monat']:,.0f} €/Monat".replace(",", ".")
@@ -60,10 +70,30 @@ def _action(row: pd.Series) -> str:
     return "Halten"
 
 
+def closed_positions(positions: list[dict], transaktionen: list[dict]) -> pd.DataFrame:
+    """Vollständig verkaufte Positionen mit Ergebnis (realisiert + Dividenden − sonstige Gebühren)."""
+    names = {p["ticker"]: p["firma"] for p in positions}
+    rows = []
+    for tic, k in book(transaktionen or []).items():
+        if not k.geschlossen:
+            continue
+        tx = [t for t in transaktionen if t["ticker"] == tic]
+        rows.append({"Firma": names.get(tic, tic), "Ticker": tic,
+                     "Gekauft": min(str(t["datum"]) for t in tx if t["typ"] == "kauf"),
+                     "Verkauft": max(str(t["datum"]) for t in tx if t["typ"] == "verkauf"),
+                     "Investiert €": k.investiert, "Erlös €": k.erloese,
+                     "Realisiert €": k.realisiert, "Dividenden €": k.dividenden,
+                     "Ergebnis €": k.realisiert + k.dividenden,
+                     "Ergebnis %": (k.realisiert + k.dividenden) / k.investiert if k.investiert else np.nan})
+    return pd.DataFrame(rows)
+
+
 def holdings(table: pd.DataFrame, positions: list[dict], cash_eur: float, today: date | None = None,
-             research: Path = RESEARCH) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
-    """(gehaltene Positionen, neue Kandidaten mit Ziel > 0, Summen). Gewinn = (Kurs − Einstand) × Stück."""
+             research: Path = RESEARCH, transaktionen: list[dict] | None = None) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    """(gehaltene Positionen, neue Kandidaten mit Ziel > 0, Summen). Gewinn = (Kurs − Einstand) × Stück;
+    mit Transaktionsbuch zusätzlich realisierte Gewinne (FIFO), Dividenden, Gebühren und Gesamtergebnis je Titel."""
     today = today or date.today()
+    konten = book(transaktionen or [])
     t = table[table["Firma"] != CASH].set_index("Firma")
     events = next_events(research, today)
     rows = []
@@ -85,6 +115,7 @@ def holdings(table: pd.DataFrame, positions: list[dict], cash_eur: float, today:
             "Einstand €": ein, "Gewinn €": (float(r["Kurs €"]) - ein) * st_ if st_ else np.nan,
             "Gewinn %": float(r["Kurs €"]) / ein - 1 if st_ and ein and np.isfinite(ein) else np.nan,
             "Haltedauer (Tage)": held_days,
+            **_ledger_cols(konten.get(pos["ticker"]), (float(r["Kurs €"]) - ein) * st_ if st_ and np.isfinite(ein) else 0.0),
             "Fairer Wert €": float(r["Wert P50 €"]), "Potenzial": float(r["Upside P50"]),
             "Rendite p. a.": r.get("Rendite p. a.", np.nan), "Beta": r.get("Beta", np.nan),
             "Alpha p. a.": r.get("Vorsprung p. a.", np.nan),
@@ -101,7 +132,13 @@ def holdings(table: pd.DataFrame, positions: list[dict], cash_eur: float, today:
     einstand = float((held.loc[known, "Einstand €"] * held.loc[known, "Stück"]).sum())
     gewinn = float(held.loc[known, "Gewinn €"].sum())
     wert = float(held["Wert €"].sum())
+    realisiert = float(sum(k.realisiert for k in konten.values()))
+    dividenden = float(sum(k.dividenden for k in konten.values()))
+    gebuehren = float(sum(k.gebuehren for k in konten.values()))
     totals = {"wert": wert, "cash": cash_eur, "gesamt": wert + cash_eur, "einstand": einstand, "gewinn": gewinn,
+              "realisiert": realisiert, "dividenden": dividenden, "gebuehren": gebuehren,
+              "ergebnis": gewinn + realisiert + dividenden,
+              "warnungen": [f"{t}: {w}" for t, k in konten.items() for w in k.warnungen],
               "gewinn_pct": gewinn / einstand if einstand else np.nan, "n": int(len(held)),
               "ohne_einstand": held.loc[~known, "Firma"].tolist(),
               "alpha_gewichtet": float(np.nansum(held["Alpha p. a."] * held["Wert €"]) / wert) if wert else np.nan}
