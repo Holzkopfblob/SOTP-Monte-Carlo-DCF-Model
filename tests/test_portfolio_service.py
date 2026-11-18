@@ -164,3 +164,16 @@ def test_empty_group_falls_back_to_sector():
                     today=date(2026, 11, 14))
     t = res.table.set_index("Firma")
     assert t.loc[["B", "C"], "Ziel-Gewicht"].sum() <= 0.2 + 1e-6 and (t.loc[["B", "C"], "Gruppe"] == "Telko").all()
+
+
+def test_small_buy_becomes_sparplan_not_frozen():
+    """Kauf unter der Mindestorder ⇒ Sparplan aus dem Rest-Cash statt Einfrieren auf 0; Konto nie überzogen."""
+    positions, valuations, closes = _setup()
+    res = rebalance(positions, valuations, closes, cash_eur=1100.0,
+                    p=Params(max_w=0.6, min_order_eur=1000.0, kappa=0.02, horizon_years=3), today=date(2026, 11, 14))
+    t = res.table.set_index("Firma")
+    assert (t.loc[["B", "C"], "Ziel-Gewicht"] > 0).all()              # beide unterbewertet ⇒ beide > 0 (robust)
+    spar = t.loc[["B", "C"], "Umsetzung"] == "Sparplan"
+    assert spar.any() and (t.loc[["B", "C"]][spar]["Sparplan €/Monat"] > 0).all()
+    assert 1100.0 + t.loc["Cash (EUR)", "Order €"] >= -1e-6            # Orders + Sparpläne ≤ Cash
+    assert t.loc["A", "Ziel-Gewicht"] == t.loc["A", "Ist-Gewicht"]     # zu kleiner Verkauf bleibt eingefroren

@@ -4,8 +4,8 @@ Portfolio-Balancing auf Basis der SOTP-Bewertungsverteilungen.
 Reine Funktionen ohne I/O. Ablauf:
   Bewertungs-Samples je Firma  →  correlate_samples (Iman-Conover)
   →  horizon_returns (R = max(V,0)/P − 1 über den Horizont)
-  →  kelly_weights (CRRA mit γ = 1/Kelly-Faktor unter Grenzen)
-  →  orders (ganze Stück, Mindestordergröße).
+  →  kelly_weights (CRRA mit γ = 1/Kelly-Faktor unter Grenzen; optional robust, s. robust_anchor)
+  →  orders (Bruchstücke, Mindestordergröße; kleine Käufe als Sparplan).
 """
 from __future__ import annotations
 
@@ -93,6 +93,15 @@ def wealth(R: np.ndarray, w: np.ndarray, rf_h: float) -> np.ndarray:
     return 1.0 + rf_h + (R - rf_h) @ w
 
 
+def robust_anchor(edge: np.ndarray, budget: float, cash_floor: float = 0.02) -> np.ndarray:
+    """Anker des robusten Kelly: Anteil proportional zum Vorsprung e⁺ (Titel mit e ≤ 0 ⇒ 0), Cash als letzte
+    Spalte mit max(1 − budget, cash_floor). Summe 1. Ohne positiven Vorsprung: alles Cash."""
+    e = np.clip(np.nan_to_num(np.asarray(edge, float), nan=0.0), 0.0, None)
+    c = max(1.0 - budget, cash_floor)
+    a = (1.0 - c) * e / e.sum() if e.sum() > 0 else np.zeros_like(e)
+    return np.append(a, 1.0 - a.sum())
+
+
 def kelly_weights(
     R: np.ndarray,
     rf_h: float = 0.0,
@@ -103,6 +112,9 @@ def kelly_weights(
     lo: np.ndarray | None = None,
     hi: np.ndarray | None = None,
     group_caps: list[tuple[list[int], float]] | None = None,
+    kappa: float = 0.0,
+    anchor: np.ndarray | None = None,
+    horizon: float = 1.0,
 ) -> np.ndarray:
     """Fractional Kelly als CRRA-Optimum mit γ = 1/fraction (γ = 1 ⇒ log ⇒ volles
     Kelly), direkt unter den Grenzen gelöst:
@@ -110,7 +122,13 @@ def kelly_weights(
     *lo*/*hi* (je Titel) ersetzen diese Standardgrenzen, z. B. lo = hi = Ist-Gewicht
     für eine eingefrorene Position. *group_caps*: [(Titel-Indizes, Grenze)] ⇒ Σ|w| je Gruppe ≤ Grenze
     (eingefrorene Gewichte zählen mit; liegen sie schon darüber, gilt deren Summe als Grenze).
-    Σ|w| über die Zerlegung w = u − v (u, v ≥ 0), damit alles glatt bleibt."""
+    Σ|w| über die Zerlegung w = u − v (u, v ≥ 0), damit alles glatt bleibt.
+
+    Robust (*kappa* > 0, nur long): max CE_ann(w) − κ · KL(w ‖ a) mit Cash als eigener Position.
+    CE_ann = annualisiertes Sicherheitsäquivalent über *horizon* Jahre (κ also in Rendite p. a. je nat).
+    Hansen–Sargent: Misstrauen ins Modell ⇔ Entropie-Strafe; Steigung ln(w/a) → −∞ bei w → 0 ⇒ jeder
+    Titel mit Anker a_i > 0 bekommt ein positives Gewicht. *anchor* = robust_anchor(...) (Länge k + 1);
+    Titel mit a_i = 0 oder eingefroren tragen nicht zur Strafe bei. κ = 0 ⇒ klassisches Kelly."""
     n, k = R.shape
     gamma = 1.0 / fraction
     X = R - rf_h
@@ -126,10 +144,28 @@ def kelly_weights(
         else:
             u, mu = W ** (1 - gamma) / (1 - gamma), W ** (-gamma)
         g = (X * mu[:, None]).mean(axis=0)
-        return -u.mean(), -np.concatenate([g, -g])
+        if kappa <= 0:
+            return -u.mean(), -np.concatenate([g, -g])
+        # Sicherheitsäquivalent CE = u⁻¹(E u), dCE/dw = CE^γ · E[X W^−γ]; annualisiert CE^(1/h) − 1
+        eu = u.mean()
+        ce = np.exp(eu) if abs(gamma - 1.0) < 1e-12 else max((1 - gamma) * eu, 1e-300) ** (1 / (1 - gamma))
+        ce_ann = ce ** (1 / horizon) - 1
+        g_ce = ce ** (1 / horizon - 1) / horizon * ce ** gamma * g
+        wc = max(1.0 - w.sum(), 1e-12)
+        wp = np.maximum(w, 1e-12)
+        kl = float(np.sum(np.where(pen, wp * np.log(wp / a_t), 0.0))) + wc * np.log(wc / a_c)
+        g_kl = np.where(pen, np.log(wp / a_t), 0.0) - np.log(wc / a_c)
+        val, grad = ce_ann - kappa * kl, g_ce - kappa * g_kl
+        return -val, -np.concatenate([grad, -grad])
 
     lo = np.full(k, -max_w if allow_short else 0.0) if lo is None else np.asarray(lo, float)
     hi = np.full(k, max_w) if hi is None else np.asarray(hi, float)
+    if kappa > 0:
+        if allow_short:
+            raise ValueError("Robustes Kelly (kappa > 0) nur ohne Leerverkauf")
+        anchor = robust_anchor(np.ones(k), budget) if anchor is None else np.asarray(anchor, float)
+        a_t, a_c = np.maximum(anchor[:k], 1e-300), max(float(anchor[k]), 1e-12)
+        pen = (anchor[:k] > 0) & ~np.isclose(lo, hi)
     b_lo = np.concatenate([np.maximum(lo, 0), np.maximum(-hi, 0)])     # u ≥ lo⁺, v ≥ (−hi)⁺
     b_hi = np.concatenate([np.maximum(hi, 0), np.maximum(-lo, 0)])     # u ≤ hi⁺, v ≤ (−lo)⁺
     bounds = list(zip(b_lo, b_hi))
@@ -139,12 +175,16 @@ def kelly_weights(
         m[list(idx)] = m[[k + i for i in idx]] = 1.0
         cap = max(cap, float(m @ b_lo))                 # eingefrorene Mindestgewichte nicht verletzen
         cons.append({"type": "ineq", "fun": lambda x, m=m, c=cap: c - m @ x, "jac": lambda x, m=m: -m})
-    res = minimize(neg_utility, b_lo.copy(), jac=True, method="SLSQP",
+    x0 = b_lo.copy()
+    if kappa > 0:                               # Start im Inneren (log w), zulässig unter Budget und Grenzen
+        x0[:k] = np.clip(np.where(pen, 0.5 * a_t, 0.0), b_lo[:k], b_hi[:k])
+    res = minimize(neg_utility, x0, jac=True, method="SLSQP",
                    bounds=bounds, constraints=cons, options={"maxiter": 500, "ftol": 1e-12})
     w = res.x[:k] - res.x[k:]
     fixed = np.isclose(lo, hi)
     w[fixed] = lo[fixed]                       # eingefrorene Titel exakt, ohne Solver-Rauschen
-    w[~fixed & (np.abs(w) < 1e-6)] = 0.0
+    if kappa <= 0:
+        w[~fixed & (np.abs(w) < 1e-6)] = 0.0
     return w
 
 

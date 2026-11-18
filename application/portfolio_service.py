@@ -24,6 +24,7 @@ from domain.factor_model import _rng
 from domain.irr import RAND_MAX_ANTEIL, hold_returns
 from domain.portfolio import (
     correlate_samples, factor_tilt, horizon_returns, kelly_weights, market_world_returns, mix_worlds, orders, wealth,
+    robust_anchor,
 )
 from infrastructure.config_io import build_simulation_config
 from infrastructure.monte_carlo_engine import MonteCarloEngine
@@ -123,6 +124,10 @@ class Params:
     # Gemeinsamer Zinsschock auf die Fremdkapitalkosten (vor Steuer, Standardabw.): Änderung des 3-J.-Zinses über 5 J.
     # (≈ mittlerer Refinanzierungszeitpunkt bei 10 J. Halten), FRED DGS3 1985–2026: 2,1 pp (robust ebenso).
     sigma_zins: float = 0.021
+    # Robustes Kelly (Hansen–Sargent, 18.11.2026): Strafe κ · KL(w ‖ Anker) in Rendite p. a. je nat; 0 = klassisch.
+    # Anker ∝ Vorsprung = annualisierte Median-Rendite − (rf + erp); Titel ohne Vorsprung bekommen hi = 0.
+    kappa: float = 0.01   # Nutzerentscheid 18.11.2026 (Depot-Sweep: +3 Titel, Median −0,4 %)
+    sparplan_monate: int = 6   # Käufe unter der Mindestorder als Sparplan über so viele Monate statt einfrieren
     rho_world: float = 0.4  # Kopplung „Markt hat recht“ über Gruppen; 0,4 ≈ R² der Lücke auf das Marktmultiple
                             # (Querschnitt 16.11.2026, Documents/KALIBRIERUNG-2026-11/querschnitt.py)
 
@@ -237,18 +242,38 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
     # einfrieren und das tatsächlich verfügbare Geld neu verteilen, bis jede Order ausführbar ist.
     lo = np.full(len(names), -p.max_w if p.allow_short else 0.0)
     hi = np.full(len(names), p.max_w)
+    # Vorsprung p. a. gegenüber der Markterwartung (rf + erp), aus dem Median der Halte-Rendite (in EUR)
+    edge = np.maximum(1 + np.median(R, axis=0), 1e-9) ** (1 / p.horizon_years) - 1 - (p.rf + p.erp)
+    anchor = None
+    if p.kappa > 0:
+        hi[edge <= 0] = 0.0                                   # nicht unterbewertet ⇒ kein Ziel
+        anchor = robust_anchor(np.where(rand, 0.0, edge), 1.0 - p.min_cash)
     frozen = rand.copy()
     lo[frozen] = hi[frozen] = w_ist[frozen]
     named = {g for g in groups if groups.count(g) > 1}
     caps = [([i for i, g in enumerate(groups) if g == name], p.group_cap) for name in sorted(named)]
     for _ in range(len(names) + 1):
-        w = kelly_weights(R, rf_h, p.fraction, p.max_w, p.min_cash, p.allow_short, lo, hi, caps)
+        w = kelly_weights(R, rf_h, p.fraction, p.max_w, p.min_cash, p.allow_short, lo, hi, caps,
+                          kappa=p.kappa, anchor=anchor, horizon=p.horizon_years)
         delta, target = orders(shares, px_eur, cash_eur, w, p.min_order_eur)
-        new = (delta == 0) & ~np.isclose(w, w_ist, atol=1e-4) & ~frozen
+        # Kauf unter der Mindestorder ⇒ Sparplan (unten), nicht einfrieren; nur zu kleine Verkäufe frieren ein
+        new = (delta == 0) & ~np.isclose(w, w_ist, atol=1e-4) & ~frozen & ((w < w_ist) | (p.sparplan_monate <= 0))
         if not new.any():
             break
         frozen |= new
         lo[frozen] = hi[frozen] = w_ist[frozen]
+    # Sparplan: gewollte Käufe, die als Einzelorder unter der Mindestorder liegen; aus dem Rest-Cash finanziert
+    want = np.where((delta == 0) & (w > w_ist + 1e-4) & ~frozen, (w - w_ist) * total, 0.0)
+    if p.sparplan_monate <= 0:
+        want[:] = 0.0
+    rest = max(cash_eur - float((delta * px_eur).sum()), 0.0)
+    if want.sum() > rest:
+        want *= rest / want.sum()
+    spar = np.where(want >= max(p.sparplan_monate, 1) * 1.0, want, 0.0)   # TR-Sparplan ab 1 €/Monat
+    target = target + spar / px_eur
+    if spar.any():
+        warnings.append(f"Sparpläne über {p.sparplan_monate} Monate statt Einzelorder (unter der Mindestorder): "
+                        + ", ".join(f"{nm} {a / p.sparplan_monate:,.0f} €/Monat" for nm, a in zip(names, spar) if a) + ".")
     if (frozen & ~rand).any():
         warnings.append("Wegen der Mindestorder unverändert gelassen und neu verteilt: "
                         + ", ".join(np.array(names)[frozen & ~rand]) + ".")
@@ -281,6 +306,7 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
         **{col: np.where(rand, np.nan, [x[k] for x in hr]) if faktor else np.nan       # am Rand: IRR ohne Aussage
            for col, k in (("IRR P50", "irr"), ("IRR EK", "irr_ek"), ("D/E", "d_e"))},
         "E[R] Horizont": R.mean(axis=0),
+        "Vorsprung p. a.": edge,
         "Vola p. a.": sigma,
         "Gruppe": groups,
         "Ist-Gewicht": w_ist,
@@ -288,10 +314,12 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
         "Δ Gewicht": w - w_ist,
         "Order Stück": delta,
         "Order €": delta * px_eur,
+        "Umsetzung": np.where(delta != 0, "Order", np.where(spar > 0, "Sparplan", "")),
+        "Sparplan €/Monat": np.where(spar > 0, spar / max(p.sparplan_monate, 1), np.nan),
         "Ziel Stück": target,
     })
     # Cash-Zeile: Ziel = was der Optimizer übrig lässt; Order € = Cash-Veränderung durch die Orders
-    cash_order = -float((delta * px_eur).sum())
+    cash_order = -float((delta * px_eur).sum()) - float(spar.sum())
     table.loc[len(table)] = {
         "Firma": "Cash (EUR)", "Ist-Gewicht": cash_eur / total if total > 0 else 0.0,
         "Ziel-Gewicht": 1.0 - float(w.sum()),

@@ -157,7 +157,15 @@ def _settings() -> Params:
                                 "Firma, Breite aus den SEC-Basisraten. Ersetzt Kurs-Korrelation, „Markt hat recht“ (p, ρ) "
                                 "und s. Rendite = implizite Rendite (IRR) zum Kurs über 10 J. statt Wert/Kurs. "
                                 "Erster Lauf lädt die SEC-Daten aus dem Cache (~1 Min.).")
-    return Params(fraction=fraction, max_w=max_w, min_cash=min_cash, min_order_eur=min_order,
+        j, k_ = st.columns(2)
+        kappa = j.slider("Modellmisstrauen (κ)", 0.0, 0.05, 0.01, 0.0025, format="%.4f",
+                         help="Robustes Kelly (Hansen–Sargent): Strafe κ · KL(Gewichte ‖ Anker), Anker ∝ Vorsprung über "
+                              "Zins + Risikoprämie. 0 = klassisches Kelly (Ecklösungen). > 0: jeder unterbewertete Titel "
+                              "bekommt einen Anteil, je größer der Vorsprung desto mehr; ohne Vorsprung 0.")
+        spar_m = k_.number_input("Sparplan über Monate", 0, 24, 6, 1,
+                                 help="Käufe unter der Mindestorder als Sparplan (Trade Republic, ab 1 €) statt sie "
+                                      "auszulassen. 0 = aus (alter Stand: einfrieren).")
+    return Params(kappa=kappa, sparplan_monate=int(spar_m), fraction=fraction, max_w=max_w, min_cash=min_cash, min_order_eur=min_order,
                   allow_short=allow_short, rf=rf, p_market=p_market, erp=erp, group_cap=group_cap,
                   rho_world=rho_world, factor_shrink=factor_shrink, faktor_szenarien=faktor,
                   horizon_years=10 if faktor else 3, rf_usd=rf_usd)   # v3: ewig halten ⇒ 10 J. auf IRR-Basis
@@ -189,8 +197,8 @@ def _order_card(row: pd.Series, buy: bool) -> None:
 
 
 def _orders_tab(t: pd.DataFrame, steuer: dict) -> None:
-    o = t[(t["Firma"] != _CASH) & (t["Order €"].abs() > 0.5)]
-    if o.empty:
+    o = t[(t["Firma"] != _CASH) & (t["Order €"].abs() > 0.5) & (t.get("Umsetzung", "Order") != "Sparplan")]
+    if o.empty and not (t.get("Umsetzung", pd.Series(dtype=str)) == "Sparplan").any():
         st.success("Keine Orders nötig – das Depot liegt innerhalb der Mindestorder am Ziel.", icon="✅")
         return
     sells, buys = o[o["Order €"] < 0].sort_values("Order €"), o[o["Order €"] > 0].sort_values("Order €", ascending=False)
@@ -210,6 +218,14 @@ def _orders_tab(t: pd.DataFrame, steuer: dict) -> None:
     cash_row = t[t["Firma"] == _CASH].iloc[0]
     st.caption(f"Cash: {_pct(cash_row['Ist-Gewicht'])} → {_pct(cash_row['Ziel-Gewicht'])} "
                f"({_eur(cash_row['Order €'])} durch die Orders). Orders in Bruchstücken, Käufe überziehen das Konto nie.")
+    sp = t[t.get("Umsetzung", pd.Series(dtype=str)) == "Sparplan"] if "Umsetzung" in t else t.iloc[0:0]
+    if not sp.empty:
+        st.markdown(f"##### Sparpläne · {_eur(sp['Sparplan €/Monat'].sum())} pro Monat")
+        st.dataframe(sp[["Firma", "Sparplan €/Monat", "Ist-Gewicht", "Ziel-Gewicht"]]
+                     .assign(Firma=sp["Firma"].map(_short)), hide_index=True, width="stretch",
+                     column_config={"Sparplan €/Monat": st.column_config.NumberColumn(format="%.0f €"),
+                                    "Ist-Gewicht": st.column_config.NumberColumn(format="percent"),
+                                    "Ziel-Gewicht": st.column_config.NumberColumn(format="percent")})
     if steuer.get("gewinne"):
         st.caption(f"Aktienverlusttopf: {_eur(steuer['topf_vorher'])} − Verkaufsgewinne {_eur(steuer['gewinne'])} "
                    f"= {_eur(steuer['topf_nachher'])}.")
