@@ -19,7 +19,7 @@ def _cfg(g1=70.0, tvg=3.0, rev=1000.0):
     bridge = {**d("bridge_cc", FEST, 0.0), **d("bridge_cd", FEST, 9.0), **d("bridge_nd", FEST, 0.0),
               **d("bridge_sh", FEST, 100.0), "setup_ext_bridge": True}
     return build_config(company="Test AG", ccy="EUR", kurs=10.0, stichtag="2026-11-01", stand="t", basis="LTM",
-                        bilanz="2026-09-30", segments=[seg], bridge=bridge, corr={}, quellen={}, qv={}, szenarien=[])
+                        bilanz="2026-09-30", segments=[seg], bridge=bridge, corr={}, quellen={}, qv={}, szenarien=[], kd=(0.0, 25.0))
 
 
 def _g(cfg, t):

@@ -110,9 +110,10 @@ def standard_szenarien(n_seg: int) -> list[tuple[str, list]]:
 
 
 def build_config(*, company, ccy, kurs, stichtag, stand, basis, bilanz, segments, bridge, corr, quellen, qv,
-                 szenarien, sektor=None, kd=None, n_sim=50_000, seed=42) -> dict:
+                 szenarien, kd, sektor=None, n_sim=50_000, seed=42) -> dict:
     """Konfiguration (Schema v2) aus Segmenten, Bridge und Korrelationen {(i, j): ρ}; fehlende Paare 0,5.
-    *kd*: (Spread %, Steuersatz auf Zinsen %) wie in wacc(); das Portfolio rechnet damit den Hebel der Firma."""
+    *kd*: (Spread %, Steuersatz auf Zinsen %) wie in wacc(), Pflicht; das Portfolio rechnet damit den Hebel der Firma.
+    Nettoliquidität ⇒ Spread 0 (Kasse verzinst sich mit rf)."""
     k = len(segments)
     c = {f"corr_{i}_{j}": 1.0 if i == j else corr.get((min(i, j), max(i, j)), 0.5) for i in range(k) for j in range(k)}
     return {
@@ -120,7 +121,7 @@ def build_config(*, company, ccy, kurs, stichtag, stand, basis, bilanz, segments
         "metadata": {"company": company, "report_currency": ccy, "stichtag": stichtag, "kurs_bei_recherche": kurs,
                      "basis_periode": basis, "bilanzstichtag": bilanz, "stand": stand,
                      **({"sektor": sektor} if sektor else {}),
-                     **({"kd": {"spread_pct": kd[0], "steuer_pct": kd[1]}} if kd else {})},
+                     "kd": {"spread_pct": kd[0], "steuer_pct": kd[1]}},
         "ui_state": {
             "setup": {"setup_n_sim": n_sim, "setup_seed": seed, "setup_n_seg": k, "setup_mid_year": True,
                       "setup_ext_bridge": True, "setup_sampling": "Pseudo-Random (Standard)",

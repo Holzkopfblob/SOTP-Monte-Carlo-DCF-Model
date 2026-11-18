@@ -239,6 +239,10 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
         # v3 Phase 4: Halte-Rendite aus der impliziten Rendite zum Kurs (domain/irr.hold_returns) statt Wert/Kurs − 1
         rf_ccy = np.array([p.rf_usd if v["waehrung"] == "USD" else p.rf for v in valuations])
         kd = [kd_after_tax(v.get("kd"), r, p.kd_spread) for v, r in zip(valuations, rf_ccy)]
+        ohne_kd = [nm for nm, v in zip(names, valuations) if not v.get("kd")]
+        if ohne_kd:
+            warnings.append("Ohne eigene Fremdkapitalkosten (metadata.kd), Pauschale (rf + "
+                            f"{p.kd_spread:.1%}) · 0,75: " + ", ".join(ohne_kd) + ".")
         hr = [hold_returns(v["results"], px, k, p.horizon_years)
               for v, px, (k, _) in zip(valuations, px_local, kd)]
         # USD-Rendite in EUR: gedeckte Zinsparität (erwartete Abwertung des USD = Zinsdifferenz), sonst bekäme jeder
