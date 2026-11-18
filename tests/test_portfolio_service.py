@@ -191,3 +191,10 @@ def test_beta_aus_weltmarkt_bestimmt_die_huerde():
     assert t.loc["B", "Hürde p. a."] == pytest.approx(p.rf + t.loc["B", "Beta"] * p.erp)
     assert t.loc["B", "Vorsprung p. a."] == pytest.approx(t.loc["B", "Rendite p. a."] - t.loc["B", "Hürde p. a."])
     assert not any("Weltmarkt" in w for w in res.warnings)
+
+
+def test_kd_after_tax_firm_and_default():
+    from application.portfolio_service import kd_after_tax
+    k, t = kd_after_tax({"spread_pct": 1.2, "steuer_pct": 15.0}, 0.0314, 0.015)
+    assert abs(k - (0.0314 + 0.012) * 0.85) < 1e-12 and t == 0.15
+    assert kd_after_tax(None, 0.0314, 0.015) == ((0.0314 + 0.015) * 0.75, 0.25)

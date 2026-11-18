@@ -102,6 +102,7 @@ def simulate_valuation(path: str | Path, shocks: dict | None = None, n: int | No
         "stichtag": meta.get("stichtag", ""),
         "kurs_recherche": meta.get("kurs_bei_recherche"),
         "stand": meta.get("stand", ""),
+        "kd": meta.get("kd"),
         **ev_inputs(sim_cfg),
         **({"results": res} if shocks is not None else {}),   # Faktor-Modus: IRR braucht die Cashflow-Pfade
     }
@@ -125,7 +126,7 @@ class Params:
     factor_shrink: float = 0.0  # Gegenprobe 16.11.: Faktor ist Telko-/Auto-Effekt, kein allgemeiner Stil ⇒ aus. Anteil des Value-Stils, der aus den Werten herausgenommen wird (0 = Modell voll, 1 = ganz)
     faktor_szenarien: bool = False  # v3 Phase 3: gemeinsame Cashflow-Schocks (Seite ruft dann simulate_universe)
     rf_usd: float = 0.049   # US-Treasury 3 J. (FRED DGS3, 12.11.2026); App lädt tagesaktuell
-    kd_spread: float = 0.015  # Fremdkapitalkosten nach Steuer = (rf der Berichtswährung + Spread) · 0,75
+    kd_spread: float = 0.015  # Pauschale, wenn die Bewertung kein metadata.kd hat: k_d = (rf + Spread) · 0,75
     # Gemeinsamer Modellfehler der IRR je Branche (p. a., Standardabw.), Faktor-Modus. 0,033 = Streuung der Branchen-
     # Mittel der IRR-EK im Depot 16.11.2026 (6 Branchen, Documents/KALIBRIERUNG-2026-11/phase4_depot.py).
     # ponytail: in-sample aus 6 Branchen; echte Quelle ist der Querschnitt der Schnellbewertung (Phase 5).
@@ -150,6 +151,16 @@ class Result:
     warnings: list[str] = field(default_factory=list)
     wealth_samples: dict = field(default_factory=dict)   # {"Ist": array, "Ziel": array} in EUR (Stichprobe)
     steuer: dict = field(default_factory=dict)           # Verlusttopf vorher/Gewinne/nachher (EUR)
+
+
+def kd_after_tax(kd_meta: dict | None, rf: float, default_spread: float) -> tuple[float, float]:
+    """(k_d nach Steuer, Steuersatz auf Zinsen) aus metadata.kd der Bewertung (Spread/Steuer in %, wie im
+    Research-Kit gesetzt); ohne Eintrag Pauschale (rf + *default_spread*) · 0,75."""
+    spread = (kd_meta or {}).get("spread_pct")
+    tax = (kd_meta or {}).get("steuer_pct")
+    spread = default_spread if spread is None else spread / 100
+    tax = 0.25 if tax is None else tax / 100
+    return (rf + spread) * (1 - tax), tax
 
 
 def _eur_closes(closes: pd.DataFrame, ticker: str, ccy: str) -> pd.Series:
@@ -227,23 +238,24 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
     if faktor:
         # v3 Phase 4: Halte-Rendite aus der impliziten Rendite zum Kurs (domain/irr.hold_returns) statt Wert/Kurs − 1
         rf_ccy = np.array([p.rf_usd if v["waehrung"] == "USD" else p.rf for v in valuations])
-        hr = [hold_returns(v["results"], px, (r + p.kd_spread) * 0.75, p.horizon_years)
-              for v, px, r in zip(valuations, px_local, rf_ccy)]
+        kd = [kd_after_tax(v.get("kd"), r, p.kd_spread) for v, r in zip(valuations, rf_ccy)]
+        hr = [hold_returns(v["results"], px, k, p.horizon_years)
+              for v, px, (k, _) in zip(valuations, px_local, kd)]
         # USD-Rendite in EUR: gedeckte Zinsparität (erwartete Abwertung des USD = Zinsdifferenz), sonst bekäme jeder
         # USD-Titel die Zinsdifferenz geschenkt
         parity = ((1 + p.rf) / (1 + rf_ccy)) ** p.horizon_years
         R_model = (1 + np.column_stack([x["R"][:n] for x in hr])) * parity - 1
         # Gemeinsame Fehler auf die IRR-EK je Zeile, verkettet über den Horizont wie die IRR selbst:
         #  Branche: alle Titel einer Branche liegen gemeinsam daneben, b ~ N(0, τ²) (ohne Branche: eigener Strom).
-        #  Zins: ein Schock Δ für alle; teurere Refinanzierung kostet Verschuldete −D/E·0,75·Δ, Nettokasse gewinnt.
+        #  Zins: ein Schock Δ für alle; teurere Refinanzierung kostet Verschuldete −D/E·(1−t)·Δ, Nettokasse gewinnt.
         # ponytail: ein Zinsfaktor für EUR und USD, Cash-Zins im Optimierer bleibt fest (wäre bei Zinsanstieg Absicherung).
         keys = [v["schock"].get("sektor") or OHNE_BRANCHE for v in valuations]
         keys = [k if k != OHNE_BRANCHE else f"firma|{nm}" for k, nm in zip(keys, names)]
         b = {k: p.tau_branche * _rng(p.seed, f"bias|{k}").standard_normal(n) for k in set(keys)}
-        dz = 0.75 * p.sigma_zins * _rng(p.seed, "zins").standard_normal(n)
+        dz = p.sigma_zins * _rng(p.seed, "zins").standard_normal(n)
         R_model = (1 + R_model) * np.column_stack(
-            [np.maximum((1 + x["irr_ek"] + b[k] - x["d_e"] * dz) / (1 + x["irr_ek"]), 0.0) ** p.horizon_years
-             for x, k in zip(hr, keys)]) - 1
+            [np.maximum((1 + x["irr_ek"] + b[k] - x["d_e"] * (1 - t) * dz) / (1 + x["irr_ek"]), 0.0) ** p.horizon_years
+             for x, k, (_, t) in zip(hr, keys, kd)]) - 1
         rand = np.array([x["am_rand"] > RAND_MAX_ANTEIL for x in hr])
         if rand.any():   # Bridge > Börsenwert: IRR unbrauchbar ⇒ Marktrendite mit Kursvola, Gewicht eingefroren
             R_mkt = market_world_returns(n, sigma, corr.values, p.rf, p.erp, p.horizon_years, seed=p.seed + 1)
