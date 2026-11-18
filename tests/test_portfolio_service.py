@@ -198,3 +198,17 @@ def test_kd_after_tax_firm_and_default():
     k, t = kd_after_tax({"spread_pct": 1.2, "steuer_pct": 15.0}, 0.0314, 0.015)
     assert abs(k - (0.0314 + 0.012) * 0.85) < 1e-12 and t == 0.15
     assert kd_after_tax(None, 0.0314, 0.015) == ((0.0314 + 0.015) * 0.75, 0.25)
+
+
+def test_kurs_ueber_wert_heisst_ziel_null():
+    """Variante a: A mit P50 95 < Kurs 100, aber rechtsschief (Mittel ≈ 131) – Kelly allein würde A kaufen
+    (Vonovia-Fall: Rendite über der Hürde, Wert unter dem Kurs). Mit der Regel bekommt A kein Ziel."""
+    positions, valuations, closes = _setup()
+    s = np.random.default_rng(1).lognormal(np.log(95.0), 0.8, 20_000)
+    valuations[0] = {**valuations[0], "samples": s, "p50_neu": float(np.median(s))}
+    res = rebalance(positions, valuations, closes, cash_eur=1100.0,
+                    p=Params(kappa=0.0, p_market=0.0, min_order_eur=0.0), today=date(2026, 11, 14))
+    t = res.table.set_index("Firma")
+    assert t.loc["A", "Ziel-Gewicht"] == pytest.approx(0.0, abs=1e-9) and t.loc["A", "Order Stück"] < 0
+    assert (t.loc[["B", "C"], "Ziel-Gewicht"] > 0).any()
+    assert any("Ziel 0: A." in w for w in res.warnings)

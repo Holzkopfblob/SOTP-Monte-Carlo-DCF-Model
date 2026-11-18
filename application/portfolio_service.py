@@ -300,6 +300,14 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
         hi[edge <= 0] = 0.0                                   # nicht unterbewertet ⇒ kein Ziel
         # Treynor–Black: Anker ∝ α⁺ / Restrisiko² (viel Alpha bei wenig titelspezifischem Risiko ⇒ viel Gewicht)
         anchor = treynor_black_anchor(np.where(rand, 0.0, edge), bt["resid_var"], 1.0 - p.min_cash)
+    # Konsistenzregel (Nutzerentscheid 18.11.2026, Variante a): Kurs über dem fairen Wert (P50 der Bewertung) ⇒ kein
+    # Ziel, nur Abbau. Sonst kauft das Portfolio, was die eigene Bewertung zu teuer findet (Hürde aus Markt-β vs. WACC).
+    # ponytail: harte Grenze ohne Toleranz ⇒ Titel mit P50 ≈ Kurs kippen mit jeder Kursbewegung (DATA MODUL 18.11.: −2 %);
+    # Upgrade: Toleranzband oder P(Wert > Kurs) ≥ Schwelle.
+    ueber_wert = np.array([v["p50_neu"] < px for v, px in zip(valuations, px_local)]) & ~rand
+    hi[ueber_wert] = 0.0
+    if ueber_wert.any():
+        warnings.append("Kurs über dem fairen Wert (P50) ⇒ Ziel 0: " + ", ".join(np.array(names)[ueber_wert]) + ".")
     frozen = rand.copy()
     lo[frozen] = hi[frozen] = w_ist[frozen]
     named = {g for g in groups if groups.count(g) > 1}
