@@ -128,6 +128,9 @@ class Params:
     # ETF als Asset (18.11.2026): Weltmarkt-ETF (EUNL) im Optimierer, Rendite rf + ERP, gemeinsamer Marktfaktor
     # (σ aus EUNL, Aktien mit ihrem β). Ohne ihn vergleicht Kelly Aktien nur mit Cash ⇒ Aktien als Index-Ersatz.
     etf_asset: bool = True
+    # Nutzerentscheid 18.11.2026: nur in selbst analysierte Aktien investieren ⇒ ETF bleibt Messlatte und Marktfaktor,
+    # ist aber kein Anlageziel (Optimierer verteilt zwischen Aktien und Cash). True = Kern-Satellit mit ETF.
+    etf_investierbar: bool = False
     factor_shrink: float = 0.0  # Gegenprobe 16.11.: Faktor ist Telko-/Auto-Effekt, kein allgemeiner Stil ⇒ aus. Anteil des Value-Stils, der aus den Werten herausgenommen wird (0 = Modell voll, 1 = ganz)
     faktor_szenarien: bool = False  # v3 Phase 3: gemeinsame Cashflow-Schocks (Seite ruft dann simulate_universe)
     rf_usd: float = 0.049   # US-Treasury 3 J. (FRED DGS3, 12.11.2026); App lädt tagesaktuell
@@ -363,8 +366,8 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
     # einfrieren und das tatsächlich verfügbare Geld neu verteilen, bis jede Order ausführbar ist.
     lo = np.full(len(names), -p.max_w if p.allow_short else 0.0)
     hi = np.full(len(names), p.max_w)
-    if mit_etf:
-        lo[-1], hi[-1] = 0.0, 1.0 - p.min_cash                # Index ohne Einzeltitel-Grenze
+    if mit_etf:   # Index ohne Einzeltitel-Grenze – oder gar nicht investierbar (nur Messlatte/Marktfaktor)
+        lo[-1], hi[-1] = 0.0, (1.0 - p.min_cash) if p.etf_investierbar else 0.0
     # Vorsprung p. a. gegenüber der Markterwartung (rf + erp), aus dem Median der Halte-Rendite (in EUR)
     # Entscheidung (Baustein 1, Nutzerentscheid 18.11.2026): Rendite zum Kurs gegen die ETF-Rendite, für alle Titel gleich.
     # Kein CAPM-Beta in der Hürde: Es misst Schwankung, nicht dauerhaften Verlust, und widersprach der WACC der Bewertung.
@@ -379,7 +382,9 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
         hi[:k_akt][edge[:k_akt] <= 0] = 0.0                   # nicht unterbewertet ⇒ kein Ziel (ETF ausgenommen)
         # Treynor–Black: Anker ∝ α⁺ / Restrisiko² (viel Alpha bei wenig titelspezifischem Risiko ⇒ viel Gewicht)
         anchor = treynor_black_anchor(np.where(rand[:k_akt], 0.0, edge[:k_akt]), bt["resid_var"], 1.0 - p.min_cash,
-                                      passiv=(p.erp, var_m) if mit_etf else None)
+                                      passiv=(p.erp, var_m) if mit_etf and p.etf_investierbar else None)
+        if mit_etf and not p.etf_investierbar:
+            anchor = np.insert(anchor, k_akt, 0.0)            # ETF-Spalte ohne Ankergewicht
     # Konsistenzregel (Nutzerentscheid 18.11.2026, Variante a): Kurs über dem fairen Wert (P50 der Bewertung) ⇒ kein
     # Ziel, nur Abbau. Sonst kauft das Portfolio, was die eigene Bewertung zu teuer findet (Rendite zum Kurs vs. WACC).
     # ponytail: harte Grenze ohne Toleranz ⇒ Titel mit P50 ≈ Kurs kippen mit jeder Kursbewegung (DATA MODUL 18.11.: −2 %);
@@ -476,7 +481,7 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
     if mit_etf:
         e = k_akt
         table.loc[len(table)] = {
-            "Firma": ETF_NAME, "Kurs €": px_eur[e], "Kurs lokal": f"{px_eur[e]:.2f} EUR", "E[R] Horizont": R[:, e].mean(),
+            "Firma": ETF_NAME + ("" if p.etf_investierbar else " – nur Messlatte"), "Kurs €": px_eur[e], "Kurs lokal": f"{px_eur[e]:.2f} EUR", "E[R] Horizont": R[:, e].mean(),
             "Rendite p. a.": rendite[e], "Beta": 1.0, "Hürde p. a.": hurdle[e], "Vorsprung p. a.": edge[e],
             "Vola p. a.": np.sqrt(var_m), "Gruppe": "ETF", "Ist-Gewicht": w_ist[e], "Ziel-Gewicht": w[e],
             "Δ Gewicht": w[e] - w_ist[e], "Order Stück": delta[e], "Order €": delta[e] * px_eur[e],

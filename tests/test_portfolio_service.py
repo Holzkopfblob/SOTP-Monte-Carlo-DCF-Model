@@ -278,7 +278,7 @@ def test_etf_als_asset_traegt_den_kern(monkeypatch):
     _fake_irr(monkeypatch, {})
     seen, real = {}, ps.kelly_weights
     monkeypatch.setattr(ps, "kelly_weights", lambda R, *a, **k: seen.setdefault("R", R) is R and real(R, *a, **k))
-    p = Params(horizon_years=10, faktor_szenarien=True, min_order_eur=0.0)
+    p = Params(horizon_years=10, faktor_szenarien=True, min_order_eur=0.0, etf_investierbar=True)
     res = rebalance(positions, valuations, closes, 1100.0, p, date(2026, 11, 14), etf_stueck=0.0)
     t = res.table.set_index("Firma")
     assert ps.ETF_NAME in t.index and t.loc[ps.ETF_NAME, "Hürde p. a."] == pytest.approx(p.rf + p.erp)
@@ -286,3 +286,20 @@ def test_etf_als_asset_traegt_den_kern(monkeypatch):
     assert t["Ziel-Gewicht"].iloc[:-1].sum() <= 1.0 + 1e-6                      # ohne Cash-Zeile
     lr = np.log1p(seen["R"])
     assert np.corrcoef(lr[:, 1], lr[:, -1])[0, 1] > 0.2                          # B (β≈1) korreliert mit dem ETF
+
+
+def test_etf_standardmaessig_nur_messlatte(monkeypatch):
+    """Nutzerentscheid: ETF nicht investierbar ⇒ Ziel 0, Aktien + Cash tragen alles, Hürde bleibt rf + ERP."""
+    import application.portfolio_service as ps
+    from domain.beta import MARKET_TICKER
+    positions, valuations, closes = _setup()
+    closes[MARKET_TICKER] = closes["B"]
+    for v in valuations:
+        v.update(schock={}, results=v["samples"])
+    _fake_irr(monkeypatch, {})
+    p = Params(horizon_years=10, faktor_szenarien=True, min_order_eur=0.0)
+    t = rebalance(positions, valuations, closes, 1100.0, p, date(2026, 11, 14)).table.set_index("Firma")
+    etf = ps.ETF_NAME + " – nur Messlatte"
+    assert t.loc[etf, "Ziel-Gewicht"] == pytest.approx(0.0, abs=1e-9)
+    assert t.loc[etf, "Hürde p. a."] == pytest.approx(p.rf + p.erp)
+    assert t["Ziel-Gewicht"].drop(etf).sum() == pytest.approx(1.0, abs=1e-6)       # Aktien + Cash = 100 %
