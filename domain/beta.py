@@ -7,7 +7,10 @@ Beta je Titel und Jensens Alpha für die Depot-Hürde (18.11.2026).
    Unsichere Regressionen werden stärker zum Branchen-Prior gezogen (schlägt die pauschale Blume-Anpassung).
 3. Prior = Damodaran-Branchenbeta (Januar 2026, Region nach Währung), über Harris–Pringle auf den Hebel des Titels
    umgerechnet: β_A = E/V·β_E + D/V·β_D (konstante Schuldenquote, konsistent mit der WACC-Formel), β_E = (β_A − D/V·β_D)/(E/V).
-4. Alpha = erwartete Rendite − (rf + β·ERP); Anker nach Treynor–Black (1973): a_i ∝ α_i⁺ / σ²_ε,i.
+4. Alpha = erwartete Rendite − (rf + β·ERP + β_z·TP); Anker nach Treynor–Black (1973): a_i ∝ α_i⁺ / σ²_ε,i.
+5. Zinsfaktor (18.11.2026, Messung Documents/KALIBRIERUNG-2026-11/zinsfaktor_messung.py): TERM = Bund 5,5–10,5 J.
+   minus Bund 1,5–2,5 J. (Fama-French). Zwei-Faktor-OLS, β_z per empirischem Bayes zur 0 geschrumpft (Streuung der
+   wahren β_z = Querschnittsvarianz der Schätzer − mittlere SE²). Dieselbe Formel (equity_beta) gilt in den Bewertungen.
 
 Reine Funktionen ohne I/O bis auf das Laden der Damodaran-Tabelle (data/damodaran_betas_2026-01.csv).
 """
@@ -21,6 +24,11 @@ import pandas as pd
 
 DAMODARAN_CSV = Path(__file__).resolve().parents[1] / "data" / "damodaran_betas_2026-01.csv"
 MARKET_TICKER = "EUNL.DE"          # iShares Core MSCI World, EUR: Marktportfolio eines EUR-Anlegers mit Weltdepot
+TERM_TICKERS = ("EXHD.DE", "EXHB.DE")   # iShares eb.rexx Germany 5,5–10,5 J. und 1,5–2,5 J. (EUR, thesaurierend)
+# Erwartete TERM-Rendite p. a. Spanne: 0,15 % (Steigung Bund 7 J. − 2 J., Bundesbank 18.11.2026: 3,27 − 3,12) bis
+# ~1 %; 0,5 % ≈ Mitte (Laufzeitprämie 10 J. ~1,1 % laut Oxford Economics 2026 [sekundär], anteilig 7 J. − 2 J.).
+# ponytail: kein primär belegtes Niveau (EZB-Anhänge zeigen nur Veränderungen); Upgrade: eigene ATSM-Schätzung.
+TERM_PREMIUM = 0.005
 PRIOR_SD = 0.30                    # Querschnitts-Streuung der Betas innerhalb einer Branche
 # ponytail: PRIOR_SD ist eine Literatur-Größenordnung (0,3–0,5), nicht aus eigenen Daten geschätzt; Upgrade:
 # Streuung der Regressions-Betas je Branche aus dem SEC-Panel.
@@ -64,14 +72,77 @@ def _damodaran() -> pd.DataFrame:
     return pd.read_csv(DAMODARAN_CSV)
 
 
-def industry_asset_beta(sektor: str | None, waehrung: str) -> tuple[float, str]:
-    """Asset-Beta der Branche (Harris–Pringle aus Damodarans levered Beta und D/E), Region nach Währung."""
+def industry_asset_beta(sektor: str | None, waehrung: str, branche: str | None = None) -> tuple[float, str]:
+    """Asset-Beta der Branche (Harris–Pringle aus Damodarans levered Beta und D/E), Region nach Währung.
+    *branche*: Damodaran-Branche der Firma (metadata.beta_branche); sonst grob über den Sektor."""
     region = "US" if waehrung == "USD" else "Europa"
-    branche = SEKTOR_BRANCHE.get(sektor or "", FALLBACK_BRANCHE)
+    branche = branche or SEKTOR_BRANCHE.get(sektor or "", FALLBACK_BRANCHE)
     t = _damodaran()
     row = t[(t.region == region) & (t.branche == branche)].iloc[0]
     d_v = row.d_e / (1 + row.d_e)
     return unlever(row.beta, d_v, debt_beta(d_v)), f"Damodaran {region} {branche} (Jan. 2026)"
+
+
+def equity_beta(sektor: str | None, waehrung: str, d_v: float, branche: str | None = None) -> tuple[float, str]:
+    """Fundamentales Equity-Beta: Branchen-Asset-Beta über Harris–Pringle mit Schuldenbeta auf D/V umgerechnet.
+    Eine Formel für Bewertung (WACC) und Portfolio (Prior der Hürde)."""
+    b_a, src = industry_asset_beta(sektor, waehrung, branche)
+    d_v = max(d_v, 0.0)
+    return relever(b_a, d_v, debt_beta(d_v)), f"{src}, β_A {b_a:.2f}, D/V {d_v:.0%}, β_D {debt_beta(d_v):.2f}"
+
+
+def term_factor(closes: pd.DataFrame) -> pd.Series | None:
+    """Wochen-Log-Rendite TERM = lange minus kurze Bunds; None, wenn die Reihen fehlen."""
+    if not all(t in closes for t in TERM_TICKERS):
+        return None
+    w = np.log(closes[list(TERM_TICKERS)].resample("W-FRI").last()).diff()
+    return w[TERM_TICKERS[0]] - w[TERM_TICKERS[1]]
+
+
+def ols_2f(r_i: np.ndarray, r_m: np.ndarray, r_z: np.ndarray, periods: int = 52) -> dict:
+    """OLS r_i = a + β·r_m + β_z·r_z + ε. Standardfehler beider Steigungen, Restrisiko annualisiert."""
+    r_i, r_m, r_z = (np.asarray(x, float) for x in (r_i, r_m, r_z))
+    ok = np.isfinite(r_i) & np.isfinite(r_m) & np.isfinite(r_z)
+    n = int(ok.sum())
+    if n < 30:
+        return {"beta": np.nan, "se": np.inf, "beta_z": np.nan, "se_z": np.inf, "resid_var": np.nan, "n": n}
+    X = np.column_stack([np.ones(n), r_m[ok], r_z[ok]])
+    y = r_i[ok]
+    b, *_ = np.linalg.lstsq(X, y, rcond=None)
+    e = y - X @ b
+    s2 = float(e @ e / (n - 3))
+    se = np.sqrt(np.diag(s2 * np.linalg.inv(X.T @ X)))
+    return {"beta": float(b[1]), "se": float(se[1]), "beta_z": float(b[2]), "se_z": float(se[2]),
+            "resid_var": s2 * periods, "n": n}
+
+
+def shrink_to_zero(b: np.ndarray, se: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Empirisches Bayes mit Spike-and-Slab-Prior: Anteil π der Titel hat ein echtes β_z ~ N(0, τ²), der Rest 0.
+    π und τ per Maximum-Likelihood aus dem Querschnitt (Gitter), dann Posterior-Mittel je Titel:
+    E[β | β̂] = p_i · τ²/(τ² + SE²) · β̂ mit p_i = P(echter Effekt | β̂). Ein einzelner großer Effekt (Vonovia) bläht
+    so nicht die Prior-Breite für alle auf (bei Normal-Prior würde Rauschen kaum geschrumpft). Rückgabe (β_post, w)."""
+    b, se = np.asarray(b, float), np.asarray(se, float)
+    ok = np.isfinite(b) & np.isfinite(se) & (se > 0)
+    post, w = np.zeros_like(b), np.zeros_like(b)
+    if ok.sum() < 3:
+        return post, w
+    x, s2 = b[ok], se[ok] ** 2
+
+    def dens(v):
+        return np.exp(-0.5 * x ** 2 / v) / np.sqrt(2 * np.pi * v)
+    best = (-np.inf, 0.0, 0.0)
+    for tau in np.linspace(0.05, 8.0, 160):
+        f1, f0 = dens(tau ** 2 + s2), dens(s2)
+        for pi in np.linspace(0.0, 1.0, 101):
+            ll = float(np.sum(np.log(pi * f1 + (1 - pi) * f0 + 1e-300)))
+            if ll > best[0]:
+                best = (ll, pi, tau)
+    _, pi, tau = best
+    f1, f0 = dens(tau ** 2 + s2), dens(s2)
+    p_i = pi * f1 / (pi * f1 + (1 - pi) * f0 + 1e-300)
+    w[ok] = p_i * tau ** 2 / (tau ** 2 + s2)
+    post[ok] = w[ok] * x
+    return post, w
 
 
 def ols_beta(r_i: np.ndarray, r_m: np.ndarray, periods: int = 52) -> dict:

@@ -21,7 +21,8 @@ import pandas as pd
 
 from application.universe_simulation import OHNE_BRANCHE
 from domain.beta import (
-    MARKET_TICKER, debt_beta, industry_asset_beta, ols_beta, relever, treynor_black_anchor, vasicek,
+    MARKET_TICKER, TERM_TICKERS, equity_beta, ols_2f, ols_beta, shrink_to_zero, term_factor,
+    treynor_black_anchor, vasicek,
 )
 from domain.factor_model import _rng
 from domain.ledger import apply_to_positions
@@ -103,6 +104,7 @@ def simulate_valuation(path: str | Path, shocks: dict | None = None, n: int | No
         "kurs_recherche": meta.get("kurs_bei_recherche"),
         "stand": meta.get("stand", ""),
         "kd": meta.get("kd"),
+        "beta_branche": meta.get("beta_branche"),
         **ev_inputs(sim_cfg),
         **({"results": res} if shocks is not None else {}),   # Faktor-Modus: IRR braucht die Cashflow-Pfade
     }
@@ -120,8 +122,8 @@ class Params:
     seed: int = 42
     group_cap: float = 0.20  # max. Summe |Gewicht| je benannter Gruppe (z. B. „Auto“)
     p_market: float = 0.3   # Szenario-Mischung: Wahrscheinlichkeit „Markt hat recht“ (0 = Modell voll glauben)
-    # Risikoprämie: Hürde rf + β·ERP je Titel (und Markt-Welt im Altpfad). 4,23 % = Damodaran implizite ERP Jan. 2026,
-    # dieselbe wie in den Bewertungen (Konsistenz Hürde ↔ WACC); vorher pauschal 5 %.
+    # Messlatte: erwartete Rendite des Weltmarkt-ETF zum heutigen Preis = rf + implizite ERP (4,23 % Damodaran Jan. 2026,
+    # selbst eine IRR des Index zum Kurs) – dieselbe Frage wie die Rendite zum Kurs je Aktie (Baustein 1, 18.11.2026).
     erp: float = 0.0423
     factor_shrink: float = 0.0  # Gegenprobe 16.11.: Faktor ist Telko-/Auto-Effekt, kein allgemeiner Stil ⇒ aus. Anteil des Value-Stils, der aus den Werten herausgenommen wird (0 = Modell voll, 1 = ganz)
     faktor_szenarien: bool = False  # v3 Phase 3: gemeinsame Cashflow-Schocks (Seite ruft dann simulate_universe)
@@ -171,24 +173,36 @@ def _eur_closes(closes: pd.DataFrame, ticker: str, ccy: str) -> pd.Series:
 
 
 def _betas(positions, valuations, closes, rets, names, hr, warnings) -> dict:
-    """β (Vasicek-geschrumpft), Gewicht der Regression und Restrisiko je Titel; ohne Marktreihe nur der Prior."""
+    """β (Vasicek zum fundamentalen Prior), β_z (Zinsfaktor, empirisches Bayes zur 0), Gewicht der Regression und
+    Restrisiko je Titel. Ohne Marktreihe nur der Prior; ohne Bund-Reihen ein Faktor (β_z = 0)."""
     mkt = (np.log(closes[MARKET_TICKER].resample("W-FRI").last()).diff()
            if MARKET_TICKER in closes else None)
+    term = term_factor(closes)
     if mkt is None:
         warnings.append(f"Keine Kurse für den Weltmarkt ({MARKET_TICKER}): Beta = Branchenprior, Restrisiko = Vola.")
-    out = {"beta": [], "w": [], "resid_var": []}
+    elif term is None:
+        warnings.append(f"Keine Kurse für den Zinsfaktor ({', '.join(TERM_TICKERS)}): Zins-Beta nicht gemessen.")
+    out = {"beta": [], "w": [], "resid_var": [], "bz_ols": [], "se_z": []}
     for i, (pos, val, name) in enumerate(zip(positions, valuations, names)):
         d_e = max(hr[i]["d_e"], 0.0) if hr is not None else 0.0
-        d_v = d_e / (1 + d_e)
-        b_a, _ = industry_asset_beta(pos.get("sektor"), val["waehrung"])
-        prior = relever(b_a, d_v, debt_beta(d_v))
-        o = ols_beta(rets[name].to_numpy(), mkt.reindex(rets.index).to_numpy()) if mkt is not None else             {"beta": np.nan, "se": np.inf, "resid_var": np.nan}
+        prior, _ = equity_beta(pos.get("sektor"), val["waehrung"], d_e / (1 + d_e), val.get("beta_branche"))
+        y = rets[name].to_numpy()
+        if mkt is None:
+            o = {"beta": np.nan, "se": np.inf, "beta_z": np.nan, "se_z": np.inf, "resid_var": np.nan}
+        elif term is None:
+            o = {**ols_beta(y, mkt.reindex(rets.index).to_numpy()), "beta_z": np.nan, "se_z": np.inf}
+        else:
+            o = ols_2f(y, mkt.reindex(rets.index).to_numpy(), term.reindex(rets.index).to_numpy())
         b, w = vasicek(o["beta"], o["se"], prior)
         rv = o["resid_var"] if np.isfinite(o["resid_var"]) else float(rets[name].var() * 52)
         out["beta"].append(b)
         out["w"].append(w)
         out["resid_var"].append(rv if np.isfinite(rv) else 0.09)
-    return {k: np.array(v) for k, v in out.items()}
+        out["bz_ols"].append(o["beta_z"])
+        out["se_z"].append(o["se_z"])
+    res = {k: np.array(v, float) for k, v in out.items()}
+    res["beta_z"], res["w_z"] = shrink_to_zero(res["bz_ols"], res["se_z"])
+    return res
 
 
 def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFrame,
@@ -289,11 +303,12 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
     lo = np.full(len(names), -p.max_w if p.allow_short else 0.0)
     hi = np.full(len(names), p.max_w)
     # Vorsprung p. a. gegenüber der Markterwartung (rf + erp), aus dem Median der Halte-Rendite (in EUR)
-    # Hürde je Titel = geforderte Eigenkapitalrendite nach CAPM, rf + β·ERP; β aus der Regression auf den Weltmarkt
-    # (EUR, Wochen), nach Vasicek zum Damodaran-Branchenprior geschrumpft (domain/beta.py). Vorsprung = Jensens Alpha.
+    # Entscheidung (Baustein 1, Nutzerentscheid 18.11.2026): Rendite zum Kurs gegen die ETF-Rendite, für alle Titel gleich.
+    # Kein CAPM-Beta in der Hürde: Es misst Schwankung, nicht dauerhaften Verlust, und widersprach der WACC der Bewertung.
+    # β und β_z bleiben als gemessenes Risiko (Restrisiko → Treynor–Black-Anker, Anzeige); Marktrisiko trägt die Kovarianz.
     rendite = np.maximum(1 + np.median(R, axis=0), 1e-9) ** (1 / p.horizon_years) - 1
     bt = _betas(positions, valuations, closes, rets, names, hr if faktor else None, warnings)
-    hurdle = p.rf + bt["beta"] * p.erp
+    hurdle = np.full(len(names), p.rf + p.erp)
     edge = rendite - hurdle
     anchor = None
     if p.kappa > 0:
@@ -301,13 +316,22 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
         # Treynor–Black: Anker ∝ α⁺ / Restrisiko² (viel Alpha bei wenig titelspezifischem Risiko ⇒ viel Gewicht)
         anchor = treynor_black_anchor(np.where(rand, 0.0, edge), bt["resid_var"], 1.0 - p.min_cash)
     # Konsistenzregel (Nutzerentscheid 18.11.2026, Variante a): Kurs über dem fairen Wert (P50 der Bewertung) ⇒ kein
-    # Ziel, nur Abbau. Sonst kauft das Portfolio, was die eigene Bewertung zu teuer findet (Hürde aus Markt-β vs. WACC).
+    # Ziel, nur Abbau. Sonst kauft das Portfolio, was die eigene Bewertung zu teuer findet (Rendite zum Kurs vs. WACC).
     # ponytail: harte Grenze ohne Toleranz ⇒ Titel mit P50 ≈ Kurs kippen mit jeder Kursbewegung (DATA MODUL 18.11.: −2 %);
     # Upgrade: Toleranzband oder P(Wert > Kurs) ≥ Schwelle.
     ueber_wert = np.array([v["p50_neu"] < px for v, px in zip(valuations, px_local)]) & ~rand
     hi[ueber_wert] = 0.0
     if ueber_wert.any():
         warnings.append("Kurs über dem fairen Wert (P50) ⇒ Ziel 0: " + ", ".join(np.array(names)[ueber_wert]) + ".")
+    # Prüfkriterium Baustein 1: Wert-Lesart (P50 vs. Kurs, WACC) und Rendite-Lesart (Rendite zum Kurs vs. ETF) sollen
+    # übereinstimmen; Widerspruch = WACC der Bewertung weicht von der ETF-Messlatte ab (Beta/Hebel) ⇒ Bewertung prüfen.
+    wert_hoch = np.array([v["p50_neu"] > px for v, px in zip(valuations, px_local)])
+    widerspruch = (wert_hoch != (edge > 0)) & ~rand
+    if widerspruch.any():
+        warnings.append("Wert- und Rendite-Lesart widersprechen sich (WACC ≠ ETF-Messlatte, Bewertung prüfen): "
+                        + ", ".join(f"{nm} ({'Wert > Kurs' if wh else 'Wert < Kurs'}, Vorsprung {e:+.1%})"
+                                    for nm, wh, e in zip(np.array(names)[widerspruch], wert_hoch[widerspruch],
+                                                         edge[widerspruch])) + ".")
     frozen = rand.copy()
     lo[frozen] = hi[frozen] = w_ist[frozen]
     named = {g for g in groups if groups.count(g) > 1}
@@ -369,9 +393,10 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
         "Rendite p. a.": rendite,                      # Median der Halte-Rendite, annualisiert (EUR)
         "Beta": bt["beta"],
         "Beta-Gewicht Regression": bt["w"],
+        "Zins-Beta": bt["beta_z"],
         "Restrisiko p. a.": np.sqrt(bt["resid_var"]),
         "Hürde p. a.": hurdle,
-        "Vorsprung p. a.": edge,                       # Jensens Alpha
+        "Vorsprung p. a.": edge,                       # Rendite zum Kurs − ETF-Rendite
         "Vola p. a.": sigma,
         "Gruppe": groups,
         "Ist-Gewicht": w_ist,

@@ -177,8 +177,8 @@ def holdings_chart(held: pd.DataFrame) -> go.Figure:
 
 
 def return_chart(t: pd.DataFrame) -> go.Figure:
-    """Faktor-Modus: erwartete Rendite p. a. (Median) je Titel; Raute = eigene Hürde rf + β·ERP (CAPM).
-    Blau = Rendite über der Hürde (positives Alpha, unterbewertet), orange = darunter; Text = Alpha in pp."""
+    """Faktor-Modus: erwartete Rendite p. a. (Median) je Titel; Raute = ETF-Rendite rf + ERP (für alle gleich).
+    Blau = Rendite über dem ETF (Vorsprung), orange = darunter; Text = Vorsprung in pp."""
     d = t[t["Firma"] != "Cash (EUR)"].sort_values("Vorsprung p. a.")
     names = [n.replace(", Inc.", "").replace(" Inc.", "").replace(" AG", "").replace(" Corporation", "") for n in d["Firma"]]
     fig = go.Figure()
@@ -189,9 +189,9 @@ def return_chart(t: pd.DataFrame) -> go.Figure:
                 customdata=np.column_stack([d["Ziel-Gewicht"], d["Beta"]]),
                 hovertemplate="%{y}<br>Rendite p. a.: %{x:.1%}<br>β %{customdata[1]:.2f} · Ziel %{customdata[0]:.1%}"
                               "<extra></extra>")
-    fig.add_scatter(y=names, x=d["Hürde p. a."], mode="markers", name="Hürde rf + β·ERP",
+    fig.add_scatter(y=names, x=d["Hürde p. a."], mode="markers", name="ETF-Rendite rf + ERP",
                     marker=dict(symbol="diamond", size=10, color="#1f2633", line=dict(color="white", width=2)),
-                    hovertemplate="%{y}<br>Hürde: %{x:.1%}<extra></extra>")
+                    hovertemplate="%{y}<br>ETF: %{x:.1%}<extra></extra>")
     fig.add_vline(x=0, line=dict(color="#c3c9d3", width=1))
     fig.update_layout(legend=dict(orientation="h", y=1.08, x=0, title=None), bargap=0.4)
     fig.update_xaxes(tickformat=".0%", title=None)

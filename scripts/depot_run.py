@@ -68,7 +68,7 @@ def main() -> None:
         r = run(a.detail)
         t = r.table
         print(f"\n=== Detail κ = {a.detail:g} ===")
-        print(t[["Firma", "Rendite p. a.", "Beta", "Beta-Gewicht Regression", "Hürde p. a.", "Vorsprung p. a.", "Restrisiko p. a.", "Ist-Gewicht", "Ziel-Gewicht", "Order €", "Umsetzung",
+        print(t[["Firma", "Upside P50", "Rendite p. a.", "Beta", "Beta-Gewicht Regression", "Hürde p. a.", "Vorsprung p. a.", "Restrisiko p. a.", "Ist-Gewicht", "Ziel-Gewicht", "Order €", "Umsetzung",
                  "Sparplan €/Monat"]].round(4).to_string(index=False))
         for w in r.warnings:
             print("  ⚠", w)

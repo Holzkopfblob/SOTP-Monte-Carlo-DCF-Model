@@ -19,10 +19,12 @@ import os
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 from application.scenario_service import (
     apply_ops, named_steps_for, preset_patterns, reverse_dcf, run_scenarios, walk,
 )
+from domain.beta import MARKET_TICKER, ols_2f, shrink_to_zero, term_factor
 from domain.checks import result_checks
 from domain.models import DEFAULT_INTRA_PARAM_CORR
 from infrastructure.config_io import apply_config, build_simulation_config, parse_config_text, summarize_results
@@ -86,6 +88,20 @@ def wacc(rf: float, d_v: float, spread: float, tax: float, beta_u: float, beta_s
            + (f" + Länderzuschlag {crp:.1f} pp" if crp else "")
            + f" = k_e {ke:.2f} %; k_d ({rf:.2f} + {spread:.2f}) × {1 - tax / 100:.2f} = {kd:.2f} %; D/V {d_v:.0%} ⇒ {w:.2f} %")
     return round(w, 2), txt
+
+
+def term_betas(tickers: dict[str, str], years: int = 3) -> dict[str, float]:
+    """Zinsfaktor β_z je Ticker ({Ticker: Währung}): EUR-Wochenrenditen, Zwei-Faktor-OLS (Weltmarkt, TERM),
+    Spike-and-Slab-Schrumpfung über den ganzen Querschnitt (Depot-Ticker mit übergeben). Für Stress-Szenarien."""
+    from infrastructure.market_data import FX_TICKER, fetch_closes
+    closes = fetch_closes(list(tickers), years)
+    eur = pd.DataFrame({t: closes[t] / (closes[FX_TICKER].ffill() if c == "USD" else 1.0) for t, c in tickers.items()})
+    rets = np.log(eur.resample("W-FRI").last()).diff()
+    mkt = np.log(closes[MARKET_TICKER].resample("W-FRI").last()).diff().reindex(rets.index).to_numpy()
+    term = term_factor(closes).reindex(rets.index).to_numpy()
+    fits = [ols_2f(rets[t].to_numpy(), mkt, term) for t in tickers]
+    post, _ = shrink_to_zero(np.array([f["beta_z"] for f in fits]), np.array([f["se_z"] for f in fits]))
+    return dict(zip(tickers, np.round(post, 2)))
 
 
 def shift(pats: list[str], dlt: float) -> list[dict]:

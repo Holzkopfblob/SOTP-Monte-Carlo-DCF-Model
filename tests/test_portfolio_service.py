@@ -188,7 +188,7 @@ def test_beta_aus_weltmarkt_bestimmt_die_huerde():
     t = res.table.set_index("Firma")
     p = Params()
     assert t.loc["B", "Beta"] == pytest.approx(1.0, abs=0.05) and t.loc["B", "Beta-Gewicht Regression"] > 0.9
-    assert t.loc["B", "Hürde p. a."] == pytest.approx(p.rf + t.loc["B", "Beta"] * p.erp)
+    assert t.loc["B", "Hürde p. a."] == pytest.approx(p.rf + p.erp)                  # ETF-Messlatte, ohne β
     assert t.loc["B", "Vorsprung p. a."] == pytest.approx(t.loc["B", "Rendite p. a."] - t.loc["B", "Hürde p. a."])
     assert not any("Weltmarkt" in w for w in res.warnings)
 
@@ -212,3 +212,20 @@ def test_kurs_ueber_wert_heisst_ziel_null():
     assert t.loc["A", "Ziel-Gewicht"] == pytest.approx(0.0, abs=1e-9) and t.loc["A", "Order Stück"] < 0
     assert (t.loc[["B", "C"], "Ziel-Gewicht"] > 0).any()
     assert any("Ziel 0: A." in w for w in res.warnings)
+
+
+def test_huerde_ist_etf_rendite_zins_beta_nur_gemessen():
+    """Baustein 1: Hürde = rf + ERP für alle (kein β); Zins-Beta wird gemessen, ändert die Hürde aber nicht."""
+    from domain.beta import MARKET_TICKER, TERM_TICKERS
+    positions, valuations, closes = _setup()
+    rng = np.random.default_rng(7)
+    n = len(closes)
+    closes[MARKET_TICKER] = closes["B"]
+    closes[TERM_TICKERS[0]] = 100 * np.exp(np.cumsum(rng.normal(0, 0.004, n)))
+    closes[TERM_TICKERS[1]] = 100.0
+    closes["C"] = 80 * (closes[TERM_TICKERS[0]] / closes[TERM_TICKERS[0]].iloc[-1]) ** 4   # C = 4 × TERM
+    p = Params()
+    t = rebalance(positions, valuations, closes, cash_eur=1100.0, p=p, today=date(2026, 11, 14)).table.set_index("Firma")
+    assert t.loc["C", "Zins-Beta"] > 2.0 and abs(t.loc["A", "Zins-Beta"]) < 1.0
+    assert np.allclose(t.loc[["A", "B", "C"], "Hürde p. a."], p.rf + p.erp)
+    assert t.loc["C", "Vorsprung p. a."] == pytest.approx(t.loc["C", "Rendite p. a."] - (p.rf + p.erp))

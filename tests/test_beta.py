@@ -39,3 +39,27 @@ def test_treynor_black_anker():
     a = treynor_black_anchor(np.array([0.04, 0.02, -0.01]), np.array([0.04, 0.01, 0.02]), budget=1.0)
     assert a.sum() == pytest.approx(1.0) and a[2] == 0.0
     assert a[1] == pytest.approx(2 * a[0])          # halbes Alpha, aber ein Viertel Restrisiko ⇒ doppelter Anker
+
+
+def test_ols_2f_findet_beide_steigungen():
+    from domain.beta import ols_2f
+    rng = np.random.default_rng(3)
+    m, z = rng.normal(0, 0.02, 400), rng.normal(0, 0.005, 400)
+    o = ols_2f(0.8 * m + 3.0 * z + rng.normal(0, 0.01, 400), m, z)
+    assert abs(o["beta"] - 0.8) < 3 * o["se"] and abs(o["beta_z"] - 3.0) < 3 * o["se_z"]
+
+
+def test_shrink_to_zero_drueckt_rauschen_laesst_echten_effekt():
+    from domain.beta import shrink_to_zero
+    b = np.array([0.1, -0.2, 0.15, -0.05, 4.6])      # vier Rauschen, ein echter Effekt (Vonovia-artig)
+    se = np.array([0.5, 0.5, 0.5, 0.5, 0.48])
+    post, w = shrink_to_zero(b, se)
+    assert np.all(np.abs(post[:4]) < 0.15) and post[4] > 3.0 and 0 < w[0] < 1
+    assert np.all(shrink_to_zero(np.array([0.1, -0.1, 0.05]), np.array([1.0, 1.0, 1.0]))[0] == 0)  # nur Rauschen ⇒ 0
+
+
+def test_equity_beta_ist_relevered_branchenbeta():
+    from domain.beta import debt_beta, equity_beta, industry_asset_beta, relever
+    b, _ = equity_beta(None, "EUR", 0.74, "Real Estate (Operations & Services)")
+    b_a, _ = industry_asset_beta(None, "EUR", "Real Estate (Operations & Services)")
+    assert b == pytest.approx(relever(b_a, 0.74, debt_beta(0.74))) and b > b_a

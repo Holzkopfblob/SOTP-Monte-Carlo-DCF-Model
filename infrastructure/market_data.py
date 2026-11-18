@@ -7,11 +7,11 @@ FX_TICKER = "EURUSD=X"
 
 
 def fetch_closes(tickers: list[str], years: int = 3) -> pd.DataFrame:
-    """Tägliche Schlusskurse der Ticker plus EURUSD und Weltmarkt (MSCI World in EUR, für Beta), Spalten = Ticker."""
+    """Tägliche Schlusskurse der Ticker plus EURUSD, Weltmarkt (MSCI World in EUR, für Beta) und Bund-ETFs (Zinsfaktor)."""
     import yfinance as yf  # erst hier: App startet auch ohne Internet/yfinance
 
-    from domain.beta import MARKET_TICKER
-    syms = sorted(set(tickers) | {FX_TICKER, MARKET_TICKER})
+    from domain.beta import MARKET_TICKER, TERM_TICKERS
+    syms = sorted(set(tickers) | {FX_TICKER, MARKET_TICKER, *TERM_TICKERS})
     df = yf.download(syms, period=f"{years}y", progress=False, auto_adjust=True)["Close"]
     if isinstance(df, pd.Series):
         df = df.to_frame(syms[0])

@@ -184,8 +184,9 @@ def _settings() -> Params:
         fraction = b.slider("Kelly-Faktor", 0.1, 1.0, 0.5, 0.05, help="½ = halbes Kelly (CRRA γ = 2).")
         max_w = c.slider("Max. Gewicht je Titel (Notbremse)", 0.05, 1.0, 0.35, 0.01)
         d, e, f = st.columns(3)
-        erp = d.number_input("Risikoprämie p. a. (Hürde)", 0.0, 0.1, 0.0423, 0.0025, format="%.4f",
-                             help="Unterbewertet heißt: erwartete Rendite > Zins + diese Prämie. Ohne Faktor-Modus "
+        erp = d.number_input("Risikoprämie p. a. (ETF-Messlatte)", 0.0, 0.1, 0.0423, 0.0025, format="%.4f",
+                             help="Messlatte für alle Titel: erwartete Rendite des Weltmarkt-ETF = Zins + diese Prämie (Damodaran, implizit). "
+                                  "Kaufen nur, wenn die Rendite zum Kurs darüber liegt. Ohne Faktor-Modus "
                                   "zusätzlich die Rendite der Markt-Welt.")
         rf = e.number_input("Cash-Zins p. a. (Bund 3 J.)", 0.0, 0.1, rf_default, 0.0025, format="%.4f",
                             help=f"Bundesbank-Zinsstruktur 3 Jahre, Stand {rf_day}.")
@@ -309,9 +310,9 @@ def _valuations_table(t: pd.DataFrame, ages: dict) -> None:
                                                            help="Median der Halte-Rendite pro Jahr (EUR)."),
             "Beta": st.column_config.NumberColumn("β", format="%.2f",
                                                   help="Regression auf MSCI World (EUR, Wochen, 3 J.), Vasicek-geschrumpft."),
-            "Hürde p. a.": st.column_config.NumberColumn("Hürde p. a.", format="percent", help="Zins + β × Risikoprämie."),
+            "Hürde p. a.": st.column_config.NumberColumn("Hürde p. a.", format="percent", help="Erwartete ETF-Rendite (Zins + Risikoprämie), für alle Titel gleich."),
             "Vorsprung p. a.": st.column_config.NumberColumn("Alpha p. a.", format="percent",
-                                                             help="Rendite p. a. − Hürde (Jensens Alpha). > 0 = unterbewertet."),
+                                                             help="Rendite zum Kurs − ETF-Rendite. > 0 = schlägt die Alternative ETF."),
             "Restrisiko p. a.": st.column_config.NumberColumn("Restrisiko p. a.", format="percent",
                                                               help="Titelspezifische Vola (Residuen der Regression)."),
             "E[R] Horizont": st.column_config.NumberColumn("Erwartet gesamt (Horizont, Mittel)", format="percent"),
@@ -339,7 +340,7 @@ def _bestand_tab(t: pd.DataFrame, positions: list[dict], cash: float, topf: floa
         k[1].metric("Gewinn/Verlust seit Kauf", "–", "Einstand fehlt", delta_color="off", border=True)
     k[2].metric("Alpha des Bestands", _pct(tot.get("alpha_gewichtet", float("nan")), True),
                 "p. a., wertgewichtet", delta_color="off", border=True,
-                help="Erwartete Rendite über der eigenen CAPM-Hürde, gewichtet mit dem heutigen Wert.")
+                help="Erwartete Rendite über der ETF-Rendite, gewichtet mit dem heutigen Wert.")
     k[3].metric("Aktienverlusttopf", _eur(topf), f"{tot.get('n', 0)} Positionen", delta_color="off", border=True)
     if held.empty:
         st.info("Noch keine Positionen mit Stückzahl > 0 – im Reiter „Depot“ eintragen.", icon="ℹ️")
@@ -488,9 +489,8 @@ def render_portfolio(container) -> None:
             if pr.faktor_szenarien:
                 st.plotly_chart(return_chart(t), width="stretch", config={"displayModeBar": False})
                 st.caption(f"Erwartete Rendite pro Jahr (Median über {pr.horizon_years} J., in EUR, aus der IRR zum Kurs "
-                           f"mit Hebel und Cashflow-Szenarien). Raute = eigene Hürde Zins + β × Risikoprämie (CAPM; β aus der Regression "
-                           "auf den MSCI World in EUR, nach Vasicek zur Branche geschrumpft). Blau = Rendite über der Hürde "
-                           "(positives Alpha, unterbewertet). Gewicht: Treynor–Black-Anker (Alpha / Restrisiko²) im "
+                           f"mit Hebel und Cashflow-Szenarien). Raute = Messlatte ETF-Rendite (Zins + Risikoprämie, für alle "
+                           "gleich). Blau = Rendite über dem ETF (Vorsprung), orange = darunter. Gewicht: Treynor–Black-Anker (Vorsprung / Restrisiko²) im "
                            "robusten Kelly, dazu Korrelation und Gruppengrenze.")
             else:
                 st.plotly_chart(upside_chart(t), width="stretch", config={"displayModeBar": False})
