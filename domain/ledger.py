@@ -5,7 +5,9 @@ Steuerlich wie die Bank (§ 20 Abs. 4 EStG): Veräußerungsgewinn = Erlös − V
 inkl. Nebenkosten, verbrauchte Stücke nach FIFO (zuerst gekaufte zuerst verkauft). Bruchstücke erlaubt.
 
 Transaktion (dict): datum (JJJJ-MM-TT), ticker, typ ∈ {kauf, verkauf, dividende, gebuehr}, stueck, kurs_eur
-(je Stück), betrag_eur (Dividende netto gutgeschrieben bzw. Gebühr ohne Order), gebuehr_eur, steuer_eur, notiz.
+(je Stück), betrag_eur (Dividende netto gutgeschrieben bzw. Gebühr ohne Order), steuer_eur, notiz.
+Bei Trade Republic ist die Ordergebühr im Kurs enthalten (Kauf: Einstand inkl. Gebühr, Verkauf: Erlös nach Gebühr,
+Nutzerentscheid 18.11.2026); gebuehr_eur bleibt optional für andere Banken.
 """
 from __future__ import annotations
 

@@ -56,7 +56,7 @@ def test_bestand_mit_transaktionsbuch_und_geschlossener_position(tmp_path):
     t = _table().iloc[[0, 3]].reset_index(drop=True)
     held, _, tot = holdings(t, pos, 0.0, today=date(2026, 11, 18), research=tmp_path, transaktionen=tx)
     a = held.set_index("Firma").loc["A"]
-    assert a["Dividenden €"] == 3.0 and a["Gebühren €"] == 1.0
+    assert a["Dividenden €"] == 3.0 and "Gebühren €" not in a.index
     assert a["Ergebnis gesamt €"] == pytest.approx((12.0 - 10.1) * 10 + 3.0)
     assert tot["realisiert"] == pytest.approx(2 * 60 - 1 - 101) and tot["dividenden"] == 3.0
     c = closed_positions(pos, tx)

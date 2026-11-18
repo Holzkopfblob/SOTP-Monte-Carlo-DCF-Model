@@ -90,7 +90,7 @@ def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[di
     df["gruppe"] = df["gruppe"].fillna("")
     ledger = bool(depot.get("transaktionen"))
     if ledger:
-        st.caption("Stück, Einstand und Kaufdatum werden aus den **Transaktionen** unten berechnet (FIFO, inkl. Gebühren).")
+        st.caption("Stück, Einstand und Kaufdatum werden aus den **Transaktionen** unten berechnet (FIFO).")
     edited = st.data_editor(
         df, num_rows="dynamic", width="stretch", key="pf_editor", hide_index=True,
         disabled=["stueck", "einstand_eur", "kaufdatum"] if ledger else False,
@@ -108,10 +108,10 @@ def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[di
         },
     )
     st.markdown("##### Transaktionen")
-    st.caption("Jede Order, Dividende und Gebühr eine Zeile. Kurs = Preis je Stück in EUR (Ausführungskurs), "
-               "Gebühr = Ordergebühr (meist 1 €). Dividende oder Gebühr ohne Order: Betrag eintragen. "
+    st.caption("Jede Order und Dividende eine Zeile. Kauf: Kurs = Einstand je Stück inkl. Gebühr (wie bei Trade "
+               "Republic angezeigt). Verkauf: Kurs = Erlös je Stück nach Gebühr. Dividende: gutgeschriebener Betrag. "
                "Veräußerungsgewinne nach FIFO wie die Bank (§ 20 Abs. 4 EStG).")
-    tx_cols = ["datum", "ticker", "typ", "stueck", "kurs_eur", "gebuehr_eur", "betrag_eur", "steuer_eur", "notiz"]
+    tx_cols = ["datum", "ticker", "typ", "stueck", "kurs_eur", "betrag_eur", "steuer_eur", "notiz"]
     tx = pd.DataFrame(depot.get("transaktionen") or [], columns=tx_cols)
     tx["datum"] = pd.to_datetime(tx["datum"], errors="coerce").dt.date
     tx = tx.sort_values("datum", ascending=False, na_position="first").reset_index(drop=True)
@@ -121,11 +121,11 @@ def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[di
         column_config={
             "datum": st.column_config.DateColumn("Datum", format="DD.MM.YYYY", required=True),
             "ticker": st.column_config.SelectboxColumn("Ticker", options=tickers, required=True),
-            "typ": st.column_config.SelectboxColumn("Typ", options=list(TYPEN), required=True, default="kauf"),
+            "typ": st.column_config.SelectboxColumn("Typ", options=["kauf", "verkauf", "dividende"], required=True,
+                                                    default="kauf"),
             "stueck": st.column_config.NumberColumn("Stück", min_value=0.0, step=0.000001, format="%.6f"),
-            "kurs_eur": st.column_config.NumberColumn("Kurs €/Stück", min_value=0.0, format="%.4f"),
-            "gebuehr_eur": st.column_config.NumberColumn("Gebühr €", min_value=0.0, format="%.2f", default=1.0),
-            "betrag_eur": st.column_config.NumberColumn("Betrag € (Dividende/Gebühr)", format="%.2f"),
+            "kurs_eur": st.column_config.NumberColumn("Kurs €/Stück (inkl. Gebühr)", min_value=0.0, format="%.4f"),
+            "betrag_eur": st.column_config.NumberColumn("Dividende €", format="%.2f"),
             "steuer_eur": st.column_config.NumberColumn("Steuer €", min_value=0.0, format="%.2f"),
             "notiz": st.column_config.TextColumn("Notiz", width="large"),
         },
@@ -136,8 +136,7 @@ def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[di
 
     transaktionen = [
         {"datum": r.datum.isoformat() if hasattr(r.datum, "isoformat") else str(r.datum), "ticker": r.ticker,
-         "typ": r.typ, "stueck": _num(r.stueck), "kurs_eur": _num(r.kurs_eur), "gebuehr_eur": _num(r.gebuehr_eur),
-         "betrag_eur": _num(r.betrag_eur), "steuer_eur": _num(r.steuer_eur),
+         "typ": r.typ, "stueck": _num(r.stueck), "kurs_eur": _num(r.kurs_eur), "betrag_eur": _num(r.betrag_eur), "steuer_eur": _num(r.steuer_eur),
          "notiz": r.notiz if isinstance(r.notiz, str) else ""}
         for r in tx_edit.itertuples()
         if isinstance(r.ticker, str) and r.typ in TYPEN and r.datum is not None and not pd.isna(r.datum)
@@ -333,7 +332,7 @@ def _bestand_tab(t: pd.DataFrame, positions: list[dict], cash: float, topf: floa
         k[1].metric("Ergebnis gesamt", _eur(tot["ergebnis"]),
                     f"offen {_eur(tot['gewinn'])} · realisiert {_eur(tot['realisiert'])} · Dividenden "
                     f"{_eur(tot['dividenden'])}", delta_color="off", border=True,
-                    help=f"Vor Steuern. Gebühren stecken in Einstand und Erlösen (gesamt {_eur(tot['gebuehren'], 2)}).")
+                    help="Vor Steuern. Gebühren stecken in Einstand und Erlös (Trade Republic weist sie so aus).")
     elif tot.get("einstand"):
         k[1].metric("Gewinn/Verlust seit Kauf", _eur(tot["gewinn"]), _pct(tot["gewinn_pct"], True), border=True)
     else:
@@ -358,7 +357,6 @@ def _bestand_tab(t: pd.DataFrame, positions: list[dict], cash: float, topf: floa
             "Haltedauer (Tage)": st.column_config.NumberColumn("Gehalten (Tage)", format="%d"),
             "Realisiert €": st.column_config.NumberColumn(format="%+.2f €"),
             "Dividenden €": st.column_config.NumberColumn(format="%.2f €"),
-            "Gebühren €": st.column_config.NumberColumn(format="%.2f €"),
             "Ergebnis gesamt €": st.column_config.NumberColumn("Ergebnis gesamt", format="%+.2f €"),
             "Fairer Wert €": st.column_config.NumberColumn("Fairer Wert P50", format="%.2f €"),
             "Potenzial": st.column_config.NumberColumn("Zum fairen Wert", format="percent"),
@@ -385,8 +383,8 @@ def _bestand_tab(t: pd.DataFrame, positions: list[dict], cash: float, topf: floa
                      column_config={**money, "Ergebnis %": st.column_config.NumberColumn(format="percent")})
     for w in tot.get("warnungen", []):
         st.warning(w, icon="⚠️")
-    st.caption("Gewinn offen = (Kurs − Einstand inkl. Kaufgebühr) × Stück. Ergebnis gesamt = offen + realisiert (FIFO, "
-               "nach Gebühren) + Dividenden, vor Steuern. Aktion aus der Optimierung (Reiter "
+    st.caption("Gewinn offen = (Kurs − Einstand inkl. Gebühr) × Stück. Ergebnis gesamt = offen + realisiert (FIFO) "
+               "+ Dividenden, vor Steuern. Aktion aus der Optimierung (Reiter "
                "„Orders“). Termine und These aus der Research-Ablage (SOTP-Research: termine.csv, Firmen/<Ticker>.md).")
 
 

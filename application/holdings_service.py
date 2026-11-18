@@ -54,8 +54,8 @@ def thesis(ticker: str, research: Path = RESEARCH, max_len: int = 160) -> str:
 def _ledger_cols(k, unrealisiert: float) -> dict:
     """Realisiert, Dividenden, Gebühren und Gesamtergebnis (unrealisiert + realisiert + Dividenden) je Titel."""
     if k is None:
-        return {"Realisiert €": np.nan, "Dividenden €": np.nan, "Gebühren €": np.nan, "Ergebnis gesamt €": np.nan}
-    return {"Realisiert €": k.realisiert, "Dividenden €": k.dividenden, "Gebühren €": k.gebuehren,
+        return {"Realisiert €": np.nan, "Dividenden €": np.nan, "Ergebnis gesamt €": np.nan}
+    return {"Realisiert €": k.realisiert, "Dividenden €": k.dividenden,
             "Ergebnis gesamt €": unrealisiert + k.realisiert + k.dividenden}
 
 
