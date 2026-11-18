@@ -26,24 +26,103 @@ def _layout(fig: go.Figure, height: int, **kw) -> go.Figure:
     return fig
 
 
-def allocation_chart(t: pd.DataFrame) -> go.Figure:
-    """Ist- vs. Ziel-Gewicht je Titel (horizontal, nach Ziel sortiert), Cash zuletzt."""
-    d = t[(t["Ist-Gewicht"].abs() > 1e-4) | (t["Ziel-Gewicht"].abs() > 1e-4)].copy()
-    cash = d[d["Firma"] == "Cash (EUR)"]
-    # Plotly zeichnet die erste Kategorie unten: Cash unten, darüber aufsteigend nach Ziel-Gewicht
-    d = pd.concat([cash, d[d["Firma"] != "Cash (EUR)"].sort_values("Ziel-Gewicht")])
-    names = [n.replace(", Inc.", "").replace(" Inc.", "").replace(" AG", "").replace(" Corporation", "") for n in d["Firma"]]
+# Gruppenfarben: dataviz-Referenzpalette in fester Reihenfolge, je Gruppe fest zugeordnet (Farbe folgt der Gruppe,
+# nicht dem Rang). Validiert (validate_palette.js, light): CVD worst 9,1, Normalsicht 19,6; Kontrast < 3:1 bei
+# Aqua/Gelb/Magenta ⇒ Donut-Scheiben immer mit Namen und Prozent beschriftet. Cash = neutrales Grau.
+GROUP_COLORS = {
+    "Telko": "#2a78d6", "Halbleiter/Elektronik": "#eb6834", "Industrie": "#1baf7a", "Gesundheit": "#eda100",
+    "Software/IT": "#e87ba4", "Auto": "#008300", "Konsum": "#6250d6",
+}
+EXTRA_COLORS = ["#e34948", "#8a6d3b", "#4b5563"]     # weitere Gruppen (selten); mehr ⇒ in „Sonstige“ falten
+CASH_COLOR = "#a3abb8"
+CASH = "Cash (EUR)"
+
+
+def _short(n: str) -> str:
+    return n.replace(", Inc.", "").replace(" Inc.", "").replace(" AG", "").replace(" Corporation", "") \
+            .replace(" Group Plc", "").replace(" Holding N.V.", "").replace(" S.A.", "").replace(" SE", "")             .replace(" Software Technologies Ltd.", "").replace(" Communications", "").replace(" Group", "")
+
+
+def group_weights(t: pd.DataFrame) -> pd.DataFrame:
+    """Ist- und Ziel-Gewicht je Gruppe (Cash als eigene Zeile), Anzahl Titel > 0,5 % je Seite."""
+    d = t.copy()
+    d["Gruppe"] = np.where(d["Firma"] == CASH, CASH, d["Gruppe"].fillna("Ohne Gruppe"))
+    g = d.groupby("Gruppe")[["Ist-Gewicht", "Ziel-Gewicht"]].sum()
+    return g.loc[(g.abs() > 1e-4).any(axis=1)]
+
+
+def _group_color(name: str, others: list[str]) -> str:
+    if name == CASH:
+        return CASH_COLOR
+    if name in GROUP_COLORS:
+        return GROUP_COLORS[name]
+    return EXTRA_COLORS[others.index(name) % len(EXTRA_COLORS)]
+
+
+def group_donuts(t: pd.DataFrame) -> go.Figure:
+    """Zwei Donuts (Ist | Ziel) nach Gruppe; gleiche Gruppe = gleiche Farbe, Cash grau, 2px Lücke zwischen Scheiben.
+    Mitte: Zahl der Titel über 0,5 %."""
+    from plotly.subplots import make_subplots
+    g = group_weights(t)
+    order = [x for x in GROUP_COLORS if x in g.index] + sorted(x for x in g.index if x not in GROUP_COLORS and x != CASH)
+    order += [CASH] if CASH in g.index else []
+    others = [x for x in order if x not in GROUP_COLORS and x != CASH]
+    colors = [_group_color(x, others) for x in order]
+    titles = t[t["Firma"] != CASH]
+    fig = make_subplots(rows=1, cols=2, specs=[[{"type": "domain"}, {"type": "domain"}]], horizontal_spacing=0.06)
+    for i, (col, label) in enumerate((("Ist-Gewicht", "Ist"), ("Ziel-Gewicht", "Ziel")), start=1):
+        vals = [max(float(g.loc[x, col]), 0.0) for x in order]
+        n = int((titles[col] > 0.005).sum())
+        fig.add_pie(labels=order, values=vals, hole=0.62, sort=False, direction="clockwise", name=label,
+                    marker=dict(colors=colors, line=dict(color="white", width=2)),
+                    text=[f"{x}<br>{v / sum(vals):.0%}" if sum(vals) and v / sum(vals) >= 0.01 else "" for x, v in zip(order, vals)],
+                    textinfo="text", textposition="outside", textfont=dict(color=MUTED, size=12),
+                    hovertemplate=label + " · %{label}<br>%{percent:.1%}<extra></extra>", row=1, col=i)
+        fig.add_annotation(text=f"<b>{label}</b><br>{n} Titel", x=0.22 if i == 1 else 0.78, y=0.5, showarrow=False,
+                           font=dict(size=14, color="#1f2633"), xref="paper", yref="paper")
+    fig.update_traces(showlegend=False)
+    fig.update_layout(uniformtext_minsize=10, uniformtext_mode="hide")
+    _layout(fig, 380)
+    fig.update_layout(margin=dict(l=40, r=40, t=40, b=40))
+    return fig
+
+
+def dumbbell_chart(t: pd.DataFrame) -> go.Figure:
+    """Ist → Ziel je Titel: grauer Punkt = Ist, farbiger Punkt = Ziel (blau aufstocken, orange abbauen), Linie dazwischen.
+    Sortiert nach Ziel; Cash unten; Titel ohne Ist und Ziel entfallen."""
+    d = t[(t["Ist-Gewicht"].abs() >= 0.005) | (t["Ziel-Gewicht"].abs() >= 0.005)].copy()   # < 0,5 % beidseitig: weglassen
+    cash = d[d["Firma"] == CASH]
+    d = pd.concat([cash, d[d["Firma"] != CASH].sort_values(["Ziel-Gewicht", "Ist-Gewicht"])])
+    names = [_short(n) for n in d["Firma"]]
+    ist, ziel = d["Ist-Gewicht"].to_numpy(), d["Ziel-Gewicht"].to_numpy()
+    up = ziel > ist + 1e-3
+    down = ziel < ist - 1e-3
     fig = go.Figure()
-    for col, color, label in (("Ist-Gewicht", IST, "Ist"), ("Ziel-Gewicht", ZIEL, "Ziel")):
-        fig.add_bar(y=names, x=d[col], name=label, orientation="h", marker=dict(color=color, cornerradius=4),
-                    text=[f"{v:.0%}" if label == "Ziel" and v > 0.004 else "" for v in d[col]],
-                    textposition="outside", textfont=dict(color=MUTED, size=12), cliponaxis=False,
-                    hovertemplate="%{y}<br>" + label + ": %{x:.1%}<extra></extra>")
-    fig.update_layout(barmode="group", bargap=0.35, bargroupgap=0.12,
-                      legend=dict(orientation="h", y=1.08, x=0, title=None))
-    fig.update_xaxes(tickformat=".0%", title=None, rangemode="tozero")
-    fig.update_yaxes(title=None, categoryorder="array", categoryarray=names)
-    return _layout(fig, max(320, 34 * len(names) + 80))
+    for mask, color in ((up, POS), (down, NEG)):
+        xs, ys = [], []
+        for n, a_, b_ in zip(np.array(names)[mask], ist[mask], ziel[mask]):
+            xs += [a_, b_, None]
+            ys += [n, n, None]
+        fig.add_scatter(x=xs, y=ys, mode="lines", line=dict(color=hex_to_rgba(color, 0.45), width=2),
+                        hoverinfo="skip", showlegend=False)
+    fig.add_scatter(x=ist, y=names, mode="markers", name="Ist",
+                    marker=dict(size=10, color="#a3abb8", line=dict(color="white", width=2)),
+                    hovertemplate="%{y}<br>Ist: %{x:.1%}<extra></extra>")
+    zc = np.where(up, POS, np.where(down, NEG, "#5b6475"))
+    fig.add_scatter(x=ziel, y=names, mode="markers+text", name="Ziel", showlegend=False,
+                    marker=dict(size=12, color=zc, line=dict(color="white", width=2)),
+                    text=[f"{z:.0%}" if abs(z - i) > 1e-3 or z > 0.004 else "" for z, i in zip(ziel, ist)],
+                    textposition="middle right", textfont=dict(color=MUTED, size=12), cliponaxis=False,
+                    customdata=np.column_stack([ist, ziel - ist]),
+                    hovertemplate="%{y}<br>Ziel: %{x:.1%} (Ist %{customdata[0]:.1%}, Δ %{customdata[1]:+.1%})<extra></extra>")
+    # Legendeneinträge für die Richtung (Farbe nie allein: Legende + Prozent-Beschriftung)
+    for color, label in ((POS, "Ziel · aufstocken"), (NEG, "Ziel · abbauen")):
+        fig.add_scatter(x=[None], y=[None], mode="markers", name=label, marker=dict(size=12, color=color))
+    fig.update_layout(legend=dict(orientation="h", y=1.06, x=0, title=None))
+    hi = float(max(ist.max(initial=0), ziel.max(initial=0)))
+    fig.update_xaxes(tickformat=".0%", title=None, range=[-0.012, hi * 1.12 + 0.01])   # Luft links: Punkte bei 0 % frei
+    fig.update_yaxes(title=None, categoryorder="array", categoryarray=names, showgrid=True, ticksuffix="  ")
+    return _layout(fig, max(320, 30 * len(names) + 90))
 
 
 def wealth_chart(samples: dict, stats_ist: dict, stats_ziel: dict, horizon: int) -> go.Figure:

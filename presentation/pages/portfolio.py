@@ -24,7 +24,7 @@ from infrastructure.market_data import fetch_bund_3y, fetch_closes, fetch_treasu
 from application.holdings_service import closed_positions, holdings
 from domain.ledger import TYPEN, apply_to_positions
 from presentation.charts.portfolio import (
-    allocation_chart, corr_heatmap, holdings_chart, return_chart, upside_chart, wealth_chart,
+    corr_heatmap, dumbbell_chart, group_donuts, holdings_chart, return_chart, upside_chart, wealth_chart,
 )
 
 _NEWEST = "(neueste)"
@@ -476,9 +476,14 @@ def render_portfolio(container) -> None:
         with tabs[0]:
             _bestand_tab(t, positions, cash, topf, transaktionen)
         with tabs[2]:
-            st.plotly_chart(allocation_chart(t), width="stretch", config={"displayModeBar": False})
-            st.caption("Ziel nach Fractional Kelly (CRRA) auf der Szenario-Mischung; Grenzen: max. Gewicht je Titel, "
-                       "kein Hebel. Titel, deren Order an der Mindestorder scheitert, bleiben auf dem Ist-Gewicht.")
+            st.markdown("##### Nach Gruppe")
+            st.plotly_chart(group_donuts(t), width="stretch", config={"displayModeBar": False})
+            st.caption(f"Anteil je Gruppe am Depotwert, links heute, rechts nach der Optimierung. Jede Gruppe ist auf "
+                       f"{_pct(pr.group_cap)} begrenzt (gemeinsamer Branchenfehler), Cash grau.")
+            st.markdown("##### Je Titel: von Ist zu Ziel")
+            st.plotly_chart(dumbbell_chart(t), width="stretch", config={"displayModeBar": False})
+            st.caption("Grauer Punkt = Ist, farbiger Punkt = Ziel (blau aufstocken, orange abbauen). Ziel aus dem robusten "
+                       "Kelly (Treynor–Black-Anker) unter Notbremse je Titel und Gruppengrenze; kleine Käufe als Sparplan.")
         with tabs[3]:
             if pr.faktor_szenarien:
                 st.plotly_chart(return_chart(t), width="stretch", config={"displayModeBar": False})
