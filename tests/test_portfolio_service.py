@@ -104,7 +104,7 @@ def test_usd_hold_returns_are_converted_by_interest_parity(monkeypatch):
     monkeypatch.setattr(ps, "hold_returns", fake)
 
     def er(rf_usd):
-        p = Params(rf=0.03, rf_usd=rf_usd, horizon_years=10)
+        p = Params(rf=0.03, rf_usd=rf_usd, horizon_years=10, k_vorsprung=1.0)
         res = rebalance(positions, valuations, closes, cash_eur=1000.0, p=p, today=date(2026, 11, 14))
         return res.table.set_index("Firma")["E[R] Horizont"]
     same, high = er(0.03), er(0.05)
@@ -127,7 +127,7 @@ def test_sector_bias_is_shared_within_a_sector(monkeypatch):
         seen["R"] = R
         return real(R, *a, **k)
     monkeypatch.setattr(ps, "kelly_weights", spy)
-    rebalance(positions, valuations, closes, 1000.0, Params(tau_branche=0.03, horizon_years=10, sigma_idio_5j=0.0), date(2026, 11, 14))
+    rebalance(positions, valuations, closes, 1000.0, Params(tau_branche=0.03, horizon_years=10, sigma_idio_5j=0.0, k_vorsprung=1.0), date(2026, 11, 14))
     lr = np.log1p(seen["R"])
     assert np.corrcoef(lr[:, 0], lr[:, 1])[0, 1] > 0.99 and abs(np.corrcoef(lr[:, 0], lr[:, 2])[0, 1]) < 0.05
     assert np.std(lr[:, 0]) == pytest.approx(10 * 0.03 / 1.12, rel=0.05)     # τ über 10 J. verkettet
@@ -146,7 +146,7 @@ def test_rate_shock_hits_levered_titles_together_and_helps_net_cash(monkeypatch)
     monkeypatch.setattr(ps, "hold_returns", fake)
     seen, real = {}, ps.kelly_weights
     monkeypatch.setattr(ps, "kelly_weights", lambda R, *a, **k: seen.setdefault("R", R) is R and real(R, *a, **k))
-    rebalance(positions, valuations, closes, 1000.0, Params(tau_branche=0.0, sigma_zins=0.02, horizon_years=10, sigma_idio_5j=0.0),
+    rebalance(positions, valuations, closes, 1000.0, Params(tau_branche=0.0, sigma_zins=0.02, horizon_years=10, sigma_idio_5j=0.0, k_vorsprung=1.0),
               date(2026, 11, 14))
     lr = np.log1p(seen["R"])
     assert np.corrcoef(lr[:, 0], lr[:, 1])[0, 1] > 0.99 and np.corrcoef(lr[:, 0], lr[:, 2])[0, 1] < -0.99
@@ -240,10 +240,28 @@ def test_titelstreuung_baustein5_median_bleibt_breite_wie_kalibriert(monkeypatch
     _fake_irr(monkeypatch, {})
     seen, real = {}, ps.kelly_weights
     monkeypatch.setattr(ps, "kelly_weights", lambda R, *a, **k: seen.setdefault("R", R) is R and real(R, *a, **k))
-    p = Params(tau_branche=0.0, sigma_zins=0.0, horizon_years=10, sigma_idio_5j=0.2, idio_exponent=0.5)
+    p = Params(tau_branche=0.0, sigma_zins=0.0, horizon_years=10, sigma_idio_5j=0.2, idio_exponent=0.5, k_vorsprung=1.0)
     rebalance(positions, valuations, closes, 1000.0, p, date(2026, 11, 14))
     lr = np.log1p(seen["R"])
     s_x = 0.2 * (5 / 10) ** 0.5
     assert abs(np.corrcoef(lr[:, 0], lr[:, 1])[0, 1]) < 0.05
     assert np.std(lr[:, 0]) == pytest.approx(10 * s_x / 1.12, rel=0.1)            # wie τ-Test: r_E 0,12
     assert np.median(lr[:, 0]) == pytest.approx(np.log(valuations[0]["p50_neu"] / 100), abs=0.03)  # Median bleibt
+
+
+def test_baustein3_vorsprung_wird_mit_k_geschrumpft(monkeypatch):
+    """Faktor-Modus: Vorsprung (Median-Rendite − ETF) ≈ k × roher Vorsprung (irr_ek − ETF), Achse verschiebt."""
+    positions, valuations, closes = _setup()
+    for v in valuations:
+        v.update(schock={}, results=np.full(len(v["samples"]), 100.0 * (1.12 ** 10)))   # R = 1,12^10 − 1 bei Kurs 100
+    import application.portfolio_service as ps
+
+    def fake(results, price, k_d, h):
+        return {"R": results / 100.0 - 1, "irr": 0.12, "irr_ek": 0.12, "d_e": 0.0, "irr_p5": 0.1, "irr_p95": 0.14,
+                "am_rand": 0.0}
+    monkeypatch.setattr(ps, "hold_returns", fake)
+    base = dict(tau_branche=0.0, sigma_zins=0.0, sigma_idio_5j=0.0, horizon_years=10, faktor_szenarien=True)
+    for k, achse in ((1.0, 0.0), (0.25, 0.0), (0.25, -0.02)):
+        p = Params(**base, k_vorsprung=k, achse_vorsprung=achse)
+        t = rebalance(positions, valuations, closes, 1000.0, p, date(2026, 11, 14)).table.set_index("Firma")
+        assert t.loc["A", "Vorsprung p. a."] == pytest.approx(achse + k * (0.12 - (p.rf + p.erp)), abs=1e-3)

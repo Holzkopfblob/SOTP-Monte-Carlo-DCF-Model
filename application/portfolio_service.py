@@ -142,6 +142,13 @@ class Params:
     # σ_x(5)·(5/h)^0,43 (gemessen aus 3 und 5 J.) ⇒ 10 J. 15 %. Median bleibt, Kelly (log) setzt weniger.
     # ponytail: unabhängig je Titel (gemeinsame Teile stecken nur in τ/Zins); US-Labor, Firmenebene, Public Float.
     sigma_idio_5j: float = 0.202
+    # Baustein 3 (Labor 18.11.2026, scripts/labor_k.py): vom vorhergesagten Vorsprung (EK-Rendite zum Kurs − ETF-Rendite)
+    # kommt im Median nur k an: Median-Regression der 5-J.-Überrendite auf den Vorsprung k 0,14 [0,03; 0,23] (Lernen 0,11,
+    # Prüfen 0,15; Mittelwert 0,80 nur durch Ausreißer). Fluch des Gewinners: größte Lücke ≈ größter Modellfehler.
+    k_vorsprung: float = 0.14
+    # Achse der Regression −8,4 % p. a. (Aktie mit Vorsprung 0 gegen S&P 500 TR) überwiegend Zeitraum (Megacaps vs. kleinere
+    # US-Werte 2014–25) und Messung ⇒ nicht angewandt (0); bewusst setzen, wer die Ära für dauerhaft hält.
+    achse_vorsprung: float = 0.0
     idio_exponent: float = 0.43
     # Robustes Kelly (Hansen–Sargent, 18.11.2026): Strafe κ · KL(w ‖ Anker) in Rendite p. a. je nat; 0 = klassisch.
     # Anker ∝ Vorsprung = annualisierte Median-Rendite − (rf + erp); Titel ohne Vorsprung bekommen hi = 0.
@@ -286,6 +293,12 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
             R_model = (1 + R_model) * np.column_stack(
                 [np.maximum(1 + s_x * _rng(p.seed, f"idio|{nm}").standard_normal(n) / (1 + x["irr_ek"]), 0.0)
                  ** p.horizon_years for x, nm in zip(hr, names)]) - 1
+        # Baustein 3 (nach allen Streuungen, auf die fertige Verteilung): gemessenen Median-Vorsprung (Median der Rendite p. a. − ETF, wie im Labor) auf Achse + k·Vorsprung
+        # zurücknehmen; Form der Verteilung bleibt. In EUR (nach Parität), ETF-Rendite = rf EUR + ERP.
+        etf = p.rf + p.erp
+        m = np.maximum(1 + np.median(R_model, axis=0), 1e-9) ** (1 / p.horizon_years) - 1
+        m_neu = etf + p.achse_vorsprung + p.k_vorsprung * (m - etf)
+        R_model = (1 + R_model) * (np.maximum((1 + m_neu) / (1 + m), 0.0) ** p.horizon_years)[None, :] - 1
         rand = np.array([x["am_rand"] > RAND_MAX_ANTEIL for x in hr])
         if rand.any():   # Bridge > Börsenwert: IRR unbrauchbar ⇒ Marktrendite mit Kursvola, Gewicht eingefroren
             R_mkt = market_world_returns(n, sigma, corr.values, p.rf, p.erp, p.horizon_years, seed=p.seed + 1)
