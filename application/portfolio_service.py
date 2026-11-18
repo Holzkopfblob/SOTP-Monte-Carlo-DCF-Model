@@ -20,11 +20,14 @@ import numpy as np
 import pandas as pd
 
 from application.universe_simulation import OHNE_BRANCHE
+from domain.beta import (
+    MARKET_TICKER, debt_beta, industry_asset_beta, ols_beta, relever, treynor_black_anchor, vasicek,
+)
 from domain.factor_model import _rng
 from domain.irr import RAND_MAX_ANTEIL, hold_returns
 from domain.portfolio import (
     correlate_samples, factor_tilt, horizon_returns, kelly_weights, market_world_returns, mix_worlds, orders, wealth,
-    robust_anchor,
+
 )
 from infrastructure.config_io import build_simulation_config
 from infrastructure.monte_carlo_engine import MonteCarloEngine
@@ -112,7 +115,9 @@ class Params:
     seed: int = 42
     group_cap: float = 0.20  # max. Summe |Gewicht| je benannter Gruppe (z. B. „Auto“)
     p_market: float = 0.3   # Szenario-Mischung: Wahrscheinlichkeit „Markt hat recht“ (0 = Modell voll glauben)
-    erp: float = 0.05       # Marktrendite in der Markt-Welt = rf + erp p. a.
+    # Risikoprämie: Hürde rf + β·ERP je Titel (und Markt-Welt im Altpfad). 4,23 % = Damodaran implizite ERP Jan. 2026,
+    # dieselbe wie in den Bewertungen (Konsistenz Hürde ↔ WACC); vorher pauschal 5 %.
+    erp: float = 0.0423
     factor_shrink: float = 0.0  # Gegenprobe 16.11.: Faktor ist Telko-/Auto-Effekt, kein allgemeiner Stil ⇒ aus. Anteil des Value-Stils, der aus den Werten herausgenommen wird (0 = Modell voll, 1 = ganz)
     faktor_szenarien: bool = False  # v3 Phase 3: gemeinsame Cashflow-Schocks (Seite ruft dann simulate_universe)
     rf_usd: float = 0.049   # US-Treasury 3 J. (FRED DGS3, 12.11.2026); App lädt tagesaktuell
@@ -148,6 +153,27 @@ def _eur_closes(closes: pd.DataFrame, ticker: str, ccy: str) -> pd.Series:
     if ccy == "USD":
         s = s / closes[FX_TICKER].ffill()
     return s
+
+
+def _betas(positions, valuations, closes, rets, names, hr, warnings) -> dict:
+    """β (Vasicek-geschrumpft), Gewicht der Regression und Restrisiko je Titel; ohne Marktreihe nur der Prior."""
+    mkt = (np.log(closes[MARKET_TICKER].resample("W-FRI").last()).diff()
+           if MARKET_TICKER in closes else None)
+    if mkt is None:
+        warnings.append(f"Keine Kurse für den Weltmarkt ({MARKET_TICKER}): Beta = Branchenprior, Restrisiko = Vola.")
+    out = {"beta": [], "w": [], "resid_var": []}
+    for i, (pos, val, name) in enumerate(zip(positions, valuations, names)):
+        d_e = max(hr[i]["d_e"], 0.0) if hr is not None else 0.0
+        d_v = d_e / (1 + d_e)
+        b_a, _ = industry_asset_beta(pos.get("sektor"), val["waehrung"])
+        prior = relever(b_a, d_v, debt_beta(d_v))
+        o = ols_beta(rets[name].to_numpy(), mkt.reindex(rets.index).to_numpy()) if mkt is not None else             {"beta": np.nan, "se": np.inf, "resid_var": np.nan}
+        b, w = vasicek(o["beta"], o["se"], prior)
+        rv = o["resid_var"] if np.isfinite(o["resid_var"]) else float(rets[name].var() * 52)
+        out["beta"].append(b)
+        out["w"].append(w)
+        out["resid_var"].append(rv if np.isfinite(rv) else 0.09)
+    return {k: np.array(v) for k, v in out.items()}
 
 
 def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFrame,
@@ -243,11 +269,17 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
     lo = np.full(len(names), -p.max_w if p.allow_short else 0.0)
     hi = np.full(len(names), p.max_w)
     # Vorsprung p. a. gegenüber der Markterwartung (rf + erp), aus dem Median der Halte-Rendite (in EUR)
-    edge = np.maximum(1 + np.median(R, axis=0), 1e-9) ** (1 / p.horizon_years) - 1 - (p.rf + p.erp)
+    # Hürde je Titel = geforderte Eigenkapitalrendite nach CAPM, rf + β·ERP; β aus der Regression auf den Weltmarkt
+    # (EUR, Wochen), nach Vasicek zum Damodaran-Branchenprior geschrumpft (domain/beta.py). Vorsprung = Jensens Alpha.
+    rendite = np.maximum(1 + np.median(R, axis=0), 1e-9) ** (1 / p.horizon_years) - 1
+    bt = _betas(positions, valuations, closes, rets, names, hr if faktor else None, warnings)
+    hurdle = p.rf + bt["beta"] * p.erp
+    edge = rendite - hurdle
     anchor = None
     if p.kappa > 0:
         hi[edge <= 0] = 0.0                                   # nicht unterbewertet ⇒ kein Ziel
-        anchor = robust_anchor(np.where(rand, 0.0, edge), 1.0 - p.min_cash)
+        # Treynor–Black: Anker ∝ α⁺ / Restrisiko² (viel Alpha bei wenig titelspezifischem Risiko ⇒ viel Gewicht)
+        anchor = treynor_black_anchor(np.where(rand, 0.0, edge), bt["resid_var"], 1.0 - p.min_cash)
     frozen = rand.copy()
     lo[frozen] = hi[frozen] = w_ist[frozen]
     named = {g for g in groups if groups.count(g) > 1}
@@ -306,8 +338,12 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
         **{col: np.where(rand, np.nan, [x[k] for x in hr]) if faktor else np.nan       # am Rand: IRR ohne Aussage
            for col, k in (("IRR P50", "irr"), ("IRR EK", "irr_ek"), ("D/E", "d_e"))},
         "E[R] Horizont": R.mean(axis=0),
-        "Rendite p. a.": edge + p.rf + p.erp,          # Median der Halte-Rendite, annualisiert (EUR)
-        "Vorsprung p. a.": edge,
+        "Rendite p. a.": rendite,                      # Median der Halte-Rendite, annualisiert (EUR)
+        "Beta": bt["beta"],
+        "Beta-Gewicht Regression": bt["w"],
+        "Restrisiko p. a.": np.sqrt(bt["resid_var"]),
+        "Hürde p. a.": hurdle,
+        "Vorsprung p. a.": edge,                       # Jensens Alpha
         "Vola p. a.": sigma,
         "Gruppe": groups,
         "Ist-Gewicht": w_ist,

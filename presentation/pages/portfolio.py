@@ -140,7 +140,7 @@ def _settings() -> Params:
         fraction = b.slider("Kelly-Faktor", 0.1, 1.0, 0.5, 0.05, help="½ = halbes Kelly (CRRA γ = 2).")
         max_w = c.slider("Max. Gewicht je Titel (Notbremse)", 0.05, 1.0, 0.35, 0.01)
         d, e, f = st.columns(3)
-        erp = d.number_input("Risikoprämie p. a. (Hürde)", 0.0, 0.1, 0.05, 0.005, format="%.3f",
+        erp = d.number_input("Risikoprämie p. a. (Hürde)", 0.0, 0.1, 0.0423, 0.0025, format="%.4f",
                              help="Unterbewertet heißt: erwartete Rendite > Zins + diese Prämie. Ohne Faktor-Modus "
                                   "zusätzlich die Rendite der Markt-Welt.")
         rf = e.number_input("Cash-Zins p. a. (Bund 3 J.)", 0.0, 0.1, rf_default, 0.0025, format="%.4f",
@@ -200,7 +200,7 @@ def _order_card(row: pd.Series, buy: bool) -> None:
                    unsafe_allow_html=True)
         st.caption(f"{abs(row['Order Stück']):.6g} Stück zu {_eur(row['Kurs €'], 2)} · Gewicht "
                    f"{_pct(row['Ist-Gewicht'])} → **{_pct(row['Ziel-Gewicht'])}** · erwartet "
-                   f"{_pct(row['Rendite p. a.'])} p. a., Vorsprung {_pct(row['Vorsprung p. a.'], True)} · Modell "
+                   f"{_pct(row['Rendite p. a.'])} p. a., Alpha {_pct(row['Vorsprung p. a.'], True)} (β {row['Beta']:.2f}) · Modell "
                    f"{_pct(row['Upside P50'], True)} zum fairen Wert")
 
 
@@ -243,7 +243,8 @@ def _valuations_table(t: pd.DataFrame, ages: dict) -> None:
     v = t[t["Firma"] != _CASH].copy()
     v["Alter (Tage)"] = v["Firma"].map(ages)
     v = v[["Firma", "Stand", "Alter (Tage)", "Kurs €", "Wert P50 €", "Upside P50", "EV/EBITDA", "Faktor ×", "P(Wert>Kurs)",
-           "IRR P50", "IRR EK", "D/E", "Rendite p. a.", "Vorsprung p. a.", "E[R] Horizont", "Vola p. a.", "Gruppe",
+           "IRR P50", "IRR EK", "D/E", "Rendite p. a.", "Beta", "Hürde p. a.", "Vorsprung p. a.", "Restrisiko p. a.",
+           "E[R] Horizont", "Vola p. a.", "Gruppe",
            "Ist-Gewicht", "Ziel-Gewicht"]]
     st.dataframe(
         v, hide_index=True, width="stretch",
@@ -262,8 +263,13 @@ def _valuations_table(t: pd.DataFrame, ages: dict) -> None:
             "D/E": st.column_config.NumberColumn("Hebel D/E", format="%.2f"),
             "Rendite p. a.": st.column_config.NumberColumn("Rendite p. a.", format="percent",
                                                            help="Median der Halte-Rendite pro Jahr (EUR)."),
-            "Vorsprung p. a.": st.column_config.NumberColumn("Vorsprung p. a.", format="percent",
-                                                             help="Rendite p. a. − (Zins + Risikoprämie). > 0 = unterbewertet."),
+            "Beta": st.column_config.NumberColumn("β", format="%.2f",
+                                                  help="Regression auf MSCI World (EUR, Wochen, 3 J.), Vasicek-geschrumpft."),
+            "Hürde p. a.": st.column_config.NumberColumn("Hürde p. a.", format="percent", help="Zins + β × Risikoprämie."),
+            "Vorsprung p. a.": st.column_config.NumberColumn("Alpha p. a.", format="percent",
+                                                             help="Rendite p. a. − Hürde (Jensens Alpha). > 0 = unterbewertet."),
+            "Restrisiko p. a.": st.column_config.NumberColumn("Restrisiko p. a.", format="percent",
+                                                              help="Titelspezifische Vola (Residuen der Regression)."),
             "E[R] Horizont": st.column_config.NumberColumn("Erwartet gesamt (Horizont, Mittel)", format="percent"),
             "Vola p. a.": st.column_config.NumberColumn(format="percent"),
             "Ist-Gewicht": st.column_config.NumberColumn(format="percent"),
@@ -364,11 +370,12 @@ def render_portfolio(container) -> None:
                        "kein Hebel. Titel, deren Order an der Mindestorder scheitert, bleiben auf dem Ist-Gewicht.")
         with tabs[2]:
             if pr.faktor_szenarien:
-                st.plotly_chart(return_chart(t, pr.rf + pr.erp), width="stretch", config={"displayModeBar": False})
+                st.plotly_chart(return_chart(t), width="stretch", config={"displayModeBar": False})
                 st.caption(f"Erwartete Rendite pro Jahr (Median über {pr.horizon_years} J., in EUR, aus der IRR zum Kurs "
-                           f"mit Hebel und Cashflow-Szenarien) gegen die Hürde Zins + Risikoprämie ({_pct(pr.rf + pr.erp)}). "
-                           "Blau = über der Hürde (unterbewertet), in Klammern der Vorsprung. Wie viel Gewicht ein Titel "
-                           "bekommt, hängt zusätzlich an Risiko, Korrelation und Gruppengrenze.")
+                           f"mit Hebel und Cashflow-Szenarien). Raute = eigene Hürde Zins + β × Risikoprämie (CAPM; β aus der Regression "
+                           "auf den MSCI World in EUR, nach Vasicek zur Branche geschrumpft). Blau = Rendite über der Hürde "
+                           "(positives Alpha, unterbewertet). Gewicht: Treynor–Black-Anker (Alpha / Restrisiko²) im "
+                           "robusten Kelly, dazu Korrelation und Gruppengrenze.")
             else:
                 st.plotly_chart(upside_chart(t), width="stretch", config={"displayModeBar": False})
                 st.caption(f"Balken: Modell-Potenzial (Wert P50 / Kurs − 1). Raute: erwartete Rendite in "

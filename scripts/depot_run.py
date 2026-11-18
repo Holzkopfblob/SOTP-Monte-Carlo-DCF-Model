@@ -26,6 +26,7 @@ def main() -> None:
     ap.add_argument("--detail", type=float)
     ap.add_argument("--n", type=int, default=20_000)
     ap.add_argument("--min-order", type=float, default=Params.min_order_eur)
+    ap.add_argument("--erp", type=float, default=Params.erp)
     a = ap.parse_args()
 
     depot = load_depot(a.depot)
@@ -40,7 +41,8 @@ def main() -> None:
           + ", ".join(f"{p['ticker']}={f.stem.split('_')[1]}" for p, f in zip(pos, files)))
 
     def run(k):
-        p = Params(kappa=k, horizon_years=10, rf=rf, rf_usd=rf_usd, faktor_szenarien=True, min_order_eur=a.min_order)
+        p = Params(kappa=k, horizon_years=10, rf=rf, rf_usd=rf_usd, faktor_szenarien=True, min_order_eur=a.min_order,
+                   erp=a.erp)
         return rebalance(pos, v, closes, depot["cash_eur"], p, date.today(), depot.get("verlusttopf_eur", 0.0))
 
     pd.set_option("display.width", 250)
@@ -66,7 +68,7 @@ def main() -> None:
         r = run(a.detail)
         t = r.table
         print(f"\n=== Detail κ = {a.detail:g} ===")
-        print(t[["Firma", "IRR EK", "Vorsprung p. a.", "Ist-Gewicht", "Ziel-Gewicht", "Order €", "Umsetzung",
+        print(t[["Firma", "Rendite p. a.", "Beta", "Beta-Gewicht Regression", "Hürde p. a.", "Vorsprung p. a.", "Restrisiko p. a.", "Ist-Gewicht", "Ziel-Gewicht", "Order €", "Umsetzung",
                  "Sparplan €/Monat"]].round(4).to_string(index=False))
         for w in r.warnings:
             print("  ⚠", w)

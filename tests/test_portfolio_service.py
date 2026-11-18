@@ -177,3 +177,17 @@ def test_small_buy_becomes_sparplan_not_frozen():
     assert spar.any() and (t.loc[["B", "C"]][spar]["Sparplan €/Monat"] > 0).all()
     assert 1100.0 + t.loc["Cash (EUR)", "Order €"] >= -1e-6            # Orders + Sparpläne ≤ Cash
     assert t.loc["A", "Ziel-Gewicht"] == t.loc["A", "Ist-Gewicht"]     # zu kleiner Verkauf bleibt eingefroren
+
+
+def test_beta_aus_weltmarkt_bestimmt_die_huerde():
+    """Mit Weltmarkt-Reihe: Titel = Markt ⇒ β ≈ 1 (Regression dominiert), Hürde = rf + β·ERP, Alpha = Rendite − Hürde."""
+    from domain.beta import MARKET_TICKER
+    positions, valuations, closes = _setup()
+    closes[MARKET_TICKER] = closes["B"]
+    res = rebalance(positions, valuations, closes, cash_eur=1100.0, p=Params(), today=date(2026, 11, 14))
+    t = res.table.set_index("Firma")
+    p = Params()
+    assert t.loc["B", "Beta"] == pytest.approx(1.0, abs=0.05) and t.loc["B", "Beta-Gewicht Regression"] > 0.9
+    assert t.loc["B", "Hürde p. a."] == pytest.approx(p.rf + t.loc["B", "Beta"] * p.erp)
+    assert t.loc["B", "Vorsprung p. a."] == pytest.approx(t.loc["B", "Rendite p. a."] - t.loc["B", "Hürde p. a."])
+    assert not any("Weltmarkt" in w for w in res.warnings)

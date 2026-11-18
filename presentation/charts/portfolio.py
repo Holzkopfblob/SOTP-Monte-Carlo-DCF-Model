@@ -76,22 +76,24 @@ def wealth_chart(samples: dict, stats_ist: dict, stats_ziel: dict, horizon: int)
     return _layout(fig, 360)
 
 
-def return_chart(t: pd.DataFrame, hurdle: float) -> go.Figure:
-    """Faktor-Modus: erwartete Rendite p. a. (Median) je Titel gegen die Hürde rf + ERP. Blau = über der Hürde
-    (unterbewertet, bekommt im robusten Kelly einen Anteil), orange = darunter; Text = Vorsprung in pp."""
-    d = t[t["Firma"] != "Cash (EUR)"].sort_values("Rendite p. a.")
+def return_chart(t: pd.DataFrame) -> go.Figure:
+    """Faktor-Modus: erwartete Rendite p. a. (Median) je Titel; Raute = eigene Hürde rf + β·ERP (CAPM).
+    Blau = Rendite über der Hürde (positives Alpha, unterbewertet), orange = darunter; Text = Alpha in pp."""
+    d = t[t["Firma"] != "Cash (EUR)"].sort_values("Vorsprung p. a.")
     names = [n.replace(", Inc.", "").replace(" Inc.", "").replace(" AG", "").replace(" Corporation", "") for n in d["Firma"]]
     fig = go.Figure()
     fig.add_bar(y=names, x=d["Rendite p. a."], orientation="h", name="Erwartete Rendite p. a. (Median)",
                 marker=dict(color=[POS if v > 0 else NEG for v in d["Vorsprung p. a."]], cornerradius=4),
-                text=[f"{v:.1%} ({e * 100:+.1f} pp)" for v, e in zip(d["Rendite p. a."], d["Vorsprung p. a."])],
+                text=[f"α {e * 100:+.1f} pp" for e in d["Vorsprung p. a."]],
                 textposition="outside", cliponaxis=False, textfont=dict(color=MUTED, size=12),
-                customdata=d["Ziel-Gewicht"],
-                hovertemplate="%{y}<br>Rendite p. a.: %{x:.1%}<br>Ziel-Gewicht: %{customdata:.1%}<extra></extra>")
-    fig.add_vline(x=hurdle, line=dict(color=MUTED, width=1.5, dash="dash"),
-                  annotation=dict(text=f"Hürde {hurdle:.1%}", font=dict(color=MUTED, size=11), yanchor="bottom"))
+                customdata=np.column_stack([d["Ziel-Gewicht"], d["Beta"]]),
+                hovertemplate="%{y}<br>Rendite p. a.: %{x:.1%}<br>β %{customdata[1]:.2f} · Ziel %{customdata[0]:.1%}"
+                              "<extra></extra>")
+    fig.add_scatter(y=names, x=d["Hürde p. a."], mode="markers", name="Hürde rf + β·ERP",
+                    marker=dict(symbol="diamond", size=10, color="#1f2633", line=dict(color="white", width=2)),
+                    hovertemplate="%{y}<br>Hürde: %{x:.1%}<extra></extra>")
     fig.add_vline(x=0, line=dict(color="#c3c9d3", width=1))
-    fig.update_layout(showlegend=False, bargap=0.4)
+    fig.update_layout(legend=dict(orientation="h", y=1.08, x=0, title=None), bargap=0.4)
     fig.update_xaxes(tickformat=".0%", title=None)
     return _layout(fig, max(340, 30 * len(names) + 90))
 
