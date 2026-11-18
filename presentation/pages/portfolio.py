@@ -86,7 +86,7 @@ def _short(name: str) -> str:
 
 # ── Bereiche ──────────────────────────────────────────────────────────────────────────────
 
-def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[dict], float, str, float, list[dict]]:
+def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[dict], float, str, float, list[dict], float]:
     st.markdown("##### Positionen")
     st.caption("Stück 0 = Beobachtung. Titel derselben **Gruppe** wechseln in der Szenario-Mischung gemeinsam "
                "in die Welt „Markt hat recht“ (gemeinsamer Modellfehler, z. B. alle Autobauer).")
@@ -164,14 +164,15 @@ def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[di
     topf = c2.number_input("Aktienverlusttopf (EUR)", min_value=0.0, value=float(depot.get("verlusttopf_eur", 0.0)),
                            step=100.0, help="Verrechnet Gewinne aus Aktienverkäufen, keine Dividenden (Stand Bank).")
     etf_stueck = c2.number_input("Weltmarkt-ETF (EUNL) Stück", min_value=0.0, value=float(depot.get("etf_stueck", 0.0)),
-                                 step=1.0, format="%.4f", help="Bestand im iShares Core MSCI World; der Optimierer "
-                                 "verteilt zwischen ETF, Aktien mit Vorsprung und Cash.")
+                                 step=1.0, format="%.4f", help="Bestand im iShares Core MSCI World. Der ETF ist Messlatte "
+                                 "und Marktfaktor, standardmäßig aber kein Anlageziel (nur analysierte Aktien); ein "
+                                 "Bestand wird dann zum Verkauf vorgeschlagen.")
     if c1.button("💾 Depot speichern", width="stretch"):
         save_depot(path, {"bewertungen_ordner": folder, "cash_eur": cash, "verlusttopf_eur": topf, "etf_stueck": etf_stueck,
                           "positionen": positions, "transaktionen": transaktionen})
         st.session_state.pf_depot = load_depot(path)
         st.toast(f"Gespeichert: {path}", icon="✅")
-    return positions, cash, folder, topf, transaktionen
+    return positions, cash, folder, topf, transaktionen, etf_stueck
 
 
 def _settings() -> Params:
@@ -423,13 +424,14 @@ def render_portfolio(container) -> None:
 
         tabs = st.tabs(["📊 Bestand", "📋 Orders", "⚖️ Allokation", "🔎 Bewertungen", "🎲 Risiko", "✏️ Depot"])
         with tabs[5]:
-            positions, cash, folder, topf, transaktionen = _depot_tab(depot, path, vals, files)
+            positions, cash, folder, topf, transaktionen, etf_stueck = _depot_tab(depot, path, vals, files)
         if not vals:
             st.warning("Keine Bewertungen im Ordner gefunden – Ordner im Reiter „Depot“ prüfen.")
             return
 
         p = _settings()
-        sig = hashlib.sha1(json.dumps([positions, cash, folder, topf, transaktionen, p.__dict__], sort_keys=True, default=str)
+        sig = hashlib.sha1(json.dumps([positions, cash, folder, topf, transaktionen, etf_stueck, p.__dict__],
+                                      sort_keys=True, default=str)
                            .encode()).hexdigest()
         res_state = st.session_state.get("pf_result")
         stale = res_state is not None and res_state["sig"] != sig
