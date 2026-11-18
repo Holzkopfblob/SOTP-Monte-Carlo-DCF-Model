@@ -14,6 +14,7 @@ import pandas as pd
 
 SEKTOREN = [  # (SIC von, bis, Name) – erste passende Zeile gewinnt
     (4810, 4899, "Telko"), (4900, 4949, "Versorger"), (1300, 1399, "Energie"), (2900, 2999, "Energie"),
+    (6500, 6599, "Immobilien"), (6798, 6798, "Immobilien"),  # vor Finanz: Immobilien-Betreiber und REITs
     (6000, 6799, "Finanz"), (7370, 7379, "Software/IT"), (3670, 3679, "Halbleiter/Elektronik"),
     (3570, 3579, "Halbleiter/Elektronik"), (3600, 3699, "Halbleiter/Elektronik"),
     (2830, 2836, "Gesundheit"), (3840, 3851, "Gesundheit"), (8000, 8099, "Gesundheit"),

@@ -33,6 +33,7 @@ SEKTOR_BRANCHE = {
     "Auto": "Auto & Truck",
     "Gesundheit": "Healthcare Support Services",
     "Industrie": "Machinery",
+    "Immobilien": "Real Estate (Operations & Services)",
 }
 FALLBACK_BRANCHE = "Total Market (without financials)"
 
