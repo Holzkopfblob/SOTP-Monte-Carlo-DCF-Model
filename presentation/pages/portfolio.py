@@ -125,14 +125,24 @@ def _settings() -> Params:
     rf_default, rf_day = _bund_3y()
     usd_default, usd_day = _treasury_3y()
     with st.expander("⚙️ Annahmen der Optimierung", expanded=False):
+        # Faktor-Modus (Standard seit 18.11.2026): Modellunsicherheit steckt in den Faktor-Schocks (Verteilung) und im
+        # robusten Kelly κ (Gewichte); die alte Markt-Welt (p, ρ) und die Value-Korrektur s sind dort ohne Wirkung.
+        faktor = st.toggle("Faktor-Szenarien (v3)", True,
+                           help="Alle Bewertungen in denselben n Welten: Umsatz- und Margenschocks aus Makro, Branche und "
+                                "Firma, Breite aus den SEC-Basisraten. Ersetzt Kurs-Korrelation, „Markt hat recht“ (p, ρ) "
+                                "und s. Rendite = implizite Rendite (IRR) zum Kurs über 10 J. statt Wert/Kurs. "
+                                "Erster Lauf lädt die SEC-Daten aus dem Cache (~1 Min.).")
         a, b, c = st.columns(3)
-        p_market = a.slider("„Markt hat recht“ (p)", 0.0, 0.9, 0.3, 0.05,
-                            help="Szenario-Mischung: In diesem Anteil der Szenarien ist der Kurs fair und die Aktie "
-                                 "verdient nur ihre Marktrendite (Zins + Risikoprämie). 0 = Modell voll glauben.")
+        p_market = 0.0 if faktor else a.slider(
+            "„Markt hat recht“ (p)", 0.0, 0.9, 0.3, 0.05,
+            help="Szenario-Mischung: In diesem Anteil der Szenarien ist der Kurs fair und die Aktie "
+                 "verdient nur ihre Marktrendite (Zins + Risikoprämie). 0 = Modell voll glauben.")
         fraction = b.slider("Kelly-Faktor", 0.1, 1.0, 0.5, 0.05, help="½ = halbes Kelly (CRRA γ = 2).")
         max_w = c.slider("Max. Gewicht je Titel (Notbremse)", 0.05, 1.0, 0.35, 0.01)
         d, e, f = st.columns(3)
-        erp = d.number_input("Risikoprämie Markt-Welt p. a.", 0.0, 0.1, 0.05, 0.005, format="%.3f")
+        erp = d.number_input("Risikoprämie p. a. (Hürde)", 0.0, 0.1, 0.05, 0.005, format="%.3f",
+                             help="Unterbewertet heißt: erwartete Rendite > Zins + diese Prämie. Ohne Faktor-Modus "
+                                  "zusätzlich die Rendite der Markt-Welt.")
         rf = e.number_input("Cash-Zins p. a. (Bund 3 J.)", 0.0, 0.1, rf_default, 0.0025, format="%.4f",
                             help=f"Bundesbank-Zinsstruktur 3 Jahre, Stand {rf_day}.")
         rf_usd = e.number_input("US-Zins p. a. (Treasury 3 J.)", 0.0, 0.1, usd_default, 0.0025, format="%.4f",
@@ -144,19 +154,16 @@ def _settings() -> Params:
         allow_short = h.toggle("Short erlauben", False, help="Brutto Σ|Gewicht| ≤ 1 − Mindest-Cash (kein Hebel).")
         group_cap = i.slider("Max. Gewicht je Gruppe", 0.05, 1.0, 0.20, 0.01,
                              help="Summe aller Titel einer benannten Gruppe (Spalte „Gruppe“ im Depot), z. B. Auto.")
-        factor_shrink = st.slider("Value-Stil herausnehmen (s)", 0.0, 1.0, 0.0, 0.05,
-                                  help="Das Modell hält Firmen mit niedrigem EV/EBITDA systematisch für billiger "
-                                       "(Querschnitt 16.11.2026). s = 0: Modell voll glauben, s = 1: diesen Anteil "
-                                       "der Lücke ganz herausnehmen, nur die firmenspezifische Überzeugung bleibt.")
-        rho_world = st.slider("Gemeinsamer Modellfehler (ρ)", 0.0, 1.0, 0.4, 0.05,
-                              help="Wie stark „Markt hat recht“ alle Titel zugleich trifft. 0 = je Gruppe unabhängig, "
-                                   "1 = ein Schalter für alle. 0,4: Die Lücke Modell/Markt hängt zu ~40 % am "
-                                   "Marktmultiple (Value-Stil des Modells, Querschnitt 16.11.2026).")
-        faktor = st.toggle("Faktor-Szenarien (v3)", False,
-                           help="Alle Bewertungen in denselben n Welten: Umsatz- und Margenschocks aus Makro, Branche und "
-                                "Firma, Breite aus den SEC-Basisraten. Ersetzt Kurs-Korrelation, „Markt hat recht“ (p, ρ) "
-                                "und s. Rendite = implizite Rendite (IRR) zum Kurs über 10 J. statt Wert/Kurs. "
-                                "Erster Lauf lädt die SEC-Daten aus dem Cache (~1 Min.).")
+        factor_shrink, rho_world = 0.0, 0.4
+        if not faktor:
+            factor_shrink = st.slider("Value-Stil herausnehmen (s)", 0.0, 1.0, 0.0, 0.05,
+                                      help="Das Modell hält Firmen mit niedrigem EV/EBITDA systematisch für billiger "
+                                           "(Querschnitt 16.11.2026). s = 0: Modell voll glauben, s = 1: diesen Anteil "
+                                           "der Lücke ganz herausnehmen, nur die firmenspezifische Überzeugung bleibt.")
+            rho_world = st.slider("Gemeinsamer Modellfehler (ρ)", 0.0, 1.0, 0.4, 0.05,
+                                  help="Wie stark „Markt hat recht“ alle Titel zugleich trifft. 0 = je Gruppe unabhängig, "
+                                       "1 = ein Schalter für alle. 0,4: Die Lücke Modell/Markt hängt zu ~40 % am "
+                                       "Marktmultiple (Value-Stil des Modells, Querschnitt 16.11.2026).")
         j, k_ = st.columns(2)
         kappa = j.slider("Modellmisstrauen (κ)", 0.0, 0.05, 0.01, 0.0025, format="%.4f",
                          help="Robustes Kelly (Hansen–Sargent): Strafe κ · KL(Gewichte ‖ Anker), Anker ∝ Vorsprung über "
