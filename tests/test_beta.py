@@ -63,3 +63,12 @@ def test_equity_beta_ist_relevered_branchenbeta():
     b, _ = equity_beta(None, "EUR", 0.74, "Real Estate (Operations & Services)")
     b_a, _ = industry_asset_beta(None, "EUR", "Real Estate (Operations & Services)")
     assert b == pytest.approx(relever(b_a, 0.74, debt_beta(0.74))) and b > b_a
+
+
+def test_treynor_black_mit_index_gibt_rest_an_den_etf():
+    from domain.beta import treynor_black_anchor
+    a = treynor_black_anchor(np.array([0.02, 0.0, -0.01]), np.array([0.04, 0.04, 0.04]), budget=0.98,
+                             passiv=(0.04, 0.02))
+    assert a[0] == pytest.approx((0.02 / 0.04) / (0.04 / 0.02))       # 0,25
+    assert a[1] == 0 and a[2] == 0 and a[3] == pytest.approx(0.98 - 0.25) and a[4] == pytest.approx(0.02)
+    assert a.sum() == pytest.approx(1.0)

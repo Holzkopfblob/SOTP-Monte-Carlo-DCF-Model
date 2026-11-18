@@ -125,6 +125,9 @@ class Params:
     # Messlatte: erwartete Rendite des Weltmarkt-ETF zum heutigen Preis = rf + implizite ERP (4,23 % Damodaran Jan. 2026,
     # selbst eine IRR des Index zum Kurs) – dieselbe Frage wie die Rendite zum Kurs je Aktie (Baustein 1, 18.11.2026).
     erp: float = 0.0423
+    # ETF als Asset (18.11.2026): Weltmarkt-ETF (EUNL) im Optimierer, Rendite rf + ERP, gemeinsamer Marktfaktor
+    # (σ aus EUNL, Aktien mit ihrem β). Ohne ihn vergleicht Kelly Aktien nur mit Cash ⇒ Aktien als Index-Ersatz.
+    etf_asset: bool = True
     factor_shrink: float = 0.0  # Gegenprobe 16.11.: Faktor ist Telko-/Auto-Effekt, kein allgemeiner Stil ⇒ aus. Anteil des Value-Stils, der aus den Werten herausgenommen wird (0 = Modell voll, 1 = ganz)
     faktor_szenarien: bool = False  # v3 Phase 3: gemeinsame Cashflow-Schocks (Seite ruft dann simulate_universe)
     rf_usd: float = 0.049   # US-Treasury 3 J. (FRED DGS3, 12.11.2026); App lädt tagesaktuell
@@ -219,9 +222,14 @@ def _betas(positions, valuations, closes, rets, names, hr, warnings) -> dict:
     return res
 
 
+ETF_NAME = "Weltmarkt-ETF (MSCI World, EUNL)"
+
+
 def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFrame,
-              cash_eur: float, p: Params, today: date | None = None, verlusttopf_eur: float = 0.0) -> Result:
-    """positions[i] (firma, ticker, stueck) gehört zu valuations[i] (simulate_valuation)."""
+              cash_eur: float, p: Params, today: date | None = None, verlusttopf_eur: float = 0.0,
+              etf_stueck: float = 0.0) -> Result:
+    """positions[i] (firma, ticker, stueck) gehört zu valuations[i] (simulate_valuation). *etf_stueck*: Bestand im
+    Weltmarkt-ETF (EUNL.DE), der im Faktor-Modus als eigenes Asset mitoptimiert wird."""
     today = today or date.today()
     warnings: list[str] = []
     names = [pos["firma"] for pos in positions]
@@ -319,7 +327,35 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
     else:
         R = R_model
 
-    shares = np.array([float(pos.get("stueck") or 0) for pos in positions])
+    bt = _betas(positions, valuations, closes, rets, names, hr if faktor else None, warnings)
+    k_akt = len(names)                                        # Aktien; danach ggf. ETF als letzte Spalte
+    mit_etf = bool(faktor and p.etf_asset and MARKET_TICKER in closes)
+    var_m = np.nan
+    if mit_etf:
+        # Gemeinsamer Marktfaktor f (Rendite p. a. über den Horizont, Zufallsweg: σ_Jahr/√h) trifft den ETF voll und
+        # jede Aktie mit ihrem gemessenen β (Median bleibt). Sonst hielte Kelly ETF und Aktien für unabhängig.
+        # ponytail: σ_x (Baustein 5) enthält schon etwas Marktschwankung je Jahrgang ⇒ Gesamtstreuung leicht überzeichnet.
+        mw = np.log(closes[MARKET_TICKER].dropna().resample("W-FRI").last()).diff().dropna()
+        var_m = float(mw.var() * 52)
+        f = np.sqrt(var_m / p.horizon_years) * _rng(p.seed, "markt").standard_normal(len(R))
+        m = np.maximum(1 + np.median(R, axis=0), 1e-9) ** (1 / p.horizon_years) - 1
+        R = (1 + R) * np.maximum((1 + m[None, :] + bt["beta"][None, :] * f[:, None]) / (1 + m[None, :]), 0.0) \
+            ** p.horizon_years - 1
+        R = np.column_stack([R, np.maximum(1 + p.rf + p.erp + f, 0.0) ** p.horizon_years - 1])
+        # Kein Gratis-Vorteil durch Streuung: Aktie mit Vorsprung v hat den erwarteten Vermögenszuwachs des ETF mal
+        # ((1 + ETF + v)/(1 + ETF))^h. v = Median-Vorsprung nach Baustein 3. Ohne das wäre ein Korb riskanter Aktien
+        # (Mittel ≫ Median) immer besser als der Index, der dieselben Gewinner schon enthält. Folge: Median der
+        # Aktie < ETF – wie im Labor (Median-Aktie −8 % p. a. gegen den Index, großteils dieser Abstand).
+        r_etf = p.rf + p.erp
+        v = m - r_etf
+        ziel = np.mean(1 + R[:, -1]) * ((1 + r_etf + v) / (1 + r_etf)) ** p.horizon_years
+        skal = np.where(rand[:k_akt], 1.0, ziel / np.mean(1 + R[:, :k_akt], axis=0))
+        R[:, :k_akt] = (1 + R[:, :k_akt]) * skal[None, :] - 1
+        names = list(names) + [ETF_NAME]
+        groups = groups + ["ETF"]
+        px_eur = np.append(px_eur, float(closes[MARKET_TICKER].dropna().iloc[-1]))
+        rand = np.append(rand, False)
+    shares = np.array([float(pos.get("stueck") or 0) for pos in positions] + ([etf_stueck] if mit_etf else []))
     total = cash_eur + float(shares @ px_eur)
     w_ist = shares * px_eur / total if total > 0 else np.zeros(len(names))
 
@@ -327,36 +363,40 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
     # einfrieren und das tatsächlich verfügbare Geld neu verteilen, bis jede Order ausführbar ist.
     lo = np.full(len(names), -p.max_w if p.allow_short else 0.0)
     hi = np.full(len(names), p.max_w)
+    if mit_etf:
+        lo[-1], hi[-1] = 0.0, 1.0 - p.min_cash                # Index ohne Einzeltitel-Grenze
     # Vorsprung p. a. gegenüber der Markterwartung (rf + erp), aus dem Median der Halte-Rendite (in EUR)
     # Entscheidung (Baustein 1, Nutzerentscheid 18.11.2026): Rendite zum Kurs gegen die ETF-Rendite, für alle Titel gleich.
     # Kein CAPM-Beta in der Hürde: Es misst Schwankung, nicht dauerhaften Verlust, und widersprach der WACC der Bewertung.
     # β und β_z bleiben als gemessenes Risiko (Restrisiko → Treynor–Black-Anker, Anzeige); Marktrisiko trägt die Kovarianz.
     rendite = np.maximum(1 + np.median(R, axis=0), 1e-9) ** (1 / p.horizon_years) - 1
-    bt = _betas(positions, valuations, closes, rets, names, hr if faktor else None, warnings)
+    if mit_etf:   # erwartete Rendite p. a. (Vermögen im Mittel), auf dieselbe Grundlage wie der ETF (= rf + ERP)
+        rendite = (np.mean(1 + R, axis=0) / np.mean(1 + R[:, -1])) ** (1 / p.horizon_years) * (1 + p.rf + p.erp) - 1
     hurdle = np.full(len(names), p.rf + p.erp)
     edge = rendite - hurdle
     anchor = None
     if p.kappa > 0:
-        hi[edge <= 0] = 0.0                                   # nicht unterbewertet ⇒ kein Ziel
+        hi[:k_akt][edge[:k_akt] <= 0] = 0.0                   # nicht unterbewertet ⇒ kein Ziel (ETF ausgenommen)
         # Treynor–Black: Anker ∝ α⁺ / Restrisiko² (viel Alpha bei wenig titelspezifischem Risiko ⇒ viel Gewicht)
-        anchor = treynor_black_anchor(np.where(rand, 0.0, edge), bt["resid_var"], 1.0 - p.min_cash)
+        anchor = treynor_black_anchor(np.where(rand[:k_akt], 0.0, edge[:k_akt]), bt["resid_var"], 1.0 - p.min_cash,
+                                      passiv=(p.erp, var_m) if mit_etf else None)
     # Konsistenzregel (Nutzerentscheid 18.11.2026, Variante a): Kurs über dem fairen Wert (P50 der Bewertung) ⇒ kein
     # Ziel, nur Abbau. Sonst kauft das Portfolio, was die eigene Bewertung zu teuer findet (Rendite zum Kurs vs. WACC).
     # ponytail: harte Grenze ohne Toleranz ⇒ Titel mit P50 ≈ Kurs kippen mit jeder Kursbewegung (DATA MODUL 18.11.: −2 %);
     # Upgrade: Toleranzband oder P(Wert > Kurs) ≥ Schwelle.
-    ueber_wert = np.array([v["p50_neu"] < px for v, px in zip(valuations, px_local)]) & ~rand
-    hi[ueber_wert] = 0.0
+    ueber_wert = np.array([v["p50_neu"] < px for v, px in zip(valuations, px_local)]) & ~rand[:k_akt]
+    hi[:k_akt][ueber_wert] = 0.0
     if ueber_wert.any():
-        warnings.append("Kurs über dem fairen Wert (P50) ⇒ Ziel 0: " + ", ".join(np.array(names)[ueber_wert]) + ".")
+        warnings.append("Kurs über dem fairen Wert (P50) ⇒ Ziel 0: " + ", ".join(np.array(names[:k_akt])[ueber_wert]) + ".")
     # Prüfkriterium Baustein 1: Wert-Lesart (P50 vs. Kurs, WACC) und Rendite-Lesart (Rendite zum Kurs vs. ETF) sollen
     # übereinstimmen; Widerspruch = WACC der Bewertung weicht von der ETF-Messlatte ab (Beta/Hebel) ⇒ Bewertung prüfen.
     wert_hoch = np.array([v["p50_neu"] > px for v, px in zip(valuations, px_local)])
-    widerspruch = (wert_hoch != (edge > 0)) & ~rand
+    widerspruch = (wert_hoch != (edge[:k_akt] > 0)) & ~rand[:k_akt]
     if widerspruch.any():
         warnings.append("Wert- und Rendite-Lesart widersprechen sich (WACC ≠ ETF-Messlatte, Bewertung prüfen): "
                         + ", ".join(f"{nm} ({'Wert > Kurs' if wh else 'Wert < Kurs'}, Vorsprung {e:+.1%})"
-                                    for nm, wh, e in zip(np.array(names)[widerspruch], wert_hoch[widerspruch],
-                                                         edge[widerspruch])) + ".")
+                                    for nm, wh, e in zip(np.array(names[:k_akt])[widerspruch], wert_hoch[widerspruch],
+                                                         edge[:k_akt][widerspruch])) + ".")
     frozen = rand.copy()
     lo[frozen] = hi[frozen] = w_ist[frozen]
     named = {g for g in groups if groups.count(g) > 1}
@@ -403,36 +443,45 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
             warnings.append(f"{name}: Stichtag fehlt.")
 
     table = pd.DataFrame({
-        "Firma": names,
+        "Firma": names[:k_akt],
         "Stand": [v["stand"] for v in valuations],
-        "Kurs €": px_eur,
+        "Kurs €": px_eur[:k_akt],
         "Wert P50 €": [v["p50_neu"] * f for v, f in zip(valuations, to_eur)],
         "Kurs lokal": [f"{px:.2f} {v['waehrung']}" for v, px in zip(valuations, px_local)],
         "Upside P50": [v["p50_neu"] / px - 1 for v, px in zip(valuations, px_local)],
         "EV/EBITDA": ev_ebitda,
         "Faktor ×": tilt,
         "P(Wert>Kurs)": p_wert,
-        **{col: np.where(rand, np.nan, [x[k] for x in hr]) if faktor else np.nan       # am Rand: IRR ohne Aussage
+        **{col: np.where(rand[:k_akt], np.nan, [x[k] for x in hr]) if faktor else np.nan       # am Rand: IRR ohne Aussage
            for col, k in (("IRR P50", "irr"), ("IRR EK", "irr_ek"), ("D/E", "d_e"))},
-        "E[R] Horizont": R.mean(axis=0),
-        "Rendite p. a.": rendite,                      # Median der Halte-Rendite, annualisiert (EUR)
+        "E[R] Horizont": R.mean(axis=0)[:k_akt],
+        "Rendite p. a.": rendite[:k_akt],                      # Median der Halte-Rendite, annualisiert (EUR)
         "Beta": bt["beta"],
         "Beta-Gewicht Regression": bt["w"],
         "Zins-Beta": bt["beta_z"],
         "Restrisiko p. a.": np.sqrt(bt["resid_var"]),
-        "Hürde p. a.": hurdle,
-        "Vorsprung p. a.": edge,                       # Rendite zum Kurs − ETF-Rendite
+        "Hürde p. a.": hurdle[:k_akt],
+        "Vorsprung p. a.": edge[:k_akt],                       # Rendite zum Kurs − ETF-Rendite
         "Vola p. a.": sigma,
-        "Gruppe": groups,
-        "Ist-Gewicht": w_ist,
-        "Ziel-Gewicht": w,
-        "Δ Gewicht": w - w_ist,
-        "Order Stück": delta,
-        "Order €": delta * px_eur,
-        "Umsetzung": np.where(delta != 0, "Order", np.where(spar > 0, "Sparplan", "")),
-        "Sparplan €/Monat": np.where(spar > 0, spar / max(p.sparplan_monate, 1), np.nan),
-        "Ziel Stück": target,
+        "Gruppe": groups[:k_akt],
+        "Ist-Gewicht": w_ist[:k_akt],
+        "Ziel-Gewicht": w[:k_akt],
+        "Δ Gewicht": (w - w_ist)[:k_akt],
+        "Order Stück": delta[:k_akt],
+        "Order €": (delta * px_eur)[:k_akt],
+        "Umsetzung": np.where(delta != 0, "Order", np.where(spar > 0, "Sparplan", ""))[:k_akt],
+        "Sparplan €/Monat": np.where(spar > 0, spar / max(p.sparplan_monate, 1), np.nan)[:k_akt],
+        "Ziel Stück": target[:k_akt],
     })
+    if mit_etf:
+        e = k_akt
+        table.loc[len(table)] = {
+            "Firma": ETF_NAME, "Kurs €": px_eur[e], "Kurs lokal": f"{px_eur[e]:.2f} EUR", "E[R] Horizont": R[:, e].mean(),
+            "Rendite p. a.": rendite[e], "Beta": 1.0, "Hürde p. a.": hurdle[e], "Vorsprung p. a.": edge[e],
+            "Vola p. a.": np.sqrt(var_m), "Gruppe": "ETF", "Ist-Gewicht": w_ist[e], "Ziel-Gewicht": w[e],
+            "Δ Gewicht": w[e] - w_ist[e], "Order Stück": delta[e], "Order €": delta[e] * px_eur[e],
+            "Umsetzung": "Order" if delta[e] != 0 else ("Sparplan" if spar[e] > 0 else ""),
+            "Sparplan €/Monat": spar[e] / max(p.sparplan_monate, 1) if spar[e] > 0 else np.nan, "Ziel Stück": target[e]}
     # Cash-Zeile: Ziel = was der Optimizer übrig lässt; Order € = Cash-Veränderung durch die Orders
     cash_order = -float((delta * px_eur).sum()) - float(spar.sum())
     table.loc[len(table)] = {
@@ -445,7 +494,7 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
     # Steuer (Aktienverlusttopf): Veräußerungsgewinne der Verkäufe verbrauchen den Topf, Verluste füllen ihn.
     # Dividenden verrechnet der Aktienverlusttopf nicht. ponytail: Wert des Steueraufschubs fehlt, solange der Topf
     # die Gewinne deckt (Depot ≪ Topf); nötig, sobald Gewinne den Topf erreichen.
-    einstand = np.array([float(pos.get("einstand_eur") or np.nan) for pos in positions])
+    einstand = np.array([float(pos.get("einstand_eur") or np.nan) for pos in positions] + ([np.nan] if mit_etf else []))
     gewinn = np.where(delta < 0, (px_eur - einstand) * -delta, 0.0)
     table.insert(table.columns.get_loc("Order €") + 1, "Gewinn Verkauf €",
                  np.r_[np.where(delta < 0, gewinn, np.nan), np.nan])

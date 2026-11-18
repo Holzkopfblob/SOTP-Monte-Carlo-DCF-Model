@@ -265,3 +265,24 @@ def test_baustein3_vorsprung_wird_mit_k_geschrumpft(monkeypatch):
         p = Params(**base, k_vorsprung=k, achse_vorsprung=achse)
         t = rebalance(positions, valuations, closes, 1000.0, p, date(2026, 11, 14)).table.set_index("Firma")
         assert t.loc["A", "Vorsprung p. a."] == pytest.approx(achse + k * (0.12 - (p.rf + p.erp)), abs=1e-3)
+
+
+def test_etf_als_asset_traegt_den_kern(monkeypatch):
+    """Faktor-Modus mit Weltmarkt: ETF-Zeile, ETF hält den Großteil, Aktie mit β≈1 hängt am Marktfaktor."""
+    import application.portfolio_service as ps
+    from domain.beta import MARKET_TICKER
+    positions, valuations, closes = _setup()
+    closes[MARKET_TICKER] = closes["B"]
+    for v in valuations:
+        v.update(schock={}, results=v["samples"])
+    _fake_irr(monkeypatch, {})
+    seen, real = {}, ps.kelly_weights
+    monkeypatch.setattr(ps, "kelly_weights", lambda R, *a, **k: seen.setdefault("R", R) is R and real(R, *a, **k))
+    p = Params(horizon_years=10, faktor_szenarien=True, min_order_eur=0.0)
+    res = rebalance(positions, valuations, closes, 1100.0, p, date(2026, 11, 14), etf_stueck=0.0)
+    t = res.table.set_index("Firma")
+    assert ps.ETF_NAME in t.index and t.loc[ps.ETF_NAME, "Hürde p. a."] == pytest.approx(p.rf + p.erp)
+    assert t.loc[ps.ETF_NAME, "Ziel-Gewicht"] > 0.5 and abs(t.loc[ps.ETF_NAME, "Vorsprung p. a."]) < 1e-9
+    assert t["Ziel-Gewicht"].iloc[:-1].sum() <= 1.0 + 1e-6                      # ohne Cash-Zeile
+    lr = np.log1p(seen["R"])
+    assert np.corrcoef(lr[:, 1], lr[:, -1])[0, 1] > 0.2                          # B (β≈1) korreliert mit dem ETF

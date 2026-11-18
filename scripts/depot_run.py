@@ -43,7 +43,8 @@ def main() -> None:
     def run(k):
         p = Params(kappa=k, horizon_years=10, rf=rf, rf_usd=rf_usd, faktor_szenarien=True, min_order_eur=a.min_order,
                    erp=a.erp)
-        return rebalance(pos, v, closes, depot["cash_eur"], p, date.today(), depot.get("verlusttopf_eur", 0.0))
+        return rebalance(pos, v, closes, depot["cash_eur"], p, date.today(), depot.get("verlusttopf_eur", 0.0),
+                         etf_stueck=depot.get("etf_stueck", 0.0))
 
     pd.set_option("display.width", 250)
     pd.set_option("display.max_columns", 30)

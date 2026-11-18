@@ -157,8 +157,11 @@ def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[di
         positions, _ = apply_to_positions(positions, transaktionen)
     topf = c2.number_input("Aktienverlusttopf (EUR)", min_value=0.0, value=float(depot.get("verlusttopf_eur", 0.0)),
                            step=100.0, help="Verrechnet Gewinne aus Aktienverkäufen, keine Dividenden (Stand Bank).")
+    etf_stueck = c2.number_input("Weltmarkt-ETF (EUNL) Stück", min_value=0.0, value=float(depot.get("etf_stueck", 0.0)),
+                                 step=1.0, format="%.4f", help="Bestand im iShares Core MSCI World; der Optimierer "
+                                 "verteilt zwischen ETF, Aktien mit Vorsprung und Cash.")
     if c1.button("💾 Depot speichern", width="stretch"):
-        save_depot(path, {"bewertungen_ordner": folder, "cash_eur": cash, "verlusttopf_eur": topf,
+        save_depot(path, {"bewertungen_ordner": folder, "cash_eur": cash, "verlusttopf_eur": topf, "etf_stueck": etf_stueck,
                           "positionen": positions, "transaktionen": transaktionen})
         st.session_state.pf_depot = load_depot(path)
         st.toast(f"Gespeichert: {path}", icon="✅")
@@ -447,7 +450,7 @@ def render_portfolio(container) -> None:
                         except ValueError:
                             ages[pos["firma"]] = None
                     closes = _closes(tuple(sorted({q["ticker"] for q in positions})))
-                    res = rebalance(positions, valuations, closes, cash, p, verlusttopf_eur=topf)
+                    res = rebalance(positions, valuations, closes, cash, p, verlusttopf_eur=topf, etf_stueck=etf_stueck)
                 except (ValueError, KeyError) as e:
                     s.update(label="Fehler", state="error")
                     st.error(str(e))

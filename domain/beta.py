@@ -168,11 +168,20 @@ def vasicek(beta_ols: float, se: float, prior: float, prior_sd: float = PRIOR_SD
     return w * beta_ols + (1 - w) * prior, w
 
 
-def treynor_black_anchor(alpha: np.ndarray, resid_var: np.ndarray, budget: float, cash_floor: float = 0.02) -> np.ndarray:
-    """Anker des robusten Kelly nach Treynor–Black: a_i ∝ α_i⁺ / σ²_ε,i, Cash als letzte Spalte; Summe 1."""
+def treynor_black_anchor(alpha: np.ndarray, resid_var: np.ndarray, budget: float, cash_floor: float = 0.02,
+                         passiv: tuple[float, float] | None = None) -> np.ndarray:
+    """Anker des robusten Kelly nach Treynor–Black: a_i ∝ α_i⁺ / σ²_ε,i, Cash als letzte Spalte; Summe 1.
+    *passiv* = (ERP, σ²_Markt) p. a.: mit Index als Asset (vorletzte Spalte) echtes Treynor–Black (1973):
+    aktiv a_i = (α_i⁺/σ²_ε,i) / (ERP/σ²_Markt), Rest des Budgets in den Index (aktiv höchstens das Budget)."""
     a = np.clip(np.nan_to_num(np.asarray(alpha, float), nan=0.0), 0.0, None)
     v = np.nan_to_num(np.asarray(resid_var, float), nan=np.inf)
     s = np.where(a > 0, a / np.maximum(v, 1e-6), 0.0)
     c = max(1.0 - budget, cash_floor)
+    if passiv is not None:
+        erp, var_m = passiv
+        w = s / max(erp / var_m, 1e-9)
+        if w.sum() > 1.0 - c:
+            w *= (1.0 - c) / w.sum()
+        return np.concatenate([w, [1.0 - c - w.sum(), c]])
     w = (1.0 - c) * s / s.sum() if s.sum() > 0 else np.zeros_like(s)
     return np.append(w, 1.0 - w.sum())
