@@ -136,6 +136,13 @@ class Params:
     # Gemeinsamer Zinsschock auf die Fremdkapitalkosten (vor Steuer, Standardabw.): Änderung des 3-J.-Zinses über 5 J.
     # (≈ mittlerer Refinanzierungszeitpunkt bei 10 J. Halten), FRED DGS3 1985–2026: 2,1 pp (robust ebenso).
     sigma_zins: float = 0.021
+    # Baustein 5 (Rückblick-Labor 18.11.2026, scripts/labor_kalibrierung.py): titelspezifische Streuung der Rendite p. a.,
+    # die kein Cashflow-Szenario enthält (Neubewertung, Überraschungen). Ohne sie lagen nur 32 % der tatsächlichen
+    # 5-J.-Renditen im P5–P95-Band; mit σ_x 20,2 % (5 J.) 90 % im Lern-, 91 % im Prüfzeitraum. Horizont: σ_x(h) =
+    # σ_x(5)·(5/h)^0,43 (gemessen aus 3 und 5 J.) ⇒ 10 J. 15 %. Median bleibt, Kelly (log) setzt weniger.
+    # ponytail: unabhängig je Titel (gemeinsame Teile stecken nur in τ/Zins); US-Labor, Firmenebene, Public Float.
+    sigma_idio_5j: float = 0.202
+    idio_exponent: float = 0.43
     # Robustes Kelly (Hansen–Sargent, 18.11.2026): Strafe κ · KL(w ‖ Anker) in Rendite p. a. je nat; 0 = klassisch.
     # Anker ∝ Vorsprung = annualisierte Median-Rendite − (rf + erp); Titel ohne Vorsprung bekommen hi = 0.
     kappa: float = 0.01   # Nutzerentscheid 18.11.2026 (Depot-Sweep: +3 Titel, Median −0,4 %)
@@ -274,6 +281,11 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
         R_model = (1 + R_model) * np.column_stack(
             [np.maximum((1 + x["irr_ek"] + b[k] - x["d_e"] * (1 - t) * dz) / (1 + x["irr_ek"]), 0.0) ** p.horizon_years
              for x, k, (_, t) in zip(hr, keys, kd)]) - 1
+        s_x = p.sigma_idio_5j * (5 / p.horizon_years) ** p.idio_exponent
+        if s_x > 0:
+            R_model = (1 + R_model) * np.column_stack(
+                [np.maximum(1 + s_x * _rng(p.seed, f"idio|{nm}").standard_normal(n) / (1 + x["irr_ek"]), 0.0)
+                 ** p.horizon_years for x, nm in zip(hr, names)]) - 1
         rand = np.array([x["am_rand"] > RAND_MAX_ANTEIL for x in hr])
         if rand.any():   # Bridge > Börsenwert: IRR unbrauchbar ⇒ Marktrendite mit Kursvola, Gewicht eingefroren
             R_mkt = market_world_returns(n, sigma, corr.values, p.rf, p.erp, p.horizon_years, seed=p.seed + 1)

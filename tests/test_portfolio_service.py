@@ -127,7 +127,7 @@ def test_sector_bias_is_shared_within_a_sector(monkeypatch):
         seen["R"] = R
         return real(R, *a, **k)
     monkeypatch.setattr(ps, "kelly_weights", spy)
-    rebalance(positions, valuations, closes, 1000.0, Params(tau_branche=0.03, horizon_years=10), date(2026, 11, 14))
+    rebalance(positions, valuations, closes, 1000.0, Params(tau_branche=0.03, horizon_years=10, sigma_idio_5j=0.0), date(2026, 11, 14))
     lr = np.log1p(seen["R"])
     assert np.corrcoef(lr[:, 0], lr[:, 1])[0, 1] > 0.99 and abs(np.corrcoef(lr[:, 0], lr[:, 2])[0, 1]) < 0.05
     assert np.std(lr[:, 0]) == pytest.approx(10 * 0.03 / 1.12, rel=0.05)     # τ über 10 J. verkettet
@@ -146,7 +146,7 @@ def test_rate_shock_hits_levered_titles_together_and_helps_net_cash(monkeypatch)
     monkeypatch.setattr(ps, "hold_returns", fake)
     seen, real = {}, ps.kelly_weights
     monkeypatch.setattr(ps, "kelly_weights", lambda R, *a, **k: seen.setdefault("R", R) is R and real(R, *a, **k))
-    rebalance(positions, valuations, closes, 1000.0, Params(tau_branche=0.0, sigma_zins=0.02, horizon_years=10),
+    rebalance(positions, valuations, closes, 1000.0, Params(tau_branche=0.0, sigma_zins=0.02, horizon_years=10, sigma_idio_5j=0.0),
               date(2026, 11, 14))
     lr = np.log1p(seen["R"])
     assert np.corrcoef(lr[:, 0], lr[:, 1])[0, 1] > 0.99 and np.corrcoef(lr[:, 0], lr[:, 2])[0, 1] < -0.99
@@ -229,3 +229,21 @@ def test_huerde_ist_etf_rendite_zins_beta_nur_gemessen():
     assert t.loc["C", "Zins-Beta"] > 2.0 and abs(t.loc["A", "Zins-Beta"]) < 1.0
     assert np.allclose(t.loc[["A", "B", "C"], "Hürde p. a."], p.rf + p.erp)
     assert t.loc["C", "Vorsprung p. a."] == pytest.approx(t.loc["C", "Rendite p. a."] - (p.rf + p.erp))
+
+
+def test_titelstreuung_baustein5_median_bleibt_breite_wie_kalibriert(monkeypatch):
+    """σ_x: unabhängig je Titel, Median der Log-Rendite unverändert, Breite ≈ h·σ_x(h)/(1+r_E) mit σ_x(h)=σ5·(5/h)^a."""
+    import application.portfolio_service as ps
+    positions, valuations, closes = _setup()
+    for v in valuations:
+        v.update(schock={}, results=np.full(len(v["samples"]), v["p50_neu"]))
+    _fake_irr(monkeypatch, {})
+    seen, real = {}, ps.kelly_weights
+    monkeypatch.setattr(ps, "kelly_weights", lambda R, *a, **k: seen.setdefault("R", R) is R and real(R, *a, **k))
+    p = Params(tau_branche=0.0, sigma_zins=0.0, horizon_years=10, sigma_idio_5j=0.2, idio_exponent=0.5)
+    rebalance(positions, valuations, closes, 1000.0, p, date(2026, 11, 14))
+    lr = np.log1p(seen["R"])
+    s_x = 0.2 * (5 / 10) ** 0.5
+    assert abs(np.corrcoef(lr[:, 0], lr[:, 1])[0, 1]) < 0.05
+    assert np.std(lr[:, 0]) == pytest.approx(10 * s_x / 1.12, rel=0.1)            # wie τ-Test: r_E 0,12
+    assert np.median(lr[:, 0]) == pytest.approx(np.log(valuations[0]["p50_neu"] / 100), abs=0.03)  # Median bleibt
