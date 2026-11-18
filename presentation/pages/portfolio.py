@@ -21,7 +21,10 @@ from application.portfolio_service import (
 )
 from domain.base_rates import SEKTOREN
 from infrastructure.market_data import fetch_bund_3y, fetch_closes, fetch_treasury_3y
-from presentation.charts.portfolio import allocation_chart, corr_heatmap, return_chart, upside_chart, wealth_chart
+from application.holdings_service import holdings
+from presentation.charts.portfolio import (
+    allocation_chart, corr_heatmap, holdings_chart, return_chart, upside_chart, wealth_chart,
+)
 
 _NEWEST = "(neueste)"
 _SEKTOREN = ["", *sorted({n for *_, n in SEKTOREN if n != "Finanz"} | {"Sonstige"})]
@@ -279,6 +282,53 @@ def _valuations_table(t: pd.DataFrame, ages: dict) -> None:
 
 # ── Seite ─────────────────────────────────────────────────────────────────────────────────
 
+def _bestand_tab(t: pd.DataFrame, positions: list[dict], cash: float, topf: float) -> None:
+    held, new, tot = holdings(t, positions, cash)
+    k = st.columns(4)
+    k[0].metric("Depot gesamt", _eur(tot["gesamt"]), f"davon Cash {_eur(tot['cash'])} "
+                f"({_pct(tot['cash'] / tot['gesamt']) if tot['gesamt'] else '–'})", delta_color="off", border=True)
+    if tot.get("einstand"):
+        k[1].metric("Gewinn/Verlust seit Kauf", _eur(tot["gewinn"]), _pct(tot["gewinn_pct"], True), border=True)
+    else:
+        k[1].metric("Gewinn/Verlust seit Kauf", "–", "Einstand fehlt", delta_color="off", border=True)
+    k[2].metric("Alpha des Bestands", _pct(tot.get("alpha_gewichtet", float("nan")), True),
+                "p. a., wertgewichtet", delta_color="off", border=True,
+                help="Erwartete Rendite über der eigenen CAPM-Hürde, gewichtet mit dem heutigen Wert.")
+    k[3].metric("Aktienverlusttopf", _eur(topf), f"{tot.get('n', 0)} Positionen", delta_color="off", border=True)
+    if held.empty:
+        st.info("Noch keine Positionen mit Stückzahl > 0 – im Reiter „Depot“ eintragen.", icon="ℹ️")
+    else:
+        st.plotly_chart(holdings_chart(held), width="stretch", config={"displayModeBar": False})
+        cfg = {
+            "Firma": st.column_config.TextColumn(width="medium"),
+            "Stück": st.column_config.NumberColumn(format="%.4f"),
+            "Kurs €": st.column_config.NumberColumn(format="%.2f €"),
+            "Wert €": st.column_config.NumberColumn(format="%.0f €"),
+            "Gewicht": st.column_config.NumberColumn(format="percent"),
+            "Einstand €": st.column_config.NumberColumn(format="%.2f €"),
+            "Gewinn €": st.column_config.NumberColumn(format="%+.0f €"),
+            "Gewinn %": st.column_config.NumberColumn(format="percent"),
+            "Haltedauer (Tage)": st.column_config.NumberColumn("Gehalten (Tage)", format="%d"),
+            "Fairer Wert €": st.column_config.NumberColumn("Fairer Wert P50", format="%.2f €"),
+            "Potenzial": st.column_config.NumberColumn("Zum fairen Wert", format="percent"),
+            "Rendite p. a.": st.column_config.NumberColumn(format="percent"),
+            "Beta": st.column_config.NumberColumn("β", format="%.2f"),
+            "Alpha p. a.": st.column_config.NumberColumn(format="percent"),
+            "Ziel-Gewicht": st.column_config.ProgressColumn("Ziel", min_value=0.0, max_value=0.35, format="percent"),
+            "These": st.column_config.TextColumn(width="large"),
+        }
+        st.dataframe(held.drop(columns=["Ticker"]), hide_index=True, width="stretch", column_config=cfg)
+        if tot.get("ohne_einstand"):
+            st.caption("Einstand fehlt für: " + ", ".join(tot["ohne_einstand"]) + " (Reiter „Depot“).")
+    if not new.empty:
+        st.markdown(f"##### Neu ins Depot · {len(new)} Titel")
+        st.dataframe(new[["Firma", "Kurs €", "Fairer Wert €", "Rendite p. a.", "Beta", "Alpha p. a.", "Ziel-Gewicht",
+                          "Aktion", "Nächster Termin", "These"]],
+                     hide_index=True, width="stretch", column_config=cfg)
+    st.caption("Gewinn = (Kurs − Einstand) × Stück, ohne Dividenden und Gebühren. Aktion aus der Optimierung (Reiter "
+               "„Orders“). Termine und These aus der Research-Ablage (SOTP-Research: termine.csv, Firmen/<Ticker>.md).")
+
+
 def render_portfolio(container) -> None:
     with container:
         st.markdown("## 💼 Portfolio-Balancing")
@@ -297,8 +347,8 @@ def render_portfolio(container) -> None:
         vals = find_valuations(folder0) if folder0 and Path(folder0).is_dir() else {}
         files = {f.name: f for fs in vals.values() for f in fs}
 
-        tabs = st.tabs(["📋 Orders", "⚖️ Allokation", "🔎 Bewertungen", "🎲 Risiko", "✏️ Depot"])
-        with tabs[4]:
+        tabs = st.tabs(["📊 Bestand", "📋 Orders", "⚖️ Allokation", "🔎 Bewertungen", "🎲 Risiko", "✏️ Depot"])
+        with tabs[5]:
             positions, cash, folder, topf = _depot_tab(depot, path, vals, files)
         if not vals:
             st.warning("Keine Bewertungen im Ordner gefunden – Ordner im Reiter „Depot“ prüfen.")
@@ -362,13 +412,15 @@ def render_portfolio(container) -> None:
                 for w in res.warnings:
                     st.markdown(f"- {w}")
 
-        with tabs[0]:
-            _orders_tab(t, res.steuer)
         with tabs[1]:
+            _orders_tab(t, res.steuer)
+        with tabs[0]:
+            _bestand_tab(t, positions, cash, topf)
+        with tabs[2]:
             st.plotly_chart(allocation_chart(t), width="stretch", config={"displayModeBar": False})
             st.caption("Ziel nach Fractional Kelly (CRRA) auf der Szenario-Mischung; Grenzen: max. Gewicht je Titel, "
                        "kein Hebel. Titel, deren Order an der Mindestorder scheitert, bleiben auf dem Ist-Gewicht.")
-        with tabs[2]:
+        with tabs[3]:
             if pr.faktor_szenarien:
                 st.plotly_chart(return_chart(t), width="stretch", config={"displayModeBar": False})
                 st.caption(f"Erwartete Rendite pro Jahr (Median über {pr.horizon_years} J., in EUR, aus der IRR zum Kurs "
@@ -382,7 +434,7 @@ def render_portfolio(container) -> None:
                            f"{pr.horizon_years} Jahren nach Mischung mit p = {_pct(pr.p_market)} „Markt hat recht“ "
                            f"(Marktrendite {_pct(pr.rf + pr.erp)} p. a.).")
             _valuations_table(t, ages)
-        with tabs[3]:
+        with tabs[4]:
             st.plotly_chart(wealth_chart(res.wealth_samples, res.wealth_ist, res.wealth_ziel, pr.horizon_years),
                             width="stretch", config={"displayModeBar": False})
             ist, ziel = res.wealth_ist, res.wealth_ziel

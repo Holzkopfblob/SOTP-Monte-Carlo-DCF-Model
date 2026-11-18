@@ -76,6 +76,27 @@ def wealth_chart(samples: dict, stats_ist: dict, stats_ziel: dict, horizon: int)
     return _layout(fig, 360)
 
 
+def holdings_chart(held: pd.DataFrame) -> go.Figure:
+    """Bestand: Gewinn/Verlust je Position in € (Balken, blau/orange), Text = in % vom Einstand; ohne Einstand grau."""
+    d = held.sort_values("Wert €")
+    names = [n.replace(", Inc.", "").replace(" Inc.", "").replace(" AG", "").replace(" Corporation", "") for n in d["Firma"]]
+    g = d["Gewinn €"].fillna(0.0)
+    fig = go.Figure()
+    fig.add_bar(y=names, x=g, orientation="h",
+                marker=dict(color=["#c3c9d3" if np.isnan(v) else POS if v >= 0 else NEG for v in d["Gewinn €"]],
+                            cornerradius=4),
+                text=["Einstand fehlt" if np.isnan(v) else f"{v:+,.0f} € ({pc:+.1%})".replace(",", ".")
+                      for v, pc in zip(d["Gewinn €"], d["Gewinn %"])],
+                textposition="outside", cliponaxis=False, textfont=dict(color=MUTED, size=12),
+                customdata=np.column_stack([d["Wert €"], d["Gewicht"]]),
+                hovertemplate="%{y}<br>Gewinn: %{x:,.0f} €<br>Wert %{customdata[0]:,.0f} € · %{customdata[1]:.1%}"
+                              "<extra></extra>")
+    fig.add_vline(x=0, line=dict(color="#c3c9d3", width=1))
+    fig.update_layout(showlegend=False, bargap=0.4)
+    fig.update_xaxes(tickformat=",.0f", title="Gewinn/Verlust seit Kauf (€)")
+    return _layout(fig, max(260, 34 * len(names) + 90))
+
+
 def return_chart(t: pd.DataFrame) -> go.Figure:
     """Faktor-Modus: erwartete Rendite p. a. (Median) je Titel; Raute = eigene Hürde rf + β·ERP (CAPM).
     Blau = Rendite über der Hürde (positives Alpha, unterbewertet), orange = darunter; Text = Alpha in pp."""
