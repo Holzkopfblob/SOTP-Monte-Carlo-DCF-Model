@@ -23,10 +23,11 @@ def render_setup_correlation_section(n_segments: int) -> list[list[float]] | Non
 
     if enable_corr and int(n_segments) >= 2:
         n_seg_int = int(n_segments)
+        names = " · ".join(
+            f"{k + 1} = {st.session_state.get(f'seg_{k}_name') or f'Segment {k + 1}'}" for k in range(n_seg_int)
+        )
         st.caption(
-            f"Korrelationsmatrix ({n_seg_int}x{n_seg_int}) - Diagonale "
-            "ist immer 1. Geben Sie die paarweisen Korrelationen "
-            "zwischen den Segmenten ein (-1 bis 1)."
+            f"Paarweise Korrelationen von −1 bis 1 (Diagonale = 1, untere Hälfte gespiegelt). {names}"
         )
         corr_values: list[list[float]] = [[1.0] * n_seg_int for _ in range(n_seg_int)]
 
@@ -35,14 +36,14 @@ def render_setup_correlation_section(n_segments: int) -> list[list[float]] | Non
             for col_idx in range(n_seg_int):
                 if col_idx == row:
                     cols[col_idx].number_input(
-                        f"rho({row+1},{col_idx+1})",
+                        f"ρ {row+1}↔{col_idx+1}",
                         value=1.0,
                         disabled=True,
                         key=f"corr_{row}_{col_idx}",
                     )
                 elif col_idx > row:
                     val = cols[col_idx].number_input(
-                        f"rho({row+1},{col_idx+1})",
+                        f"ρ {row+1}↔{col_idx+1}",
                         value=0.3,
                         min_value=-1.0,
                         max_value=1.0,
@@ -54,7 +55,7 @@ def render_setup_correlation_section(n_segments: int) -> list[list[float]] | Non
                     corr_values[col_idx][row] = float(val)
                 else:
                     cols[col_idx].number_input(
-                        f"rho({row+1},{col_idx+1})",
+                        f"ρ {row+1}↔{col_idx+1}",
                         value=float(corr_values[row][col_idx]),
                         disabled=True,
                         key=f"corr_{row}_{col_idx}",

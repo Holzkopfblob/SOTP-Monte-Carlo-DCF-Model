@@ -4,7 +4,6 @@ from .base import (
     configure_page,
     inject_global_styles,
     render_app_header,
-    render_sidebar_footer,
 )
 from .insights import (
     render_driver_cards,
@@ -21,7 +20,6 @@ __all__ = [
     "configure_page",
     "inject_global_styles",
     "render_app_header",
-    "render_sidebar_footer",
     "render_empty_state",
     "render_warning_state",
     "render_success_state",

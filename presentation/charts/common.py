@@ -3,8 +3,16 @@
 from __future__ import annotations
 
 import plotly.graph_objects as go
+import plotly.io as pio
 
-from presentation.theme.tokens import CHART_COLORS, PLOTLY_TEMPLATE
+from presentation.theme.tokens import CHART_COLORS, PLOTLY_FONT, PLOTLY_SEPARATORS, PLOTLY_TEMPLATE
+
+pio.templates["sotp"] = go.layout.Template(layout=dict(
+    separators=PLOTLY_SEPARATORS, font=PLOTLY_FONT,
+    title=dict(font=dict(size=15, color="#1b2333"), x=0, xanchor="left"),
+    hoverlabel=dict(font_size=13), legend=dict(font=dict(size=12)),
+))
+pio.templates.default = PLOTLY_TEMPLATE
 
 COLORS = {
     "primary": CHART_COLORS["primary"],

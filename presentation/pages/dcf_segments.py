@@ -18,11 +18,7 @@ from domain.models import (
 from infrastructure.config_io import segment_config_from_state
 from presentation.ui_helpers import (
     render_distribution_input,
-    render_info_distributions,
-    render_info_fade_model,
-    render_info_fcff,
-    render_info_terminal_value,
-    render_info_wacc,
+    render_info_boxes,
     render_source,
 )
 from presentation.charts import revenue_fade_preview, parameter_fade_preview
@@ -35,14 +31,11 @@ def render_segments(container, n_segments: int) -> list[SegmentConfig]:
     with container:
         st.header("Segment-Konfiguration")
         st.caption("Pflegen Sie pro Segment Stammdaten, Treiber, Terminalannahmen und optionale Korrelationen.")
-        render_info_fcff()
-        render_info_wacc()
-        render_info_distributions()
-        render_info_terminal_value()
-        render_info_fade_model()
+        render_info_boxes("fcff", "wacc", "distributions", "terminal_value", "fade_model")
 
         for i in range(n_segments):
-            with st.expander(f"📦 Segment {i + 1}", expanded=(i == 0)):
+            seg_title = str(st.session_state.get(f"seg_{i}_name") or f"Segment {i + 1}")
+            with st.expander(f"📦 {i + 1} · {seg_title}", expanded=(i == 0)):
                 # ── Basic info ────────────────────────────────────────
                 sc1, sc2 = st.columns(2)
                 seg_name = sc1.text_input(

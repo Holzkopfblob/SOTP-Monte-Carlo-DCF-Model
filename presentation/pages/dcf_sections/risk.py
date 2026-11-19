@@ -12,6 +12,7 @@ from presentation.charts import (
     percentile_convergence_chart,
 )
 from domain.checks import roic_is_artifact
+from presentation.format import mio, num, pct
 from presentation.pages.dcf_sections.builders import build_tail_risk_metrics
 
 
@@ -46,11 +47,12 @@ $$\text{CVaR}_\alpha = \mathbb{E}[X \mid X \leq \text{VaR}_\alpha]$$
 
     if var_val is not None and cvar_val is not None:
         tr1, tr2, tr3 = st.columns(3)
-        tr1.metric("VaR 5 % (Equity)", f"{var_val:,.1f} Mio.")
-        tr2.metric("CVaR 5 % (Equity)", f"{cvar_val:,.1f} Mio.")
+        tr1.metric("VaR 5 % (Equity)", mio(var_val))
+        tr2.metric("CVaR 5 % (Equity)", mio(cvar_val))
         if tail_ratio is not None and tail_ratio != 0:
-            label = "🟢" if tail_ratio > 0.85 else ("🟡" if tail_ratio > 0.70 else "🔴")
-            tr3.metric("Tail Ratio", f"{tail_ratio:.3f}", delta=label, delta_color="off")
+            label = ("🟢 kurzer linker Rand" if tail_ratio > 0.85
+                     else "🟡 mittlerer Rand" if tail_ratio > 0.70 else "🔴 schwerer linker Rand")
+            tr3.metric("Tail Ratio", num(tail_ratio, 3), delta=label, delta_color="off", delta_arrow="off")
         else:
             tr3.metric("Tail Ratio", "n/a")
 
@@ -115,9 +117,9 @@ $$\text{EP} \approx \text{Revenue} \times [(\text{EBITDA\%} - \text{D\&A\%}) \ti
                 label = "ℹ️ Artefakt (g oder Reinvestition ≤ 0)"
             col.metric(
                 f"P(ROIC < WACC) – {seg_name}",
-                f"{pvd:.1%}",
+                pct(pvd),
                 delta=label,
-                delta_color="off",
+                delta_color="off", delta_arrow="off",
             )
 
 
@@ -125,18 +127,21 @@ def render_margin_of_safety_section(results) -> None:
     """Interactive MoS analysis with market price input."""
     st.subheader("🛡️ Margin-of-Safety Analyse")
     st.caption(
-        "Geben Sie den aktuellen Markt- oder Kaufkurs ein, um die implizierte "
-        "Rendite, die Wahrscheinlichkeit einer Unterbewertung und den "
-        "empfohlenen Kaufpreis mit Sicherheitsmarge zu berechnen."
+        "Vorbelegt mit dem Kurs bei Recherche; ein anderer Kauf- oder Marktkurs zeigt Unterbewertungs-"
+        "Wahrscheinlichkeit, Potenzial und Kaufkurs mit Sicherheitsmarge."
     )
 
     prices = results.price_per_share
     fair_mean = float(np.mean(prices))
+    meta = (st.session_state.get("cfg_passthrough") or {}).get("metadata") or {}
+    kurs = meta.get("kurs_bei_recherche")
+    has_kurs = isinstance(kurs, (int, float)) and kurs > 0
 
     market_price = st.number_input(
         "Aktueller Marktpreis / Kurs",
         min_value=0.01,
-        value=round(fair_mean * 0.9, 2),
+        # Without a researched price there is no honest default – the mean at least shows the 50/50 point.
+        value=float(round(kurs, 2)) if has_kurs else round(fair_mean, 2),
         step=0.5,
         format="%.2f",
         help="Der Preis, zu dem die Aktie aktuell gehandelt wird.",
@@ -144,14 +149,14 @@ def render_margin_of_safety_section(results) -> None:
 
     if market_price > 0:
         p_upside = float(np.mean(prices >= market_price))
-        implied_return = (fair_mean / market_price - 1.0) * 100
+        implied_return = fair_mean / market_price - 1.0
         buy_price_30 = fair_mean * 0.70
 
         mo1, mo2, mo3, mo4 = st.columns(4)
-        mo1.metric("Ø Fair Value", f"{fair_mean:,.2f}")
-        mo2.metric("P(Upside)", f"{p_upside:.1%}")
-        mo3.metric("Impl. Rendite", f"{implied_return:+.1f} %")
-        mo4.metric("Kaufkurs (30 % MoS)", f"{buy_price_30:,.2f}")
+        mo1.metric("Ø Fair Value", num(fair_mean, 2))
+        mo2.metric("P(Wert ≥ Kurs)", pct(p_upside))
+        mo3.metric("Potenzial (Ø-Wert / Kurs)", pct(implied_return, signed=True))
+        mo4.metric("Kaufkurs (30 % MoS)", num(buy_price_30, 2))
 
         mc1, mc2 = st.columns(2)
         with mc1:

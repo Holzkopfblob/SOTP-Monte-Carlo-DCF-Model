@@ -13,11 +13,7 @@ from presentation.pages.dcf_sections.setup_correlation import (
 from presentation.pages.dcf_sections.setup_simulation import (
     render_setup_simulation_section,
 )
-from presentation.ui_helpers import (
-    render_info_corporate_bridge,
-    render_info_monte_carlo,
-    render_info_sotp,
-)
+from presentation.ui_helpers import render_info_boxes
 
 
 def render_setup(container) -> dict:
@@ -28,12 +24,10 @@ def render_setup(container) -> dict:
     """
     with container:
         st.header("Modell-Konfiguration")
-        render_info_sotp()
-        render_info_monte_carlo()
+        render_info_boxes("sotp", "monte_carlo", "corporate_bridge")
         sim_cfg = render_setup_simulation_section()
 
         # ── Corporate bridge ──────────────────────────────────────────
-        render_info_corporate_bridge()
         bridge_cfg = render_setup_bridge_section()
 
         # ── Cross-segment correlation (Phase 3) ──────────────────────

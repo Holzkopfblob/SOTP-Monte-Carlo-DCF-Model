@@ -10,11 +10,14 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
+from presentation.format import num, pct
+
 from presentation.charts.common import COLORS, TEMPLATE, hex_to_rgba
+from presentation.theme.tokens import PLOTLY_FONT
 
 IST, ZIEL = COLORS["secondary"], COLORS["primary"]
 POS, NEG, MID = COLORS["primary"], COLORS["secondary"], "#eef0f4"
-FONT = dict(family="Inter, Segoe UI, sans-serif", size=13, color="#1f2633")
+FONT = PLOTLY_FONT
 MUTED = "#5b6475"
 
 
@@ -75,7 +78,7 @@ def group_donuts(t: pd.DataFrame) -> go.Figure:
         n = int((titles[col] > 0.005).sum())
         fig.add_pie(labels=order, values=vals, hole=0.62, sort=False, direction="clockwise", name=label,
                     marker=dict(colors=colors, line=dict(color="white", width=2)),
-                    text=[f"{x}<br>{v / sum(vals):.0%}" if sum(vals) and v / sum(vals) >= 0.01 else "" for x, v in zip(order, vals)],
+                    text=[f"{x}<br>{pct(v / sum(vals), 0)}" if sum(vals) and v / sum(vals) >= 0.01 else "" for x, v in zip(order, vals)],
                     textinfo="text", textposition="outside", textfont=dict(color=MUTED, size=12),
                     hovertemplate=label + " · %{label}<br>%{percent:.1%}<extra></extra>", row=1, col=i)
         fig.add_annotation(text=f"<b>{label}</b><br>{n} Titel", x=0.22 if i == 1 else 0.78, y=0.5, showarrow=False,
@@ -111,7 +114,7 @@ def dumbbell_chart(t: pd.DataFrame) -> go.Figure:
     zc = np.where(up, POS, np.where(down, NEG, "#5b6475"))
     fig.add_scatter(x=ziel, y=names, mode="markers+text", name="Ziel", showlegend=False,
                     marker=dict(size=12, color=zc, line=dict(color="white", width=2)),
-                    text=[f"{z:.0%}" if abs(z - i) > 1e-3 or z > 0.004 else "" for z, i in zip(ziel, ist)],
+                    text=[f"{pct(z, 0)}" if abs(z - i) > 1e-3 or z > 0.004 else "" for z, i in zip(ziel, ist)],
                     textposition="middle right", textfont=dict(color=MUTED, size=12), cliponaxis=False,
                     customdata=np.column_stack([ist, ziel - ist]),
                     hovertemplate="%{y}<br>Ziel: %{x:.1%} (Ist %{customdata[0]:.1%}, Δ %{customdata[1]:+.1%})<extra></extra>")
@@ -143,11 +146,11 @@ def wealth_chart(samples: dict, stats_ist: dict, stats_ziel: dict, horizon: int)
         top = max(top, max(tr.y))
     start = stats_ziel["start"]
     fig.add_vline(x=start, line=dict(color=MUTED, width=1, dash="dot"))
-    fig.add_annotation(x=start, y=top * 1.05, text=f"heute {start:,.0f} €", showarrow=False,
+    fig.add_annotation(x=start, y=top * 1.05, text=f"heute {num(start, 0)} €", showarrow=False,
                        font=dict(color=MUTED, size=12), yanchor="bottom")
     for q, label in (("p5", "P5"), ("p50", "P50"), ("p95", "P95")):
         fig.add_vline(x=stats_ziel[q], line=dict(color=ZIEL, width=1, dash="dash"))
-        fig.add_annotation(x=stats_ziel[q], y=top * 0.92, text=f"{label} {stats_ziel[q]:,.0f} €", showarrow=False,
+        fig.add_annotation(x=stats_ziel[q], y=top * 0.92, text=f"{label} {num(stats_ziel[q], 0)} €", showarrow=False,
                            font=dict(color=MUTED, size=11), xanchor="left", xshift=4)
     fig.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.1, x=0, title=None))
     fig.update_xaxes(title=f"Depotwert in {horizon} Jahren (€)", tickformat=",.0f")
@@ -164,7 +167,7 @@ def holdings_chart(held: pd.DataFrame) -> go.Figure:
     fig.add_bar(y=names, x=g, orientation="h",
                 marker=dict(color=["#c3c9d3" if np.isnan(v) else POS if v >= 0 else NEG for v in d["Gewinn €"]],
                             cornerradius=4),
-                text=["Einstand fehlt" if np.isnan(v) else f"{v:+,.0f} € ({pc:+.1%})".replace(",", ".")
+                text=["Einstand fehlt" if np.isnan(v) else f"{num(v, 0, signed=True)} € ({pct(pc, 1, signed=True)})"
                       for v, pc in zip(d["Gewinn €"], d["Gewinn %"])],
                 textposition="outside", cliponaxis=False, textfont=dict(color=MUTED, size=12),
                 customdata=np.column_stack([d["Wert €"], d["Gewicht"]]),
@@ -172,7 +175,11 @@ def holdings_chart(held: pd.DataFrame) -> go.Figure:
                               "<extra></extra>")
     fig.add_vline(x=0, line=dict(color="#c3c9d3", width=1))
     fig.update_layout(showlegend=False, bargap=0.4)
-    fig.update_xaxes(tickformat=",.0f", title="Gewinn/Verlust seit Kauf (€)")
+    # Room for the outside labels so the longest bar's text never runs into the company names.
+    lo, hi = float(min(g.min(), 0.0)), float(max(g.max(), 0.0))
+    pad = 0.45 * max(hi - lo, 1.0)
+    fig.update_xaxes(tickformat=",.0f", title="Gewinn/Verlust seit Kauf (€)",
+                     range=[lo - (pad if lo < 0 else 0), hi + (pad if hi > 0 else 0)])
     return _layout(fig, max(260, 34 * len(names) + 90))
 
 
@@ -184,7 +191,7 @@ def return_chart(t: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
     fig.add_bar(y=names, x=d["Rendite p. a."], orientation="h", name="Erwartete Rendite p. a. (Median)",
                 marker=dict(color=[POS if v > 0 else NEG for v in d["Vorsprung p. a."]], cornerradius=4),
-                text=[f"α {e * 100:+.1f} pp" for e in d["Vorsprung p. a."]],
+                text=[f"α {num(e * 100, 1, signed=True)} pp" for e in d["Vorsprung p. a."]],
                 textposition="outside", cliponaxis=False, textfont=dict(color=MUTED, size=12),
                 customdata=np.column_stack([d["Ziel-Gewicht"], d["Beta"]]),
                 hovertemplate="%{y}<br>Rendite p. a.: %{x:.1%}<br>β %{customdata[1]:.2f} · Ziel %{customdata[0]:.1%}"
@@ -205,7 +212,7 @@ def upside_chart(t: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
     fig.add_bar(y=names, x=d["Upside P50"], orientation="h", name="Modell (P50)",
                 marker=dict(color=[POS if v >= 0 else NEG for v in d["Upside P50"]], cornerradius=4),
-                text=[f"{v:+.0%}" for v in d["Upside P50"]], textposition="outside", cliponaxis=False,
+                text=[f"{pct(v, 0, signed=True)}" for v in d["Upside P50"]], textposition="outside", cliponaxis=False,
                 textfont=dict(color=MUTED, size=12), hovertemplate="%{y}<br>Modell: %{x:+.0%}<extra></extra>")
     fig.add_scatter(y=names, x=d["E[R] Horizont"], mode="markers", name="Erwartet über den Horizont",
                     marker=dict(symbol="diamond", size=10, color="#1f2633", line=dict(color="white", width=2)),

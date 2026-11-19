@@ -21,7 +21,8 @@ from presentation.pages.dcf_sections import (
     render_tail_risk_section,
     render_tv_ev_section,
 )
-from presentation.ui_helpers import render_info_interpretation
+from presentation.format import mio, num, pct
+from presentation.ui_helpers import render_info_box
 from presentation.charts import (
     convergence_chart,
     histogram_kde,
@@ -45,8 +46,12 @@ def render_results(container) -> None:
         results = st.session_state.results
         config = st.session_state.config
 
+        n_done = st.session_state.pop("_sim_just_finished", None)
+        if n_done:
+            st.toast(f"Simulation abgeschlossen – {num(n_done)} Szenarien", icon="✅")
+
         st.header("📈 Simulationsergebnisse")
-        render_info_interpretation()
+        render_info_box("interpretation")
         tab_overview, tab_risk, tab_drivers, tab_scen, tab_quality, tab_detail = st.tabs([
             "🧭 Überblick",
             "⚠️ Risiko",
@@ -88,9 +93,9 @@ def render_results(container) -> None:
                     "Nettoverschuldung ist der konsolidierte Wert."
                 )
                 st.dataframe([{
-                    "Segment": k, "Quote": f"{q:.1%}",
-                    "EV 100 % (Ø)": round(results.base_segment_evs[k], 0),
-                    "EV anteilig (Ø)": round(q * results.base_segment_evs[k], 0),
+                    "Segment": k, "Quote": pct(q),
+                    "EV 100 % (Ø, Mio.)": num(results.base_segment_evs[k]),
+                    "EV anteilig (Ø, Mio.)": num(q * results.base_segment_evs[k]),
                 } for k, q in partly.items()], hide_index=True)
 
         with tab_risk:
@@ -145,25 +150,25 @@ def render_results(container) -> None:
                 )
 
                 conv_c1, conv_c2, conv_c3 = st.columns(3)
-                conv_c1.metric("KI-Breite (absolut)", f"{final_width:,.1f} Mio.")
-                conv_c2.metric("KI-Breite (relativ)", f"{pct_width:.3f} %")
+                conv_c1.metric("KI-Breite (absolut)", mio(final_width))
+                conv_c2.metric("KI-Breite (relativ)", f"{num(pct_width, 3)} %")
 
                 if pct_width < 0.5:
                     conv_c3.metric("Status", "✅ Konvergiert")
                     st.success(
                         f"Die Simulation ist gut konvergiert. Das 95 %-Konfidenzintervall "
-                        f"beträgt nur **{pct_width:.3f} %** des Mittelwerts."
+                        f"beträgt nur **{num(pct_width, 3)} %** des Mittelwerts."
                     )
                 elif pct_width < 2.0:
                     conv_c3.metric("Status", "⚠️ Akzeptabel")
                     st.warning(
-                        f"Die Konvergenz ist akzeptabel ({pct_width:.2f} %), "
+                        f"Die Konvergenz ist akzeptabel ({num(pct_width, 2)} %), "
                         f"aber eine Erhöhung der Iterationszahl könnte die Stabilität verbessern."
                     )
                 else:
                     conv_c3.metric("Status", "❌ Nicht konvergiert")
                     st.error(
-                        f"Die Ergebnisse sind noch nicht stabil ({pct_width:.1f} %). "
+                        f"Die Ergebnisse sind noch nicht stabil ({num(pct_width, 1)} %). "
                         f"Erhöhen Sie die Anzahl der Iterationen deutlich (mindestens 2–3×)."
                     )
 
@@ -185,31 +190,17 @@ def render_results(container) -> None:
             render_distribution_section(results)
             st.divider()
 
-            with st.expander("🧪 Erweiterte Detailcharts (lazy)", expanded=False):
-                enable_detail_charts = st.checkbox(
-                    "Detailcharts laden",
-                    value=False,
-                    key="dcf_lazy_detail_charts",
-                    help="Lädt schwere Detailvisualisierungen nur bei Bedarf.",
-                )
-                if enable_detail_charts:
-                    if len(results.segment_evs) > 1:
-                        st.subheader("📦 Segment-Details")
-                        seg_tabs = st.tabs(list(results.segment_evs.keys()))
-                        for stab, (seg_name, seg_ev) in zip(
-                            seg_tabs, results.segment_evs.items()
-                        ):
-                            with stab:
-                                st.plotly_chart(
-                                    histogram_kde(
-                                        seg_ev,
-                                        f"EV-Verteilung – {seg_name}",
-                                        "Enterprise Value (Mio.)",
-                                    ),
-                                    width="stretch",
-                                )
-                else:
-                    st.info("Detailcharts sind aktuell deaktiviert. Aktivieren Sie **Detailcharts laden**, wenn Sie Segmentverteilungen im Detail prüfen möchten.")
+            # Expander bodies render even when collapsed – hence the explicit switch.
+            if len(results.segment_evs) > 1 and st.toggle(
+                "📦 EV-Verteilung je Segment anzeigen", key="dcf_lazy_detail_charts",
+            ):
+                seg_tabs = st.tabs(list(results.segment_evs.keys()))
+                for stab, (seg_name, seg_ev) in zip(seg_tabs, results.segment_evs.items()):
+                    with stab:
+                        st.plotly_chart(
+                            histogram_kde(seg_ev, f"EV-Verteilung – {seg_name}", "Enterprise Value (Mio.)"),
+                            width="stretch",
+                        )
 
             st.divider()
             render_excel_export_section(config, results)

@@ -39,6 +39,13 @@ def inject_global_styles(*, metric_border_color: str) -> None:
     st.markdown(
         f"""
 <style>
+    /* Streamlit reserves ~6rem above the content; the header bar is minimal here. */
+    .block-container {{ padding-top: 2.5rem; padding-bottom: 3rem; }}
+    h1 {{ font-size: 1.9rem !important; padding-bottom: 0 !important; }}
+    h2 {{ font-size: 1.5rem !important; }}
+    h3 {{ font-size: 1.2rem !important; }}
+    [data-testid="stMetricValue"], [data-testid="stTable"] {{ font-variant-numeric: tabular-nums; }}
+    [data-testid="stMetricValue"] {{ font-size: 1.75rem; }}
     div[data-testid="stMetric"] {{
         background-color: {METRIC_BACKGROUND_COLOR};
         padding: {METRIC_PADDING};
@@ -63,9 +70,3 @@ def render_app_header(*, title: str, caption: str) -> None:
     """Render the application title and subtitle/caption."""
     st.title(title)
     st.caption(caption)
-
-
-def render_sidebar_footer(*, tech_stack: str) -> None:
-    """Render a consistent footer in sidebars."""
-    st.markdown("---")
-    st.caption(tech_stack)

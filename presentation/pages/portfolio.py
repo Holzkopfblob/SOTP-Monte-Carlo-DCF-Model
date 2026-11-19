@@ -24,6 +24,7 @@ from application.labor import labor_parameter
 from infrastructure.market_data import fetch_bund_3y, fetch_closes, fetch_damodaran_erp, fetch_treasury_3y
 from application.holdings_service import closed_positions, holdings
 from domain.ledger import TYPEN, apply_to_positions
+from presentation.format import num
 from presentation.charts.portfolio import (
     corr_heatmap, dumbbell_chart, group_donuts, holdings_chart, return_chart, upside_chart, wealth_chart,
 )
@@ -247,8 +248,8 @@ def _kpis(res, n_buy: int, n_sell: int, turnover: float, horizon: int) -> None:
                 f"{_pct(ziel['p50'] / start - 1, True)} · Ist {_eur(ist['p50'])}", border=True)
     k[2].metric("Pessimistisch (P5)", _eur(ziel["p5"]), f"{_pct(ziel['p5'] / start - 1, True)} ggü. heute",
                 delta_color="normal" if ziel["p5"] >= start else "inverse", border=True)
-    k[3].metric("Orders", f"{n_sell} Verkauf · {n_buy} Kauf", f"Umschlag {_eur(turnover)}",
-                delta_color="off", border=True)
+    k[3].metric("Orders (Verkauf · Kauf)", f"{n_sell} · {n_buy}", f"Umschlag {_eur(turnover)}",
+                delta_color="off", delta_arrow="off", border=True)
 
 
 def _order_card(row: pd.Series, buy: bool) -> None:
@@ -258,9 +259,9 @@ def _order_card(row: pd.Series, buy: bool) -> None:
         a.markdown(f"{badge} &nbsp; **{_short(row['Firma'])}**")
         b.markdown(f"<div style='text-align:right;font-size:1.15rem;font-weight:600'>{_eur(abs(row['Order €']))}</div>",
                    unsafe_allow_html=True)
-        st.caption(f"{abs(row['Order Stück']):.6g} Stück zu {_eur(row['Kurs €'], 2)} · Gewicht "
+        st.caption(f"{num(abs(row['Order Stück']), 4)} Stück zu {_eur(row['Kurs €'], 2)} · Gewicht "
                    f"{_pct(row['Ist-Gewicht'])} → **{_pct(row['Ziel-Gewicht'])}** · erwartet "
-                   f"{_pct(row['Rendite p. a.'])} p. a., Alpha {_pct(row['Vorsprung p. a.'], True)} (β {row['Beta']:.2f}) · Modell "
+                   f"{_pct(row['Rendite p. a.'])} p. a., Alpha {_pct(row['Vorsprung p. a.'], True)} (β {num(row['Beta'], 2)}) · Modell "
                    f"{_pct(row['Upside P50'], True)} zum fairen Wert")
 
 
@@ -291,7 +292,7 @@ def _orders_tab(t: pd.DataFrame, steuer: dict) -> None:
         st.markdown(f"##### Sparpläne · {_eur(sp['Sparplan €/Monat'].sum())} pro Monat")
         st.dataframe(sp[["Firma", "Sparplan €/Monat", "Ist-Gewicht", "Ziel-Gewicht"]]
                      .assign(Firma=sp["Firma"].map(_short)), hide_index=True, width="stretch",
-                     column_config={"Sparplan €/Monat": st.column_config.NumberColumn(format="%.0f €"),
+                     column_config={"Sparplan €/Monat": st.column_config.NumberColumn(format="euro"),
                                     "Ist-Gewicht": st.column_config.NumberColumn(format="percent"),
                                     "Ziel-Gewicht": st.column_config.NumberColumn(format="percent")})
     if steuer.get("gewinne"):
@@ -309,21 +310,21 @@ def _valuations_table(t: pd.DataFrame, ages: dict) -> None:
     st.dataframe(
         v, hide_index=True, width="stretch",
         column_config={
-            "Kurs €": st.column_config.NumberColumn(format="%.2f €"),
-            "Wert P50 €": st.column_config.NumberColumn(format="%.2f €"),
+            "Kurs €": st.column_config.NumberColumn(format="euro"),
+            "Wert P50 €": st.column_config.NumberColumn(format="euro"),
             "Upside P50": st.column_config.NumberColumn("Modell-Potenzial", format="percent"),
-            "EV/EBITDA": st.column_config.NumberColumn("EV/EBITDA (Markt)", format="%.1f×"),
-            "Faktor ×": st.column_config.NumberColumn("Value-Korrektur", format="×%.2f",
+            "EV/EBITDA": st.column_config.NumberColumn("EV/EBITDA (Markt)", format="localized"),
+            "Faktor ×": st.column_config.NumberColumn("Value-Korrektur", format="localized",
                                                       help="Multiplikator auf den Modellwert (Regler s)."),
             "P(Wert>Kurs)": st.column_config.ProgressColumn("P(Wert > Kurs, korrigiert)", min_value=0.0, max_value=1.0, format="percent"),
             "IRR P50": st.column_config.NumberColumn("IRR (Unternehmen)", format="percent",
                                                      help="Implizite Rendite der Cashflows zum Kurs, Median (Faktor-Modus)."),
             "IRR EK": st.column_config.NumberColumn("IRR Eigenkapital", format="percent",
                                                     help="Mit Hebel D/E zum Markt: r + D/E · (r − Fremdkapitalkosten)."),
-            "D/E": st.column_config.NumberColumn("Hebel D/E", format="%.2f"),
+            "D/E": st.column_config.NumberColumn("Hebel D/E", format="localized"),
             "Rendite p. a.": st.column_config.NumberColumn("Rendite p. a.", format="percent",
                                                            help="Median der Halte-Rendite pro Jahr (EUR)."),
-            "Beta": st.column_config.NumberColumn("β", format="%.2f",
+            "Beta": st.column_config.NumberColumn("β", format="localized",
                                                   help="Regression auf MSCI World (EUR, Wochen, 3 J.), Vasicek-geschrumpft."),
             "Hürde p. a.": st.column_config.NumberColumn("Hürde p. a.", format="percent", help="Erwartete ETF-Rendite (Zins + Risikoprämie), für alle Titel gleich."),
             "Vorsprung p. a.": st.column_config.NumberColumn("Alpha p. a.", format="percent",
@@ -342,42 +343,44 @@ def _valuations_table(t: pd.DataFrame, ages: dict) -> None:
 def _bestand_tab(t: pd.DataFrame, positions: list[dict], cash: float, topf: float, transaktionen: list[dict]) -> None:
     held, new, tot = holdings(t, positions, cash, transaktionen=transaktionen)
     k = st.columns(4)
-    k[0].metric("Depot gesamt", _eur(tot["gesamt"]), f"davon Cash {_eur(tot['cash'])} "
-                f"({_pct(tot['cash'] / tot['gesamt']) if tot['gesamt'] else '–'})", delta_color="off", border=True)
+    k[0].metric("Depot gesamt", _eur(tot["gesamt"]), f"Cash {_eur(tot['cash'])} · "
+                f"{_pct(tot['cash'] / tot['gesamt']) if tot['gesamt'] else '–'}", delta_color="off", delta_arrow="off", border=True)
     if transaktionen and "ergebnis" in tot:
         k[1].metric("Ergebnis gesamt", _eur(tot["ergebnis"]),
-                    f"offen {_eur(tot['gewinn'])} · realisiert {_eur(tot['realisiert'])} · Dividenden "
-                    f"{_eur(tot['dividenden'])}", delta_color="off", border=True,
-                    help="Vor Steuern. Gebühren stecken in Einstand und Erlös (Trade Republic weist sie so aus).")
+                    f"offen {_eur(tot['gewinn'])} · real. {_eur(tot['realisiert'])}",
+                    delta_color="off", delta_arrow="off", border=True,
+                    help=f"Offen {_eur(tot['gewinn'])} + realisiert {_eur(tot['realisiert'])} + Dividenden "
+                         f"{_eur(tot['dividenden'])}. Vor Steuern; Gebühren stecken in Einstand und Erlös "
+                         "(Trade Republic weist sie so aus).")
     elif tot.get("einstand"):
         k[1].metric("Gewinn/Verlust seit Kauf", _eur(tot["gewinn"]), _pct(tot["gewinn_pct"], True), border=True)
     else:
-        k[1].metric("Gewinn/Verlust seit Kauf", "–", "Einstand fehlt", delta_color="off", border=True)
+        k[1].metric("Gewinn/Verlust seit Kauf", "–", "Einstand fehlt", delta_color="off", delta_arrow="off", border=True)
     k[2].metric("Alpha des Bestands", _pct(tot.get("alpha_gewichtet", float("nan")), True),
-                "p. a., wertgewichtet", delta_color="off", border=True,
+                "p. a., wertgewichtet", delta_color="off", delta_arrow="off", border=True,
                 help="Erwartete Rendite über der ETF-Rendite, gewichtet mit dem heutigen Wert.")
-    k[3].metric("Aktienverlusttopf", _eur(topf), f"{tot.get('n', 0)} Positionen", delta_color="off", border=True)
+    k[3].metric("Aktienverlusttopf", _eur(topf), f"{tot.get('n', 0)} Positionen", delta_color="off", delta_arrow="off", border=True)
     if held.empty:
         st.info("Noch keine Positionen mit Stückzahl > 0 – im Reiter „Depot“ eintragen.", icon="ℹ️")
     else:
         st.plotly_chart(holdings_chart(held), width="stretch", config={"displayModeBar": False})
         cfg = {
             "Firma": st.column_config.TextColumn(width="medium"),
-            "Stück": st.column_config.NumberColumn(format="%.4f"),
-            "Kurs €": st.column_config.NumberColumn(format="%.2f €"),
-            "Wert €": st.column_config.NumberColumn(format="%.0f €"),
+            "Stück": st.column_config.NumberColumn(format="localized"),
+            "Kurs €": st.column_config.NumberColumn(format="euro"),
+            "Wert €": st.column_config.NumberColumn(format="euro"),
             "Gewicht": st.column_config.NumberColumn(format="percent"),
-            "Einstand €": st.column_config.NumberColumn(format="%.2f €"),
-            "Gewinn €": st.column_config.NumberColumn(format="%+.0f €"),
+            "Einstand €": st.column_config.NumberColumn(format="euro"),
+            "Gewinn €": st.column_config.NumberColumn(format="euro"),
             "Gewinn %": st.column_config.NumberColumn(format="percent"),
             "Haltedauer (Tage)": st.column_config.NumberColumn("Gehalten (Tage)", format="%d"),
-            "Realisiert €": st.column_config.NumberColumn(format="%+.2f €"),
-            "Dividenden €": st.column_config.NumberColumn(format="%.2f €"),
-            "Ergebnis gesamt €": st.column_config.NumberColumn("Ergebnis gesamt", format="%+.2f €"),
-            "Fairer Wert €": st.column_config.NumberColumn("Fairer Wert P50", format="%.2f €"),
+            "Realisiert €": st.column_config.NumberColumn(format="euro"),
+            "Dividenden €": st.column_config.NumberColumn(format="euro"),
+            "Ergebnis gesamt €": st.column_config.NumberColumn("Ergebnis gesamt", format="euro"),
+            "Fairer Wert €": st.column_config.NumberColumn("Fairer Wert P50", format="euro"),
             "Potenzial": st.column_config.NumberColumn("Zum fairen Wert", format="percent"),
             "Rendite p. a.": st.column_config.NumberColumn(format="percent"),
-            "Beta": st.column_config.NumberColumn("β", format="%.2f"),
+            "Beta": st.column_config.NumberColumn("β", format="localized"),
             "Alpha p. a.": st.column_config.NumberColumn(format="percent"),
             "Ziel-Gewicht": st.column_config.ProgressColumn("Ziel", min_value=0.0, max_value=0.35, format="percent"),
             "These": st.column_config.TextColumn(width="large"),
@@ -393,7 +396,7 @@ def _bestand_tab(t: pd.DataFrame, positions: list[dict], cash: float, topf: floa
     closed = closed_positions(positions, transaktionen)
     if not closed.empty:
         st.markdown(f"##### Abgeschlossene Positionen · {_eur(closed['Ergebnis €'].sum(), 2)}")
-        money = {c: st.column_config.NumberColumn(format="%+.2f €" if c in ("Realisiert €", "Ergebnis €") else "%.2f €")
+        money = {c: st.column_config.NumberColumn(format="euro" if c in ("Realisiert €", "Ergebnis €") else "euro")
                  for c in ["Investiert €", "Erlös €", "Realisiert €", "Dividenden €", "Ergebnis €"]}
         st.dataframe(closed.drop(columns=["Ticker"]), hide_index=True, width="stretch",
                      column_config={**money, "Ergebnis %": st.column_config.NumberColumn(format="percent")})
@@ -406,9 +409,10 @@ def _bestand_tab(t: pd.DataFrame, positions: list[dict], cash: float, topf: floa
 
 def render_portfolio(container) -> None:
     with container:
-        st.markdown("## 💼 Portfolio-Balancing")
+        title, file_col = st.columns([4, 1], vertical_alignment="bottom")
+        title.markdown("## 💼 Portfolio-Balancing")
         path = os.environ.get("SOTP_DEPOT", "depot.json")
-        with st.popover("📁 Depot-Datei"):
+        with file_col.popover("📁 Depot-Datei", width="stretch"):
             path = st.text_input("Pfad", path, key="pf_path")
         if st.session_state.get("pf_loaded") != path:
             try:
@@ -422,106 +426,111 @@ def render_portfolio(container) -> None:
         vals = find_valuations(folder0) if folder0 and Path(folder0).is_dir() else {}
         files = {f.name: f for fs in vals.values() for f in fs}
 
+        # Controls and KPIs belong ABOVE the tabs, but the positions come from the "Depot" tab –
+        # so reserve the slot first and fill it after the tabs exist.
+        head = st.container()
         tabs = st.tabs(["📊 Bestand", "📋 Orders", "⚖️ Allokation", "🔎 Bewertungen", "🎲 Risiko", "✏️ Depot"])
         with tabs[5]:
             positions, cash, folder, topf, transaktionen, etf_stueck = _depot_tab(depot, path, vals, files)
         if not vals:
-            st.warning("Keine Bewertungen im Ordner gefunden – Ordner im Reiter „Depot“ prüfen.")
+            head.warning("Keine Bewertungen im Ordner gefunden – Ordner im Reiter „Depot“ prüfen.")
             return
+        with head:
+            _controls_and_kpis(tabs, positions, cash, folder, topf, transaktionen, etf_stueck, vals, files)
 
-        p = _settings()
-        sig = hashlib.sha1(json.dumps([positions, cash, folder, topf, transaktionen, etf_stueck, p.__dict__],
-                                      sort_keys=True, default=str)
-                           .encode()).hexdigest()
-        res_state = st.session_state.get("pf_result")
-        stale = res_state is not None and res_state["sig"] != sig
-        c1, c2 = st.columns([1, 3])
-        run = c1.button("📐 Zielgewichte berechnen", type="primary", width="stretch", disabled=not positions)
-        if stale:
-            c2.warning("Eingaben geändert – Ergebnis unten ist veraltet.", icon="⚠️")
-        elif res_state:
-            welt = ("Faktor-Szenarien (Basisraten)" if p.faktor_szenarien else
-                    f"p = {_pct(p.p_market)}, ρ {str(p.rho_world).replace('.', ',')}, s {str(p.factor_shrink).replace('.', ',')}")
-            c2.caption(f"Berechnet mit {welt}, Kelly {p.fraction:g}, max. {_pct(p.max_w)} je Titel, "
-                       f"{_pct(p.group_cap)} je Gruppe, "
-                       f"Cash-Zins {_pct(p.rf)}. Beträge in EUR, USD zum aktuellen Kurs.")
 
-        if run:
-            with st.status("Bewertungen neu simulieren, Kurse laden, optimieren …", expanded=False) as s:
-                try:
-                    valuations, ages = [], {}
-                    paths = [files[pos["datei"]] if pos["datei"] else vals[pos["firma"]][-1] for pos in positions]
-                    if p.faktor_szenarien:
-                        valuations = _simulate_universe(
-                            tuple((q["firma"], str(f), q.get("sektor") or None) for q, f in zip(positions, paths)),
-                            tuple(f.stat().st_mtime for f in paths))
-                    else:
-                        valuations = [_simulate(str(f), f.stat().st_mtime) for f in paths]
-                    for pos, val in zip(positions, valuations):
-                        try:
-                            ages[pos["firma"]] = (date.today() - date.fromisoformat(val["stichtag"])).days
-                        except ValueError:
-                            ages[pos["firma"]] = None
-                    closes = _closes(tuple(sorted({q["ticker"] for q in positions})))
-                    res = rebalance(positions, valuations, closes, cash, p, verlusttopf_eur=topf, etf_stueck=etf_stueck)
-                except (ValueError, KeyError) as e:
-                    s.update(label="Fehler", state="error")
-                    st.error(str(e))
-                    return
-                s.update(label="Fertig", state="complete")
-            st.session_state.pf_result = res_state = {"sig": sig, "res": res, "ages": ages, "p": p}
-            stale = False
+def _controls_and_kpis(tabs, positions, cash, folder, topf, transaktionen, etf_stueck, vals, files) -> None:
+    p = _settings()
+    sig = hashlib.sha1(json.dumps([positions, cash, folder, topf, transaktionen, etf_stueck, p.__dict__],
+                                  sort_keys=True, default=str)
+                       .encode()).hexdigest()
+    res_state = st.session_state.get("pf_result")
+    stale = res_state is not None and res_state["sig"] != sig
+    c1, c2 = st.columns([1, 3])
+    run = c1.button("📐 Zielgewichte berechnen", type="primary", width="stretch", disabled=not positions)
+    if stale:
+        c2.warning("Eingaben geändert – das Ergebnis in den Reitern ist veraltet.", icon="⚠️")
+    elif res_state:
+        welt = ("Faktor-Szenarien (Basisraten)" if p.faktor_szenarien else
+                f"p = {_pct(p.p_market)}, ρ {str(p.rho_world).replace('.', ',')}, s {str(p.factor_shrink).replace('.', ',')}")
+        c2.caption(f"Berechnet mit {welt}, Kelly {num(p.fraction, 2)}, max. {_pct(p.max_w)} je Titel, "
+                   f"{_pct(p.group_cap)} je Gruppe, "
+                   f"Cash-Zins {_pct(p.rf)}. Beträge in EUR, USD zum aktuellen Kurs.")
 
-        if not res_state:
-            with tabs[0]:
-                st.info("Annahmen prüfen und **Zielgewichte berechnen** klicken. Positionen pflegst du im Reiter „Depot“.",
-                        icon="👆")
-            return
+    if run:
+        with st.spinner("Bewertungen neu simulieren, Kurse laden, optimieren …"):
+            try:
+                valuations, ages = [], {}
+                paths = [files[pos["datei"]] if pos["datei"] else vals[pos["firma"]][-1] for pos in positions]
+                if p.faktor_szenarien:
+                    valuations = _simulate_universe(
+                        tuple((q["firma"], str(f), q.get("sektor") or None) for q, f in zip(positions, paths)),
+                        tuple(f.stat().st_mtime for f in paths))
+                else:
+                    valuations = [_simulate(str(f), f.stat().st_mtime) for f in paths]
+                for pos, val in zip(positions, valuations):
+                    try:
+                        ages[pos["firma"]] = (date.today() - date.fromisoformat(val["stichtag"])).days
+                    except ValueError:
+                        ages[pos["firma"]] = None
+                closes = _closes(tuple(sorted({q["ticker"] for q in positions})))
+                res = rebalance(positions, valuations, closes, cash, p, verlusttopf_eur=topf, etf_stueck=etf_stueck)
+            except (ValueError, KeyError) as e:
+                st.error(str(e))
+                return
+        st.session_state.pf_result = res_state = {"sig": sig, "res": res, "ages": ages, "p": p}
+        stale = False
 
-        res, ages, pr = res_state["res"], res_state["ages"], res_state["p"]
-        t = res.table
-        o = t[(t["Firma"] != _CASH) & (t["Order €"].abs() > 0.5)]
-        _kpis(res, int((o["Order €"] > 0).sum()), int((o["Order €"] < 0).sum()),
-              float(o["Order €"].abs().sum()), pr.horizon_years)
-        if res.warnings:
-            with st.expander(f"ℹ️ Hinweise ({len(res.warnings)})"):
-                for w in res.warnings:
-                    st.markdown(f"- {w}")
-
-        with tabs[1]:
-            _orders_tab(t, res.steuer)
+    if not res_state:
         with tabs[0]:
-            _bestand_tab(t, positions, cash, topf, transaktionen)
-        with tabs[2]:
-            st.markdown("##### Nach Gruppe")
-            st.plotly_chart(group_donuts(t), width="stretch", config={"displayModeBar": False})
-            st.caption(f"Anteil je Gruppe am Depotwert, links heute, rechts nach der Optimierung. Jede Gruppe ist auf "
-                       f"{_pct(pr.group_cap)} begrenzt (gemeinsamer Branchenfehler), Cash grau.")
-            st.markdown("##### Je Titel: von Ist zu Ziel")
-            st.plotly_chart(dumbbell_chart(t), width="stretch", config={"displayModeBar": False})
-            st.caption("Grauer Punkt = Ist, farbiger Punkt = Ziel (blau aufstocken, orange abbauen). Ziel aus dem robusten "
-                       "Kelly (Treynor–Black-Anker) unter Notbremse je Titel und Gruppengrenze; kleine Käufe als Sparplan.")
-        with tabs[3]:
-            if pr.faktor_szenarien:
-                st.plotly_chart(return_chart(t), width="stretch", config={"displayModeBar": False})
-                st.caption(f"Erwartete Rendite pro Jahr (Median über {pr.horizon_years} J., in EUR, aus der IRR zum Kurs "
-                           f"mit Hebel und Cashflow-Szenarien). Raute = Messlatte ETF-Rendite (Zins + Risikoprämie, für alle "
-                           "gleich). Blau = Rendite über dem ETF (Vorsprung), orange = darunter. Gewicht: Treynor–Black-Anker (Vorsprung / Restrisiko²) im "
-                           "robusten Kelly, dazu Korrelation und Gruppengrenze.")
-            else:
-                st.plotly_chart(upside_chart(t), width="stretch", config={"displayModeBar": False})
-                st.caption(f"Balken: Modell-Potenzial (Wert P50 / Kurs − 1). Raute: erwartete Rendite in "
-                           f"{pr.horizon_years} Jahren nach Mischung mit p = {_pct(pr.p_market)} „Markt hat recht“ "
-                           f"(Marktrendite {_pct(pr.rf + pr.erp)} p. a.).")
-            _valuations_table(t, ages)
-        with tabs[4]:
-            st.plotly_chart(wealth_chart(res.wealth_samples, res.wealth_ist, res.wealth_ziel, pr.horizon_years),
-                            width="stretch", config={"displayModeBar": False})
-            ist, ziel = res.wealth_ist, res.wealth_ziel
-            st.dataframe(pd.DataFrame({
-                "": ["Ist-Depot", "Ziel-Depot"],
-                "P5": [_eur(ist["p5"]), _eur(ziel["p5"])], "Median": [_eur(ist["p50"]), _eur(ziel["p50"])],
-                "P95": [_eur(ist["p95"]), _eur(ziel["p95"])], "Mittel": [_eur(ist["mean"]), _eur(ziel["mean"])],
-            }), hide_index=True, width="stretch")
-            st.markdown("##### Korrelation der Wochenrenditen (EUR, 3 Jahre)")
-            st.plotly_chart(corr_heatmap(res.corr), width="stretch", config={"displayModeBar": False})
+            st.info("Annahmen prüfen und **Zielgewichte berechnen** klicken. Positionen pflegst du im Reiter „Depot“.",
+                    icon="👆")
+        return
+
+    res, ages, pr = res_state["res"], res_state["ages"], res_state["p"]
+    t = res.table
+    o = t[(t["Firma"] != _CASH) & (t["Order €"].abs() > 0.5)]
+    _kpis(res, int((o["Order €"] > 0).sum()), int((o["Order €"] < 0).sum()),
+          float(o["Order €"].abs().sum()), pr.horizon_years)
+    if res.warnings:
+        with st.expander(f"ℹ️ Hinweise ({len(res.warnings)})"):
+            for w in res.warnings:
+                st.markdown(f"- {w}")
+
+    with tabs[1]:
+        _orders_tab(t, res.steuer)
+    with tabs[0]:
+        _bestand_tab(t, positions, cash, topf, transaktionen)
+    with tabs[2]:
+        st.markdown("##### Nach Gruppe")
+        st.plotly_chart(group_donuts(t), width="stretch", config={"displayModeBar": False})
+        st.caption(f"Anteil je Gruppe am Depotwert, links heute, rechts nach der Optimierung. Jede Gruppe ist auf "
+                   f"{_pct(pr.group_cap)} begrenzt (gemeinsamer Branchenfehler), Cash grau.")
+        st.markdown("##### Je Titel: von Ist zu Ziel")
+        st.plotly_chart(dumbbell_chart(t), width="stretch", config={"displayModeBar": False})
+        st.caption("Grauer Punkt = Ist, farbiger Punkt = Ziel (blau aufstocken, orange abbauen). Ziel aus dem robusten "
+                   "Kelly (Treynor–Black-Anker) unter Notbremse je Titel und Gruppengrenze; kleine Käufe als Sparplan.")
+    with tabs[3]:
+        if pr.faktor_szenarien:
+            st.plotly_chart(return_chart(t), width="stretch", config={"displayModeBar": False})
+            st.caption(f"Erwartete Rendite pro Jahr (Median über {pr.horizon_years} J., in EUR, aus der IRR zum Kurs "
+                       f"mit Hebel und Cashflow-Szenarien). Raute = Messlatte ETF-Rendite (Zins + Risikoprämie, für alle "
+                       "gleich). Blau = Rendite über dem ETF (Vorsprung), orange = darunter. Gewicht: Treynor–Black-Anker (Vorsprung / Restrisiko²) im "
+                       "robusten Kelly, dazu Korrelation und Gruppengrenze.")
+        else:
+            st.plotly_chart(upside_chart(t), width="stretch", config={"displayModeBar": False})
+            st.caption(f"Balken: Modell-Potenzial (Wert P50 / Kurs − 1). Raute: erwartete Rendite in "
+                       f"{pr.horizon_years} Jahren nach Mischung mit p = {_pct(pr.p_market)} „Markt hat recht“ "
+                       f"(Marktrendite {_pct(pr.rf + pr.erp)} p. a.).")
+        _valuations_table(t, ages)
+    with tabs[4]:
+        st.plotly_chart(wealth_chart(res.wealth_samples, res.wealth_ist, res.wealth_ziel, pr.horizon_years),
+                        width="stretch", config={"displayModeBar": False})
+        ist, ziel = res.wealth_ist, res.wealth_ziel
+        st.dataframe(pd.DataFrame({
+            "": ["Ist-Depot", "Ziel-Depot"],
+            "P5": [_eur(ist["p5"]), _eur(ziel["p5"])], "Median": [_eur(ist["p50"]), _eur(ziel["p50"])],
+            "P95": [_eur(ist["p95"]), _eur(ziel["p95"])], "Mittel": [_eur(ist["mean"]), _eur(ziel["mean"])],
+        }), hide_index=True, width="stretch")
+        st.markdown("##### Korrelation der Wochenrenditen (EUR, 3 Jahre)")
+        st.plotly_chart(corr_heatmap(res.corr), width="stretch", config={"displayModeBar": False})

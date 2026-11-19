@@ -28,8 +28,8 @@ from presentation.layout.base import (
     configure_page,
     inject_global_styles,
     render_app_header,
-    render_sidebar_footer,
 )
+from presentation.format import num
 from presentation.pages.dcf_compare import render_compare
 from presentation.pages.portfolio import render_portfolio
 from presentation.pages.calibration import render_calibration
@@ -135,17 +135,25 @@ render_app_header(
 )
 
 with st.sidebar:
-    st.header("SOTP MC-DCF")
     view = st.radio(
         "Ansicht", ["🧮 Bewertung", "🔍 Versionsvergleich", "💼 Portfolio", "🎯 Treffsicherheit"],
-        key="app_view", horizontal=True, label_visibility="collapsed",
+        key="app_view", label_visibility="collapsed",
     )
     meta = (st.session_state.get("cfg_passthrough") or {}).get("metadata") or {}
+
+
+def _render_valuation_sidebar() -> None:
+    """Research import, status and save/load – only relevant for the valuation wizard."""
+    st.divider()
     if meta.get("company"):
-        st.caption(
-            f"**{meta['company']}**"
-            + (f" · Stand {meta['stichtag']}" if meta.get("stichtag") else "")
-            + (f" · {meta['report_currency']}" if meta.get("report_currency") else "")
+        st.markdown(
+            f"**{meta['company']}**  \n"
+            + " · ".join(x for x in (
+                f"Stand {meta['stichtag']}" if meta.get("stichtag") else "",
+                meta.get("report_currency") or "",
+                f"Kurs {num(meta['kurs_bei_recherche'], 2)}"
+                if isinstance(meta.get("kurs_bei_recherche"), (int, float)) else "",
+            ) if x)
         )
 
     # Research import first – it is where every valuation starts.
@@ -161,16 +169,15 @@ with st.sidebar:
             except ValueError as e:
                 st.error(str(e))
     if st.session_state.pop("_config_just_loaded", False):
-        st.success("✅ Konfiguration erfolgreich geladen!")
+        st.toast("Konfiguration geladen", icon="✅")
 
-    st.divider()
     if st.session_state.get("results") is not None:
         r = st.session_state.results
         p5, p50, p95 = np.percentile(r.price_per_share, [5, 50, 95])
-        st.success("Simulation abgeschlossen")
-        st.caption(
-            f"Fairer Wert je Aktie (Median) **{p50:,.2f}**  \n"
-            f"P5 – P95: {p5:,.0f} – {p95:,.0f} · {r.n_simulations:,} Szenarien"
+        st.metric(
+            "Fairer Wert je Aktie (Median)", num(p50, 2),
+            f"P5–P95 {num(p5)} – {num(p95)} · {num(r.n_simulations)} Szenarien",
+            delta_color="off", delta_arrow="off",
         )
     else:
         st.caption("Noch keine Simulation durchgeführt.")
@@ -206,7 +213,10 @@ with st.sidebar:
             for ref_key, ref in verz.items():
                 st.markdown(f"**[{ref_key}]** {ref}")
 
-    render_sidebar_footer(tech_stack="Built with Streamlit · NumPy · Plotly")
+
+if view == "🧮 Bewertung":
+    with st.sidebar:
+        _render_valuation_sidebar()
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -278,9 +288,7 @@ container = st.container()
 if current_step == "setup":
     setup = render_setup(container)
 
-    nav_left, nav_right = st.columns([1, 1])
-    with nav_left:
-        st.button("Zurück", disabled=True, width="stretch")
+    _, nav_right = st.columns([1, 1])
     with nav_right:
         if st.button("Weiter: Segmente", type="primary", width="stretch"):
             previous_setup = st.session_state.wizard_setup or {}
@@ -341,12 +349,10 @@ elif current_step == "simulation":
 
 elif current_step == "results":
     render_results(container)
-    nav_left, nav_right = st.columns([1, 1])
+    nav_left, _ = st.columns([1, 1])
     with nav_left:
         if st.button("Zurück: Simulation", width="stretch"):
             _go_to("simulation")
-    with nav_right:
-        st.button("Weiter", disabled=True, width="stretch")
 else:
     st.session_state.wizard_step = "setup"
     st.rerun()

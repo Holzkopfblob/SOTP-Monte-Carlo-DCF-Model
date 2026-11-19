@@ -18,6 +18,7 @@ from application.portfolio_service import load_depot
 from domain.calibration import summarize, verdict
 from infrastructure.market_data import fetch_closes
 from presentation.charts.calibration import interval_chart, pit_histogram
+from presentation.format import num, pct
 
 
 @st.cache_data(show_spinner=False)
@@ -48,34 +49,37 @@ def render_calibration(container) -> None:
         bad = ev[ev["fehler"] != ""]
         s = summarize(ok["pit"].tolist())
 
-        k = st.columns(4)
+        k = st.columns(3)
         k[0].metric("Prüfpunkte", s.get("n", 0), border=True)
-        k[1].metric("Im P5–P95-Band", f"{s.get('im_90_band', 0):.0%}".replace(".", ","), "ideal 90 %",
-                    delta_color="off", border=True)
-        k[2].metric("Mittlerer Rang", f"{s.get('mittel', 0):.2f}".replace(".", ","), "ideal 0,50",
-                    delta_color="off", border=True)
-        k[3].metric("Lesart", verdict(s), border=True)
+        k[1].metric("Im P5–P95-Band", pct(s.get("im_90_band", 0), 0), "ideal 90 %",
+                    delta_color="off", delta_arrow="off", border=True)
+        k[2].metric("Mittlerer Rang", num(s.get("mittel", 0), 2), "ideal 0,50",
+                    delta_color="off", delta_arrow="off", border=True)
+        lesart = f"**Lesart:** {verdict(s)}."
         if len(ok):
             half = (ok["p95"] - ok["p5"]) / 2
             err = (ok["ist_pct"].astype(float) - ok["p50"]).abs()
             factor = float(np.quantile(err / half.replace(0, np.nan), 0.9))
-            de = lambda x: f"{x:.1f}".replace(".", ",")  # noqa: E731 – nur Zahlen, nicht den Satz umformatieren
-            st.info(f"Typischer Fehler {de(err.mean())} pp bei einer Modell-Bandbreite (P5–P95) von "
-                    f"{de((2 * half).mean())} pp. Für 90 % Abdeckung müssten die Bänder etwa **{de(factor)}×** "
-                    f"breiter sein (bei n = {len(ok)} nur Tendenz).", icon="📏")
+            lesart += (f" Typischer Fehler {num(err.mean(), 1)} pp bei einer Modell-Bandbreite (P5–P95) von "
+                       f"{num((2 * half).mean(), 1)} pp. Für 90 % Abdeckung müssten die Bänder etwa "
+                       f"**{num(factor, 1)}×** breiter sein (bei n = {len(ok)} nur Tendenz).")
+        st.info(lesart, icon="📏")
 
         t1, t2, t3 = st.tabs(["📊 Prognose gegen Ist", "📈 Rang-Verteilung", "🧭 Konvergenz Kurs → Wert"])
         with t1:
             if len(ok):
                 st.plotly_chart(interval_chart(ok), width="stretch", config={"displayModeBar": False})
             st.dataframe(ok[["firma", "feld", "zeitraum", "p5", "p50", "p95", "ist_pct", "pit", "quelle", "pruefstatus",
-                             "notiz"]], hide_index=True, width="stretch",
-                         column_config={"p5": st.column_config.NumberColumn("P5 %", format="%.1f"),
-                                        "p50": st.column_config.NumberColumn("P50 %", format="%.1f"),
-                                        "p95": st.column_config.NumberColumn("P95 %", format="%.1f"),
-                                        "ist_pct": st.column_config.NumberColumn("Ist %"),
+                             "notiz"]].round({"p5": 1, "p50": 1, "p95": 1}), hide_index=True, width="stretch",
+                         column_config={"firma": "Firma", "feld": "Größe", "zeitraum": "Zeitraum",
+                                        "p5": st.column_config.NumberColumn("P5 %", format="localized"),
+                                        "p50": st.column_config.NumberColumn("P50 %", format="localized"),
+                                        "p95": st.column_config.NumberColumn("P95 %", format="localized"),
+                                        "ist_pct": st.column_config.NumberColumn("Ist %", format="localized"),
                                         "pit": st.column_config.ProgressColumn("Rang", min_value=0.0, max_value=1.0,
-                                                                               format="%.2f")})
+                                                                               format="%.2f"),
+                                        "quelle": st.column_config.TextColumn("Quelle", width="large"),
+                                        "pruefstatus": "Prüfstatus", "notiz": "Notiz"})
             if len(bad):
                 st.caption("Nicht auswertbar: " + "; ".join(f"{a} ({b})" for a, b in zip(bad["firma"], bad["fehler"])))
         with t2:
@@ -99,8 +103,8 @@ def render_calibration(container) -> None:
                                               "kurs_heute": "Kurs heute", "luecke_damals": "Lücke damals",
                                               "luecke_heute": "Lücke heute", "geschlossen": "Geschlossen"}),
                          hide_index=True, width="stretch",
-                         column_config={"Lücke damals": st.column_config.NumberColumn(format="%.2f"),
-                                        "Lücke heute": st.column_config.NumberColumn(format="%.2f"),
+                         column_config={"Lücke damals": st.column_config.NumberColumn(format="localized"),
+                                        "Lücke heute": st.column_config.NumberColumn(format="localized"),
                                         "Geschlossen": st.column_config.NumberColumn(format="percent")})
             st.caption("Lücke = ln(Wert P50 / Kurs). „Geschlossen“ = Anteil der damaligen Lücke, den der Kurs seither "
                        "aufgeholt hat (negativ = Lücke größer geworden). Kurse in Bewertungswährung; aussagekräftig erst "

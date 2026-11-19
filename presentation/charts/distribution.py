@@ -6,7 +6,13 @@ import numpy as np
 import plotly.graph_objects as go
 from scipy.stats import gaussian_kde
 
+from presentation.format import num, pct
+
 from .common import COLORS, apply_figure_defaults
+
+
+def _short_num(v: float) -> str:
+    return num(v, 0 if abs(v) >= 1_000 else 1)
 
 
 def histogram_kde(
@@ -54,17 +60,21 @@ def histogram_kde(
             )
 
     if show_percentile_lines:
-        for pct, dash_style in [(5, "dot"), (50, "solid"), (95, "dot")]:
-            val = float(np.percentile(values, pct))
+        # Labels left of P5 / right of P95 so the three never collide.
+        for q, dash_style, pos in [(5, "dot", "top left"), (50, "solid", "top"), (95, "dot", "top right")]:
+            val = float(np.percentile(values, q))
             fig.add_vline(
                 x=val,
                 line_dash=dash_style,
                 line_color=COLORS["negative"],
-                annotation_text=f"P{pct}: {val:,.1f}",
-                annotation_font_size=10,
+                annotation_text=f"P{q}: {_short_num(val)}",
+                annotation_position=pos,
+                annotation_font_size=11,
             )
 
-    apply_figure_defaults(fig, title=title, xaxis_title=x_label, yaxis_title="Dichte", height=480, margin_top=50)
+    apply_figure_defaults(fig, title=title, xaxis_title=x_label, yaxis_title="Häufigkeit", height=480, margin_top=50)
+    fig.update_yaxes(showticklabels=False)  # density values carry no meaning for the reader
+    fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1))
     return fig
 
 
@@ -103,7 +113,7 @@ def cdf_plot(
         fig.add_annotation(
             x=val,
             y=prob,
-            text=f"{prob:.0%}: {val:,.1f}",
+            text=f"P{num(prob * 100, 0)}: {_short_num(val)}",
             showarrow=False,
             yshift=14,
             font=dict(size=10),
@@ -148,23 +158,23 @@ def cdf_with_reference(
             line_dash="dash",
             line_color=COLORS["negative"],
             line_width=2,
-            annotation_text=f"{ref_label}: {ref_value:,.2f}",
+            annotation_text=f"{ref_label}: {num(ref_value, 2)}",
             annotation_font_size=10,
         )
         fig.add_hline(
             y=prob,
             line_dash="dot",
             line_color=COLORS["neutral"],
-            annotation_text=f"P(FV ≤ {ref_label}) = {prob:.1%}",
+            annotation_text=f"P(FV ≤ {ref_label}) = {pct(prob, 1)}",
             annotation_font_size=10,
         )
 
-    for pct in [5, 25, 50, 75, 95]:
-        val = float(np.percentile(values, pct))
+    for q in [5, 25, 50, 75, 95]:
+        val = float(np.percentile(values, q))
         fig.add_annotation(
             x=val,
-            y=pct / 100,
-            text=f"P{pct}: {val:,.1f}",
+            y=q / 100,
+            text=f"P{q}: {num(val, 1)}",
             showarrow=True,
             arrowhead=2,
             font=dict(size=9),

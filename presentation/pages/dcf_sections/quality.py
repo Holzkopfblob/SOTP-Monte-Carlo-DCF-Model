@@ -14,6 +14,7 @@ from presentation.charts import (
     tv_ev_decomposition_chart,
 )
 from domain.checks import result_checks, roic_is_artifact
+from presentation.format import num, pct
 from presentation.pages.dcf_sections.builders import build_quality_payload
 
 
@@ -45,9 +46,9 @@ def render_checks_section(results, config) -> None:
     if kurs and results.segment_cashflows:
         from domain.irr import irr_summary
         s = irr_summary(results, float(kurs), 0.0)
-        st.caption(f"📈 Implizite Rendite der Cashflows zum Kurs {float(kurs):,.2f} (v3): P5 {s['p5']:.1%} · "
-                   f"**P50 {s['p50']:.1%}** · P95 {s['p95']:.1%}"
-                   + (f" · {s['anteil_am_rand']:.0%} der Szenarien ≥ 100 % (Bridge > Börsenwert?)"
+        st.caption(f"📈 Implizite Rendite der Cashflows zum Kurs {num(float(kurs), 2)} (v3): P5 {pct(s['p5'])} · "
+                   f"**P50 {pct(s['p50'])}** · P95 {pct(s['p95'])}"
+                   + (f" · {pct(s['anteil_am_rand'], 0)} der Szenarien ≥ 100 % (Bridge > Börsenwert?)"
                       if s["anteil_am_rand"] > 0 else ""))
 
 
@@ -124,7 +125,7 @@ $$\text{TV/EV} = \frac{PV(\text{TV})}{PV(\text{FCFF}) + PV(\text{TV})}$$
     cols = st.columns(len(seg_names))
     for col, name, tv in zip(cols, seg_names, tv_shares):
         label = "🟢" if tv < 0.50 else ("🟡" if tv < 0.70 else "🔴")
-        col.metric(f"TV/EV – {name}", f"{tv:.1%}", delta=label, delta_color="off")
+        col.metric(f"TV/EV – {name}", pct(tv), delta=label, delta_color="off", delta_arrow="off")
 
 
 def render_quality_section(results) -> None:
@@ -247,7 +248,7 @@ sind die Annahmen möglicherweise zu optimistisch.
             label = "ℹ️ Artefakt (g oder Reinvestition ≤ 0)"
         col.metric(
             f"ROIC – {seg_name}",
-            f"{mean_roic:.1%}",
-            delta=f"{spread:+.1%} vs WACC {label}",
+            pct(mean_roic),
+            delta=f"{pct(spread, signed=True)} vs. WACC {label}",
             delta_color="normal",
         )

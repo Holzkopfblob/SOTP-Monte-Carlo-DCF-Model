@@ -4,15 +4,9 @@ from __future__ import annotations
 
 import streamlit as st
 
+from presentation.format import mio, num, pct
 from presentation.layout.insights import render_summary_cards
 from presentation.pages.dcf_sections.builders import build_key_metrics, build_stats_table
-
-
-def format_mio(value: float) -> str:
-    """Amounts in Mio.; switch to Mrd. from 10,000 Mio. so cards don't truncate."""
-    if abs(value) >= 10_000:
-        return f"{value / 1_000:,.1f} Mrd."
-    return f"{value:,.0f} Mio."
 
 
 def render_key_metrics_section(results) -> None:
@@ -25,15 +19,15 @@ def render_key_metrics_section(results) -> None:
     meta = (st.session_state.get("cfg_passthrough") or {}).get("metadata") or {}
     kurs = meta.get("kurs_bei_recherche")
     vs_kurs = (
-        f"{ps_stats['Median'] / kurs - 1:+.0%} vs. Kurs {kurs:,.2f}"
+        f"{pct(ps_stats['Median'] / kurs - 1, 0, signed=True)} vs. Kurs {num(kurs, 2)}"
         if isinstance(kurs, (int, float)) and kurs > 0 else None
     )
     render_summary_cards([
-        ("Fairer Wert je Aktie (Median)", f"{ps_stats['Median']:,.2f}", vs_kurs),
+        ("Fairer Wert je Aktie (Median)", num(ps_stats['Median'], 2), vs_kurs),
         ("Bandbreite je Aktie (P5 – P95)",
-         f"{ps_stats['P5 (5%)']:,.0f} – {ps_stats['P95 (95%)']:,.0f}", None),
-        ("Equity Value (Median)", format_mio(eq_stats["Median"]), None),
-        ("Enterprise Value (Median)", format_mio(ev_stats["Median"]), None),
+         f"{num(ps_stats['P5 (5%)'])} – {num(ps_stats['P95 (95%)'])}", None),
+        ("Equity Value (Median)", mio(eq_stats["Median"]), None),
+        ("Enterprise Value (Median)", mio(ev_stats["Median"]), None),
     ])
 
 
@@ -41,7 +35,8 @@ def render_descriptive_stats_section(results) -> None:
     """Render descriptive statistics dataframe section."""
     st.subheader("📊 Deskriptive Statistiken")
     stats_df = build_stats_table(results)
+    st.caption("Beträge in Mio., Preis je Aktie in Berichtswährung; Schiefe, Kurtosis und CV dimensionslos.")
     st.dataframe(
-        stats_df.style.format("{:,.2f}"),
+        stats_df.style.format(lambda v: num(v, 2)),
         width="stretch",
     )

@@ -20,6 +20,7 @@ from infrastructure.config_io import (
 )
 from domain.checks import OK, config_checks
 from infrastructure.monte_carlo_engine import MonteCarloEngine
+from presentation.format import num
 
 # setup-dict key (dcf_setup.render_setup) → bridge prefix (config_io)
 _SETUP_BRIDGE_KEYS = {
@@ -47,31 +48,32 @@ def render_simulation(
 
     with container:
         st.header("Monte-Carlo-Simulation starten")
-        st.caption("Prüfen Sie die Zusammenfassung und starten Sie dann die Berechnung. Anschließend wird der Schritt **📈 Ergebnisse** freigeschaltet.")
+        st.caption("Prüfen Sie die Zusammenfassung und starten Sie dann die Berechnung. "
+                   "Danach öffnen sich automatisch die **📈 Ergebnisse**.")
 
         st.info(
-            f"**Konfiguration:** {n_segments} Segment(e) · "
-            f"{n_simulations:,} Iterationen · Seed {random_seed}"
+            f"**{n_segments} {'Segment' if n_segments == 1 else 'Segmente'}** · "
+            f"{num(n_simulations)} Iterationen · Seed {random_seed}"
         )
 
         if segment_configs:
-            with st.expander("Segment-Übersicht", expanded=True):
-                overview_rows = [
+            st.dataframe(
+                pd.DataFrame([
                     {
                         "Segment": sc.name,
-                        "Basisumsatz": f"{sc.base_revenue:,.1f} Mio.",
+                        "Basisumsatz (Mio.)": num(sc.base_revenue, 1),
                         "Prognosejahre": sc.forecast_years,
                         "TV-Methode": sc.terminal_method.value,
                     }
                     for sc in segment_configs
-                ]
-                st.table(pd.DataFrame(overview_rows))
+                ]),
+                hide_index=True, width="stretch",
+            )
 
             for c in config_checks(segment_configs):
                 if c.status != OK:
                     st.warning(f"{c.status} Check {c.id} · {c.name}: {c.detail}")
 
-        st.markdown("")
         run_col1, run_col2, run_col3 = st.columns([1, 2, 1])
         with run_col2:
             run_button = st.button(
@@ -109,15 +111,11 @@ def render_simulation(
                 st.session_state[RESULTS_FINGERPRINT_KEY] = ui_fingerprint(dict(st.session_state))
                 progress_bar.progress(100, text="Fertig!")
                 # The sidebar (status + download incl. result snapshot) was
-                # rendered before this run finished – rerun so it is current.
+                # rendered before this run finished – rerun so it is current,
+                # straight into the results step (toast there).
                 st.session_state["_sim_just_finished"] = n_simulations
+                st.session_state.wizard_step = "results"
                 st.rerun()
 
-        n_done = st.session_state.pop("_sim_just_finished", None)
-        if n_done:
-            st.success(f"✅ Simulation abgeschlossen – {n_done:,} Szenarien berechnet.")
-            st.balloons()
-
         if st.session_state.results is not None:
-            st.markdown("---")
-            st.success("Simulation verfügbar. Wechseln Sie jetzt mit **Weiter: Ergebnisse** zum nächsten Schritt.")
+            st.success("Für diese Eingaben liegt ein Ergebnis vor – **Weiter: Ergebnisse**.", icon="✅")

@@ -5,6 +5,8 @@ from __future__ import annotations
 import numpy as np
 import plotly.graph_objects as go
 
+from presentation.format import num
+
 from .common import COLORS, apply_figure_defaults
 
 
@@ -76,7 +78,7 @@ def waterfall_chart(
         increasing=dict(marker=dict(color=COLORS["positive"])),
         decreasing=dict(marker=dict(color=COLORS["negative"])),
         totals=dict(marker=dict(color=COLORS["primary"])),
-        text=[f"{v:,.1f}" for v in values],
+        text=[num(v) for v in values],
         textposition="outside",
     ))
 

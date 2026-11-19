@@ -12,6 +12,7 @@ import streamlit as st
 from application.scenario_service import named_steps_for, version_date, walk
 from infrastructure.config_io import diff_configs
 from presentation.charts import valuation_timeline
+from presentation.format import num
 
 _METRICS = {
     "preis_je_aktie": "Preis je Aktie",
@@ -94,7 +95,7 @@ def render_compare(container) -> None:
                 pd.DataFrame(
                     [{"Version": lbl, "P5": s["p5"], "P50": s["p50"], "P95": s["p95"], "Ø": s["mean"]}
                      for (lbl, _), s in zip(with_result, stats)]
-                ).style.format({k: "{:,.2f}" for k in ("P5", "P50", "P95", "Ø")}),
+                ).style.format({k: (lambda v: num(v, 2)) for k in ("P5", "P50", "P95", "Ø")}),
                 width="stretch", hide_index=True,
             )
             if len(with_result) < len(versions):
@@ -136,11 +137,11 @@ def render_compare(container) -> None:
         res = st.session_state.get("walk_result")
         if res and res[:2] == (old_lbl, new_lbl):
             w = res[2]
-            st.dataframe(pd.DataFrame([{"Schritt": z["schritt"], "P50": round(z["p50"], 2),
-                                        "Δ": None if z["delta"] is None else round(z["delta"], 2)}
+            st.dataframe(pd.DataFrame([{"Schritt": z["schritt"], "P50": num(z["p50"], 2),
+                                        "Δ": "" if z["delta"] is None else num(z["delta"], 2, signed=True)}
                                        for z in w["zeilen"]]), width="stretch", hide_index=True)
             (st.success if w["schliesst"] else st.error)(
-                f"Endstand {w['zeilen'][-1]['p50']:,.2f} = neue Version {w['p50_b']:,.2f}"
+                f"Endstand {num(w['zeilen'][-1]['p50'], 2)} = neue Version {num(w['p50_b'], 2)}"
                 if w["schliesst"] else "Überleitung schließt nicht auf die neue Version – bitte melden.")
 
         verz = cfgs[new_lbl].get("quellenverzeichnis")

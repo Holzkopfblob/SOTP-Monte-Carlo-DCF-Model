@@ -47,6 +47,7 @@ def render_distribution_input(
     default_value: float = 0.0,
     is_percentage: bool = False,
     help_text: str = "",
+    decimals: int = 2,
 ) -> DistributionConfig:
     """
     Render Streamlit input widgets for one stochastic parameter.
@@ -65,6 +66,8 @@ def render_distribution_input(
         by 100 before storage.
     help_text : str
         Optional short explanation shown as caption.
+    decimals : int
+        Displayed decimals (display only, the stored value keeps full precision).
 
     Returns
     -------
@@ -73,6 +76,7 @@ def render_distribution_input(
     """
     pct_label = " (%)" if is_percentage else ""
     d = default_value  # shorthand for display default
+    fmt = f"%.{decimals}f"
 
     # ── Header row ────────────────────────────────────────────────────
     col_lbl, col_dist = st.columns([2, 3])
@@ -99,18 +103,18 @@ def render_distribution_input(
             f"Wert{pct_label}",
             value=d,
             key=f"{key_prefix}_fixed",
-            format="%.4f",
+            format=fmt,
         )
 
     elif dist_type == DistributionType.NORMAL:
         c1, c2 = st.columns(2)
         c1.number_input(
             "μ (Mittelwert)", value=d,
-            key=f"{key_prefix}_n_mu", format="%.4f",
+            key=f"{key_prefix}_n_mu", format=fmt,
         )
         sigma = c2.number_input(
             "σ (Std.-Abw.)", value=max(abs(d) * 0.2, 0.01),
-            key=f"{key_prefix}_n_sig", format="%.4f",
+            key=f"{key_prefix}_n_sig", format=fmt,
         )
         if sigma <= 0:
             st.warning("⚠️ Standardabweichung σ muss > 0 sein. Wert wird auf Minimum gesetzt.")
@@ -124,11 +128,11 @@ def render_distribution_input(
         c1, c2 = st.columns(2)
         mu_disp = c1.number_input(
             "Gewünschter Mittelwert", value=max(d, 0.01),
-            key=f"{key_prefix}_ln_mu", format="%.4f",
+            key=f"{key_prefix}_ln_mu", format=fmt,
         )
         sig_disp = c2.number_input(
             "Gewünschte Std.-Abw.", value=max(abs(d) * 0.2, 0.01),
-            key=f"{key_prefix}_ln_sig", format="%.4f",
+            key=f"{key_prefix}_ln_sig", format=fmt,
         )
         if mu_disp <= 0:
             st.warning("⚠️ Lognormalverteilung erfordert einen positiven Mittelwert.")
@@ -137,9 +141,9 @@ def render_distribution_input(
 
     elif dist_type == DistributionType.TRIANGULAR:
         c1, c2, c3 = st.columns(3)
-        lo = c1.number_input("Min", value=d * 0.8, key=f"{key_prefix}_tri_lo", format="%.4f")
-        mo = c2.number_input("Mode", value=d, key=f"{key_prefix}_tri_mo", format="%.4f")
-        hi = c3.number_input("Max", value=d * 1.2, key=f"{key_prefix}_tri_hi", format="%.4f")
+        lo = c1.number_input("Min", value=d * 0.8, key=f"{key_prefix}_tri_lo", format=fmt)
+        mo = c2.number_input("Mode", value=d, key=f"{key_prefix}_tri_mo", format=fmt)
+        hi = c3.number_input("Max", value=d * 1.2, key=f"{key_prefix}_tri_hi", format=fmt)
         if lo >= hi:
             st.warning("⚠️ Min muss kleiner als Max sein. Werte werden automatisch korrigiert.")
         if mo < lo or mo > hi:
@@ -147,20 +151,16 @@ def render_distribution_input(
 
     elif dist_type == DistributionType.UNIFORM:
         c1, c2 = st.columns(2)
-        lo = c1.number_input("Min", value=d * 0.8, key=f"{key_prefix}_uni_lo", format="%.4f")
-        hi = c2.number_input("Max", value=d * 1.2, key=f"{key_prefix}_uni_hi", format="%.4f")
+        lo = c1.number_input("Min", value=d * 0.8, key=f"{key_prefix}_uni_lo", format=fmt)
+        hi = c2.number_input("Max", value=d * 1.2, key=f"{key_prefix}_uni_hi", format=fmt)
         if lo >= hi:
             st.warning("⚠️ Min muss kleiner als Max sein. Werte werden automatisch korrigiert.")
 
     elif dist_type == DistributionType.PERT:
-        st.caption(
-            "PERT-Verteilung: Mehr Gewicht auf dem wahrscheinlichsten Wert "
-            "als die Dreiecksverteilung – ideal für Expertenschätzungen."
-        )
         c1, c2, c3 = st.columns(3)
-        lo = c1.number_input("Min", value=d * 0.7, key=f"{key_prefix}_pert_lo", format="%.4f")
-        mo = c2.number_input("Mode", value=d, key=f"{key_prefix}_pert_mo", format="%.4f")
-        hi = c3.number_input("Max", value=d * 1.3, key=f"{key_prefix}_pert_hi", format="%.4f")
+        lo = c1.number_input("Min", value=d * 0.7, key=f"{key_prefix}_pert_lo", format=fmt)
+        mo = c2.number_input("Mode", value=d, key=f"{key_prefix}_pert_mo", format=fmt)
+        hi = c3.number_input("Max", value=d * 1.3, key=f"{key_prefix}_pert_hi", format=fmt)
         if lo >= hi:
             st.warning("⚠️ Min muss kleiner als Max sein. Werte werden automatisch korrigiert.")
         if mo < lo or mo > hi:
@@ -198,13 +198,17 @@ def render_info_box(key: str) -> None:
         st.markdown(text_fn())
 
 
-# Backward-compatible short-hand aliases (one-liners that delegate)
-def render_info_fcff()             -> None: render_info_box("fcff")
-def render_info_wacc()             -> None: render_info_box("wacc")
-def render_info_distributions()    -> None: render_info_box("distributions")
-def render_info_terminal_value()   -> None: render_info_box("terminal_value")
-def render_info_monte_carlo()      -> None: render_info_box("monte_carlo")
-def render_info_corporate_bridge() -> None: render_info_box("corporate_bridge")
-def render_info_interpretation()   -> None: render_info_box("interpretation")
-def render_info_sotp()             -> None: render_info_box("sotp")
-def render_info_fade_model()       -> None: render_info_box("fade_model")
+def render_info_boxes(*keys: str) -> None:
+    """Several explanations in ONE collapsed expander with a tab each (instead of a stack of expanders)."""
+    titles = [_INFO_REGISTRY[k][0].removeprefix("ℹ️ ") for k in keys]
+    with st.expander("📘 Grundlagen: " + " · ".join(_INFO_SHORT.get(k, k) for k in keys)):
+        for tab, k in zip(st.tabs(titles), keys):
+            with tab:
+                st.markdown(_INFO_REGISTRY[k][1]())
+
+
+_INFO_SHORT = {
+    "fcff": "FCFF", "wacc": "WACC", "distributions": "Verteilungen", "terminal_value": "Terminal Value",
+    "monte_carlo": "Monte Carlo", "corporate_bridge": "Unternehmensbrücke", "interpretation": "Ergebnisse lesen",
+    "sotp": "SOTP", "fade_model": "Fade-Modell",
+}

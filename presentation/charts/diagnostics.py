@@ -5,6 +5,8 @@ from __future__ import annotations
 import numpy as np
 import plotly.graph_objects as go
 
+from presentation.format import num
+
 from .common import COLORS, PALETTE_EXTENDED, apply_figure_defaults, hex_to_rgba
 
 
@@ -40,7 +42,7 @@ def convergence_chart(
         line_dash="dot",
         line_color=COLORS["neutral"],
         line_width=1,
-        annotation_text=f"Endwert: {final_mean:,.1f}",
+        annotation_text=f"Endwert: {num(final_mean, 1)}",
         annotation_font_size=10,
     )
 
@@ -49,7 +51,7 @@ def convergence_chart(
     fig.add_annotation(
         x=indices[-1],
         y=ci_high[-1],
-        text=f"KI-Breite: {final_width:,.1f} ({pct_width:.2f} %)",
+        text=f"KI-Breite: {num(final_width, 1)} ({num(pct_width, 2)} %)",
         showarrow=True,
         arrowhead=2,
         font=dict(size=11, color=COLORS["secondary"]),
@@ -79,7 +81,7 @@ def revenue_fade_preview(g_initial: float, g_terminal: float, fade_speed: float,
         y=g_terminal * 100,
         line_dash="dot",
         line_color=COLORS["secondary"],
-        annotation_text=f"Terminal g = {g_terminal*100:.1f} %",
+        annotation_text=f"Terminal g = {num(g_terminal*100, 1)} %",
         annotation_font_size=10,
     )
 
@@ -131,7 +133,7 @@ def tv_ev_decomposition_chart(
         x=segment_names,
         y=[v * 100 for v in mean_pv_tv_shares],
         marker_color=COLORS["secondary"],
-        text=[f"{v*100:.1f}%" for v in mean_pv_tv_shares],
+        text=[f"{num(v*100, 1)}%" for v in mean_pv_tv_shares],
         textposition="inside",
     ))
     fig.add_trace(go.Bar(
@@ -139,7 +141,7 @@ def tv_ev_decomposition_chart(
         x=segment_names,
         y=[v * 100 for v in mean_pv_fcff_shares],
         marker_color=COLORS["primary"],
-        text=[f"{v*100:.1f}%" for v in mean_pv_fcff_shares],
+        text=[f"{num(v*100, 1)}%" for v in mean_pv_fcff_shares],
         textposition="inside",
     ))
     fig.add_hline(y=70, line_dash="dot", line_color=COLORS["negative"], annotation_text="70 % TV-Schwelle", annotation_font_size=10)
@@ -189,7 +191,7 @@ def quality_score_breakdown_chart(score: dict[str, float]) -> go.Figure:
         y=labels,
         orientation="h",
         marker_color=colors,
-        text=[f"{v:.1f} / 25" for v in values],
+        text=[f"{num(v, 1)} / 25" for v in values],
         textposition="outside",
     ))
 
@@ -223,7 +225,7 @@ def roic_histogram(segment_roic: dict[str, np.ndarray], wacc_mean: float | None 
             line_dash="dash",
             line_color=COLORS["negative"],
             line_width=2.5,
-            annotation_text=f"Ø WACC: {wacc_mean * 100:.1f} %",
+            annotation_text=f"Ø WACC: {num(wacc_mean * 100, 1)} %",
             annotation_font_size=11,
         )
 
@@ -335,7 +337,7 @@ def valuation_confidence_panel(
         x=labels,
         y=values,
         marker_color=[COLORS["primary"], COLORS["secondary"], COLORS["positive"]],
-        text=[f"{v:.1f}" for v in values],
+        text=[f"{num(v, 1)}" for v in values],
         textposition="outside",
     ))
 

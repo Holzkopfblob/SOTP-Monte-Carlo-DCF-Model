@@ -18,7 +18,11 @@ TAB_FONT_WEIGHT = 500
 EXPANDER_BORDER_COLOR = "#e3e7ee"
 EXPANDER_MARGIN_BOTTOM_PX = 8
 
-PLOTLY_TEMPLATE = "plotly_white"
+# German number format in every chart (decimal comma, thousands dot) plus the app font.
+# "plotly_white+sotp" layers our tweaks over plotly_white; registered in presentation.charts.common.
+PLOTLY_TEMPLATE = "plotly_white+sotp"
+PLOTLY_SEPARATORS = ",."
+PLOTLY_FONT = dict(family="Source Sans Pro, Segoe UI, sans-serif", size=13, color="#1b2333")
 
 CHART_COLORS = {
     "primary": "#2457c5",

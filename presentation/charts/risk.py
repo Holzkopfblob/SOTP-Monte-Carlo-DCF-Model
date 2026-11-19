@@ -5,6 +5,8 @@ from __future__ import annotations
 import numpy as np
 import plotly.graph_objects as go
 
+from presentation.format import num, pct
+
 from .common import COLORS, PALETTE_EXTENDED, apply_figure_defaults, hex_to_rgba
 
 
@@ -25,7 +27,7 @@ def tornado_chart(
         y=labels,
         orientation="h",
         marker_color=colours,
-        text=[f"{v:+.3f}" for v in values],
+        text=[f"{num(v, 3, signed=True)}" for v in values],
         textposition="outside",
     ))
 
@@ -45,22 +47,23 @@ def margin_of_safety_chart(price_per_share: np.ndarray, market_price: float) -> 
     fig = go.Figure()
     upside = price_per_share[price_per_share >= market_price]
     downside = price_per_share[price_per_share < market_price]
+    # Shared bins and plain counts: per-trace density would blow a 0.1 % tail up to full height.
+    lo, hi = float(price_per_share.min()), float(price_per_share.max())
+    bins = dict(start=lo, end=hi, size=max((hi - lo) / 60, 1e-9))
 
     fig.add_trace(go.Histogram(
         x=downside,
-        nbinsx=50,
-        name="Downside (FV < Kurs)",
+        xbins=bins,
+        name="Wert < Kurs",
         marker_color=COLORS["negative"],
         opacity=0.6,
-        histnorm="probability density",
     ))
     fig.add_trace(go.Histogram(
         x=upside,
-        nbinsx=50,
-        name="Upside (FV ≥ Kurs)",
+        xbins=bins,
+        name="Wert ≥ Kurs",
         marker_color=COLORS["positive"],
         opacity=0.6,
-        histnorm="probability density",
     ))
 
     fig.add_vline(
@@ -68,7 +71,7 @@ def margin_of_safety_chart(price_per_share: np.ndarray, market_price: float) -> 
         line_dash="solid",
         line_color=COLORS["neutral"],
         line_width=3,
-        annotation_text=f"Marktpreis: {market_price:,.2f}",
+        annotation_text=f"Marktpreis: {num(market_price, 2)}",
         annotation_font_size=12,
     )
     p_upside = float(np.mean(price_per_share >= market_price))
@@ -76,7 +79,7 @@ def margin_of_safety_chart(price_per_share: np.ndarray, market_price: float) -> 
         x=float(np.percentile(price_per_share, 75)),
         yref="paper",
         y=0.95,
-        text=f"P(Upside) = {p_upside:.1%}",
+        text=f"P(Wert ≥ Kurs) = {pct(p_upside, 1)}",
         showarrow=False,
         font=dict(size=14, color=COLORS["positive"]),
     )
@@ -85,10 +88,10 @@ def margin_of_safety_chart(price_per_share: np.ndarray, market_price: float) -> 
         fig,
         title="Margin-of-Safety Analyse - Fair Value vs. Marktpreis",
         xaxis_title="Fair Value je Aktie",
-        yaxis_title="Dichte",
+        yaxis_title="Szenarien",
         height=480,
     )
-    fig.update_layout(barmode="stack")
+    fig.update_layout(barmode="stack", bargap=0.02)
     return fig
 
 
@@ -108,12 +111,12 @@ def implied_return_cdf(price_per_share: np.ndarray, market_price: float) -> go.F
     ))
 
     fig.add_vline(x=0, line_dash="solid", line_color=COLORS["neutral"], line_width=2, annotation_text="Breakeven")
-    for pct in [5, 25, 50, 75, 95]:
-        val = float(np.percentile(returns, pct))
+    for q in [5, 25, 50, 75, 95]:
+        val = float(np.percentile(returns, q))
         fig.add_annotation(
             x=val,
-            y=pct / 100,
-            text=f"P{pct}: {val:+.1f}%",
+            y=q / 100,
+            text=f"P{q}: {num(val, 1, signed=True)} %",
             showarrow=True,
             arrowhead=2,
             font=dict(size=9),
