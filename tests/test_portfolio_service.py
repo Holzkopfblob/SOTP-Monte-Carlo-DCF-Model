@@ -303,3 +303,15 @@ def test_etf_standardmaessig_nur_messlatte(monkeypatch):
     assert t.loc[etf, "Ziel-Gewicht"] == pytest.approx(0.0, abs=1e-9)
     assert t.loc[etf, "Hürde p. a."] == pytest.approx(p.rf + p.erp)
     assert t["Ziel-Gewicht"].drop(etf).sum() == pytest.approx(1.0, abs=1e-6)       # Aktien + Cash = 100 %
+
+
+def test_kaufsteuer_mindert_den_vorsprung():
+    """Französische FTT 0,4 % (kaufsteuer_pct): einmalig ⇒ Rendite p. a. sinkt um ≈ 1 − 0,996^(1/h)."""
+    positions, valuations, closes = _setup()
+    p = Params(max_w=0.6, min_order_eur=1.0)
+    ohne = rebalance(positions, valuations, closes, 1100.0, p, today=date(2026, 11, 14)).table.set_index("Firma")
+    positions[2]["kaufsteuer_pct"] = 0.4
+    mit = rebalance(positions, valuations, closes, 1100.0, p, today=date(2026, 11, 14)).table.set_index("Firma")
+    d = ohne.loc["C", "Vorsprung p. a."] - mit.loc["C", "Vorsprung p. a."]
+    assert d == pytest.approx(1 - 0.996 ** (1 / p.horizon_years), rel=0.05)
+    assert mit.loc["B", "Vorsprung p. a."] == pytest.approx(ohne.loc["B", "Vorsprung p. a."])   # nur C betroffen

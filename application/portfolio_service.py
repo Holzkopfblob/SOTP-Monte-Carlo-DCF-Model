@@ -319,6 +319,12 @@ def rebalance(positions: list[dict], valuations: list[dict], closes: pd.DataFram
     else:
         R_model = horizon_returns(V, px_local)               # Wert und Kurs in gleicher Währung
 
+    # Kaufsteuer (Nutzerentscheid 19.11.2026): einmalig beim Kauf, z. B. französische FTT 0,4 % (Sanofi, Orange), Feld
+    # kaufsteuer_pct je Position in depot.json. Mindert die Halte-Rendite vor Vorsprung und Gewicht.
+    # ponytail: gilt für die ganze Zielposition, auch den schon gehaltenen Teil (konservativ); genauer wäre nur der Zukauf.
+    kaufsteuer = np.array([float(pos.get("kaufsteuer_pct") or 0) / 100 for pos in positions])
+    R_model = (1 + R_model) * (1 - kaufsteuer)[None, :] - 1
+
     # Szenario-Mischung: Welt „Markt hat recht“ (Kurs fair, Marktrendite rf + ERP, Volatilität aus der
     # Kurshistorie) mit Wahrscheinlichkeit p_market je Gruppe; Titel einer Gruppe wechseln gemeinsam.
     # Gruppe leer ⇒ Branche (Gruppengrenze greift auch bei neu eingetragenen Bewertungen), sonst eigene Gruppe
