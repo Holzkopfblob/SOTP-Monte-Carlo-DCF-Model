@@ -30,13 +30,34 @@ def segment_ev_at(detail, r: np.ndarray) -> np.ndarray:
     return pv_fcff + tv / np.power(1.0 + r, float(detail.forecast_years))
 
 
+G_BRIDGE = 0.02   # ewiges Wachstum der Ertragsströme hinter Beteiligungen / positivem nicht-operativem Vermögen
+
+
+def bridge_stream_at(value: np.ndarray, r0: np.ndarray, r: np.ndarray) -> np.ndarray:
+    """Wert eines Bridge-Vermögens bei Rate r, wenn *value* sein Wert bei r0 ist (ewige Rente mit G_BRIDGE):
+    value · (r0 − g) / (r − g). Bei r = r0 unverändert; steigt r, sinkt er – wie die Segmente.
+    # ponytail: eine Wachstumsrate für alle Posten; je Posten erst, wenn ein Fall es braucht."""
+    return value * np.maximum(r0 - G_BRIDGE, 1e-4) / np.maximum(r - G_BRIDGE, 1e-4)
+
+
 def equity_at(results, r: np.ndarray) -> np.ndarray:
-    """Eigenkapitalwert je Sample bei einheitlichem Diskontsatz r (Segmente und Holding)."""
+    """Eigenkapitalwert je Sample bei einheitlichem Diskontsatz r (Segmente und Holding).
+
+    Beteiligungen und positives nicht-operatives Vermögen (Finanzsparte, Anteile an Töchtern) sind Ertragsströme:
+    sie werden zum Holding-Diskontsatz bewertet und hier auf r umgerechnet. Sonst zählen sie bei jeder Rate voll,
+    und wo sie den Börsenwert übersteigen (VW, Mercedes 11/2026), gibt es keine endliche Rendite.
+    Negatives nicht-operatives (Rechtsrisiken) bleibt fest wie Schulden."""
     b = results.bridge_samples
     ev = sum(results.segment_ownership.get(k, 1.0) * segment_ev_at(d, r)
              for k, d in results.segment_cashflows.items())
+    no = b["nicht_operativ"]
+    r0 = b.get("diskont_holding")
+    if r0 is None:                       # Ergebnis ohne Holding-Diskontsatz (älter): Posten fest wie bisher
+        stream = np.maximum(no, 0.0) + b["beteiligungen"]
+    else:
+        stream = bridge_stream_at(np.maximum(no, 0.0) + b["beteiligungen"], r0, r)
     return (ev - b["holdingkosten"] / np.maximum(r, 1e-4) - b["nettoschulden"] - b["minderheiten"]
-            - b["pensionen"] + b["nicht_operativ"] + b["beteiligungen"])
+            - b["pensionen"] + np.minimum(no, 0.0) + stream)
 
 
 def implied_irr(results, price) -> np.ndarray:

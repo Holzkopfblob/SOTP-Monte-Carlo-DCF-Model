@@ -103,3 +103,21 @@ def test_minorities_and_stakes_do_not_lever():
         r.bridge_samples[k] = np.full(n, 500.0)
     r.bridge_samples["pensionen"] = np.full(n, 100.0)
     assert debt_like(r) == pytest.approx(base + 100.0)
+
+
+def test_bridge_assets_are_streams_so_rich_bridge_still_gives_finite_irr():
+    # VW/Mercedes 11/2026: Beteiligungen größer als der Börsenwert. Fest gerechnet läge die Rendite am Rand (R_MAX);
+    # als Ertragsstrom (zum Holding-Satz bewertet) sinkt ihr Wert mit r ⇒ endliche Rendite. Bei r = Holding-Satz
+    # bleibt der Wert unverändert, negatives nicht-operatives (Rechtsrisiken) bleibt fest.
+    r = _results()
+    n = len(r.price_per_share)
+    r0 = r.bridge_samples["diskont_holding"]
+    r.bridge_samples["beteiligungen"] = np.full(n, 5000.0)
+    r.bridge_samples["nicht_operativ"] = np.full(n, -300.0)
+    base = equity_at(r, r0)
+    assert np.allclose(base - equity_at(r, r0 + 0.05) > 0, True)                      # Wert fällt mit r
+    r.bridge_samples["nicht_operativ"] = np.full(n, -600.0)
+    assert np.allclose(equity_at(r, r0), base - 300.0)                                  # negativer Posten fest
+    price = 0.5 * 5000.0 / float(np.median(r.bridge_samples["aktien"]))                 # Börsenwert < Beteiligungen
+    irr = implied_irr(r, price)
+    assert np.mean(irr >= R_MAX - 1e-6) < 0.05 and np.all(irr > r0)

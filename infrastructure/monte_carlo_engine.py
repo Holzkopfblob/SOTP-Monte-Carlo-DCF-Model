@@ -293,6 +293,7 @@ class MonteCarloEngine:
             "holdingkosten": np.broadcast_to(corp_costs_arr, (n,)),
             "nettoschulden": net_debt_arr - outside_nd, "minderheiten": minority_arr, "pensionen": pension_arr,
             "nicht_operativ": non_op_arr, "beteiligungen": associates_arr, "aktien": shares_arr,
+            "diskont_holding": np.broadcast_to(corp_disc_arr, (n,)),
         }
 
         base_seg = {k: float(np.mean(v)) for k, v in segment_evs.items()}
