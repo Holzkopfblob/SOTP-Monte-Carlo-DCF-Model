@@ -42,14 +42,24 @@ def tornado_chart(
     return fig
 
 
+def p1_p99_range(values: np.ndarray, *keep: float, pad: float = 0.04) -> list[float]:
+    """x-axis range P1–P99 (extreme tails hide the shape), widened so reference lines in *keep* stay visible."""
+    lo, hi = (float(v) for v in np.percentile(values, [1, 99]))
+    lo, hi = min([lo, *keep]), max([hi, *keep])
+    d = (hi - lo) * pad or 1.0
+    return [lo - d, hi + d]
+
+
 def margin_of_safety_chart(price_per_share: np.ndarray, market_price: float) -> go.Figure:
     """Histogram showing upside/downside with market price reference."""
     fig = go.Figure()
     upside = price_per_share[price_per_share >= market_price]
     downside = price_per_share[price_per_share < market_price]
     # Shared bins and plain counts: per-trace density would blow a 0.1 % tail up to full height.
+    # Bin width from the visible P1–P99 span; all scenarios still counted (tails just off-axis).
+    x_range = p1_p99_range(price_per_share, market_price)
     lo, hi = float(price_per_share.min()), float(price_per_share.max())
-    bins = dict(start=lo, end=hi, size=max((hi - lo) / 60, 1e-9))
+    bins = dict(start=lo, end=hi, size=max((x_range[1] - x_range[0]) / 60, 1e-9))
 
     fig.add_trace(go.Histogram(
         x=downside,
@@ -71,7 +81,8 @@ def margin_of_safety_chart(price_per_share: np.ndarray, market_price: float) -> 
         line_dash="solid",
         line_color=COLORS["neutral"],
         line_width=3,
-        annotation_text=f"Marktpreis: {num(market_price, 2)}",
+        annotation_text=f"Kurs {num(market_price, 2)}",
+        annotation_position="top left",
         annotation_font_size=12,
     )
     p_upside = float(np.mean(price_per_share >= market_price))
@@ -87,11 +98,13 @@ def margin_of_safety_chart(price_per_share: np.ndarray, market_price: float) -> 
     apply_figure_defaults(
         fig,
         title="Margin-of-Safety Analyse - Fair Value vs. Marktpreis",
-        xaxis_title="Fair Value je Aktie",
+        xaxis_title="Fair Value je Aktie (P1–P99)",
         yaxis_title="Szenarien",
         height=480,
     )
-    fig.update_layout(barmode="stack", bargap=0.02)
+    fig.update_layout(barmode="stack", bargap=0.02,
+                      legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="left", x=0))
+    fig.update_xaxes(range=x_range)
     return fig
 
 
@@ -110,7 +123,8 @@ def implied_return_cdf(price_per_share: np.ndarray, market_price: float) -> go.F
         line=dict(color=COLORS["primary"], width=2),
     ))
 
-    fig.add_vline(x=0, line_dash="solid", line_color=COLORS["neutral"], line_width=2, annotation_text="Breakeven")
+    fig.add_vline(x=0, line_dash="solid", line_color=COLORS["neutral"], line_width=2, annotation_text="Breakeven",
+                  annotation_position="top left")
     for q in [5, 25, 50, 75, 95]:
         val = float(np.percentile(returns, q))
         fig.add_annotation(
@@ -125,11 +139,12 @@ def implied_return_cdf(price_per_share: np.ndarray, market_price: float) -> go.F
     apply_figure_defaults(
         fig,
         title="CDF - Implizierte Rendite (Fair Value vs. Marktpreis)",
-        xaxis_title="Implizierte Rendite (%)",
+        xaxis_title="Implizierte Rendite (%, P1–P99)",
         yaxis_title="Kumulative Wahrscheinlichkeit",
         height=480,
     )
     fig.update_layout(yaxis=dict(tickformat=".0%"))
+    fig.update_xaxes(range=p1_p99_range(returns, 0.0))
     return fig
 
 
