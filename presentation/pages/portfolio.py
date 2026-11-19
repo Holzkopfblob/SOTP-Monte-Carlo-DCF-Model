@@ -91,7 +91,7 @@ def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[di
     st.markdown("##### Positionen")
     st.caption("Stück 0 = Beobachtung. Titel derselben **Gruppe** wechseln in der Szenario-Mischung gemeinsam "
                "in die Welt „Markt hat recht“ (gemeinsamer Modellfehler, z. B. alle Autobauer).")
-    cols = ["firma", "ticker", "stueck", "einstand_eur", "kaufdatum", "gruppe", "sektor", "datei"]
+    cols = ["firma", "ticker", "stueck", "einstand_eur", "kaufdatum", "gruppe", "sektor", "kaufsteuer_pct", "datei"]
     df = pd.DataFrame(depot.get("positionen") or [], columns=cols)
     df["datei"] = df["datei"].fillna("").replace("", _NEWEST)
     df["gruppe"] = df["gruppe"].fillna("")
@@ -111,6 +111,9 @@ def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[di
             "sektor": st.column_config.SelectboxColumn(
                 "Branche", options=_SEKTOREN,
                 help="Für die Faktor-Szenarien: Basisrate und gemeinsamer Branchenschock. Leer = ohne Branchenfaktor."),
+            "kaufsteuer_pct": st.column_config.NumberColumn(
+                "Kaufsteuer %", min_value=0.0, max_value=5.0, step=0.1, format="%.1f",
+                help="Einmalig beim Kauf, mindert die Halte-Rendite (z. B. Frankreich-FTT 0,4, Italien 0,1, Spanien 0,2)."),
             "datei": st.column_config.SelectboxColumn("Bewertung", options=[_NEWEST, *sorted(files)], default=_NEWEST),
         },
     )
@@ -157,7 +160,8 @@ def _depot_tab(depot: dict, path: str, vals: dict, files: dict) -> tuple[list[di
          "einstand_eur": None if pd.isna(r.einstand_eur) else float(r.einstand_eur),
          "kaufdatum": r.kaufdatum if isinstance(r.kaufdatum, str) else "",
          "gruppe": r.gruppe.strip() if isinstance(r.gruppe, str) else "",
-         "sektor": r.sektor if isinstance(r.sektor, str) else ""}
+         "sektor": r.sektor if isinstance(r.sektor, str) else "",
+         **({"kaufsteuer_pct": float(r.kaufsteuer_pct)} if not pd.isna(r.kaufsteuer_pct) and r.kaufsteuer_pct else {})}
         for r in edited.itertuples() if r.firma and isinstance(r.ticker, str) and r.ticker.strip()
     ]
     if transaktionen:
