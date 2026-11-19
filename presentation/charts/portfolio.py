@@ -12,7 +12,7 @@ import plotly.graph_objects as go
 
 from presentation.format import num, pct
 
-from presentation.charts.common import COLORS, TEMPLATE, hex_to_rgba
+from presentation.charts.common import COLORS, TEMPLATE, hex_to_rgba, p1_p99_range
 from presentation.theme.tokens import PLOTLY_FONT
 
 IST, ZIEL = COLORS["secondary"], COLORS["primary"]
@@ -130,8 +130,8 @@ def dumbbell_chart(t: pd.DataFrame) -> go.Figure:
 
 def wealth_chart(samples: dict, stats_ist: dict, stats_ziel: dict, horizon: int) -> go.Figure:
     """Verteilung des Depotwerts in *horizon* Jahren: Ist vs. Ziel als Dichtekurven, P5/P50/P95 markiert."""
-    lo = min(np.percentile(v, 0.5) for v in samples.values())
-    hi = max(np.percentile(v, 99.5) for v in samples.values())
+    # P1–P99 over Ist and Ziel together; today's value always stays in view.
+    lo, hi = p1_p99_range(np.concatenate([np.asarray(v) for v in samples.values()]), stats_ziel["start"])
     grid = np.linspace(lo, hi, 160)
     fig = go.Figure()
     for key, color in (("Ist", IST), ("Ziel", ZIEL)):
@@ -150,10 +150,12 @@ def wealth_chart(samples: dict, stats_ist: dict, stats_ziel: dict, horizon: int)
                        font=dict(color=MUTED, size=12), yanchor="bottom")
     for q, label in (("p5", "P5"), ("p50", "P50"), ("p95", "P95")):
         fig.add_vline(x=stats_ziel[q], line=dict(color=ZIEL, width=1, dash="dash"))
+        left = stats_ziel[q] < start          # label points away from the "heute" line, never across it
         fig.add_annotation(x=stats_ziel[q], y=top * 0.92, text=f"{label} {num(stats_ziel[q], 0)} €", showarrow=False,
-                           font=dict(color=MUTED, size=11), xanchor="left", xshift=4)
+                           font=dict(color=MUTED, size=11), xanchor="right" if left else "left",
+                           xshift=-4 if left else 4)
     fig.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.1, x=0, title=None))
-    fig.update_xaxes(title=f"Depotwert in {horizon} Jahren (€)", tickformat=",.0f")
+    fig.update_xaxes(title=f"Depotwert in {horizon} Jahren (€, P1–P99)", tickformat=",.0f", range=[lo, hi])
     fig.update_yaxes(showticklabels=False, title=None, showgrid=False)
     return _layout(fig, 360)
 

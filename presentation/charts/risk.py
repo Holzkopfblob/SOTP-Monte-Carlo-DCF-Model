@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 
 from presentation.format import num, pct
 
-from .common import COLORS, PALETTE_EXTENDED, apply_figure_defaults, hex_to_rgba
+from .common import COLORS, PALETTE_EXTENDED, apply_figure_defaults, hex_to_rgba, p1_p99_range
 
 
 def tornado_chart(
@@ -41,13 +41,6 @@ def tornado_chart(
     fig.update_layout(xaxis=dict(range=[-1.05, 1.05]), margin=dict(l=280, t=50, b=40))
     return fig
 
-
-def p1_p99_range(values: np.ndarray, *keep: float, pad: float = 0.04) -> list[float]:
-    """x-axis range P1–P99 (extreme tails hide the shape), widened so reference lines in *keep* stay visible."""
-    lo, hi = (float(v) for v in np.percentile(values, [1, 99]))
-    lo, hi = min([lo, *keep]), max([hi, *keep])
-    d = (hi - lo) * pad or 1.0
-    return [lo - d, hi + d]
 
 
 def margin_of_safety_chart(price_per_share: np.ndarray, market_price: float) -> go.Figure:

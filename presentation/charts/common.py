@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import plotly.graph_objects as go
 import plotly.io as pio
 
@@ -24,6 +25,14 @@ COLORS = {
 }
 
 TEMPLATE = PLOTLY_TEMPLATE
+
+
+def p1_p99_range(values, *keep: float, pad: float = 0.04) -> list[float]:
+    """x-axis range P1–P99 (extreme tails hide the shape), widened so reference lines in *keep* stay visible."""
+    lo, hi = (float(v) for v in np.percentile(values, [1, 99]))
+    lo, hi = min([lo, *keep]), max([hi, *keep])
+    d = (hi - lo) * pad or 1.0
+    return [lo - d, hi + d]
 
 
 def hex_to_rgba(hex_color: str, alpha: float) -> str:

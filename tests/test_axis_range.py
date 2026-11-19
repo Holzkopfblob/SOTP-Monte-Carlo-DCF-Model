@@ -1,6 +1,6 @@
 import numpy as np
 
-from presentation.charts.risk import p1_p99_range
+from presentation.charts.common import p1_p99_range
 
 
 def test_p1_p99_range_cuts_tails_but_keeps_reference_lines():
